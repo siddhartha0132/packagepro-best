@@ -10,6 +10,7 @@ import { cityImage, getDestinationInsight, warmCityImages } from "./insights";
 import { PACKAGE_POPULARITY, estimateTrip } from "./estimate";
 import * as trips from "./trips";
 import { listBookings } from "./appStore";
+import { DEMO_TRAVELLERS, travellerSummary } from "./travellers";
 
 const languageSchema = z.string().min(2).max(20).default("en-IN");
 
@@ -66,6 +67,8 @@ export const appRouter = router({
       const result = guideCheck(guide, dates, { language: input.language, specialisation: input.specialisation });
       return { guide: withLiveAvailability(guide), dates, ...result, accepted: result.conflicts.length === 0, total: guideCost(guide, dates), replacementTotal: result.replacementOptions[0]?.totalCost ?? null };
     }),
+    /** Demo travellers from the dataset: users + user_preferences (languages, interests) + booking history. */
+    travellers: publicProcedure.query(() => DEMO_TRAVELLERS.map(profile => ({ ...travellerSummary(profile), userId: profile.userId, locale: profile.locale, segment: profile.segment, recentTrips: profile.history.slice(0, 3).map(item => ({ city: item.city, startDate: item.startDate })) }))),
     recommend: publicProcedure.input(z.object({ query: z.string().default(""), language: languageSchema, destination: z.string().optional(), budget: z.number().positive().optional() })).query(async ({ input }) => ({ ...recommendPackages(input.query, input.language, input.destination, input.budget), destinationInsight: input.destination ? await getDestinationInsight(input.destination) : null, groundedIn: ["PackagePro package catalogue", "guide availability records", "language preferences", "cached destination insight"] })),
     estimate: publicProcedure.input(z.object({ origin: z.string(), destination: z.string(), departDate: z.string(), returnDate: z.string(), travelers: z.number().int().min(1).max(20), budget: z.number().positive(), language: languageSchema, interests: z.string().optional(), uiLanguage: z.string().max(10).optional() })).query(({ input }) => estimateTrip(input)),
     translate: publicProcedure.input(z.object({ texts: z.array(z.string()).max(40), language: languageSchema })).mutation(({ input }) => translateMany(input.texts, input.language)),

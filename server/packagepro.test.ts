@@ -298,3 +298,23 @@ describe("PS-04 boundary rules are enforced in the backend", () => {
     expect(estimate.groupSize).toEqual({ min: 4, max: 8, ok: false });
   });
 });
+
+describe("traveller profile (users + user_preferences + booking history)", () => {
+  it("serves demo travellers whose languages and interests come from user_preferences", async () => {
+    const travellers = await caller().packagepro.travellers();
+    expect(travellers.length).toBeGreaterThanOrEqual(4);
+    const tamil = travellers.find(item => item.guideLanguage === "ta")!;
+    expect(tamil.userId).toMatch(/^usr_/);
+    expect(tamil.preferredLanguages).toContain("ta");
+    expect(tamil.pastTrips).toBeGreaterThan(0);
+    expect(tamil.recentTrips.length).toBeGreaterThan(0);
+    expect(travellers.some(item => item.pastTrips === 0)).toBe(true); // a cold-start traveller
+  });
+
+  it("owns trips by the chosen dataset user and rejects unknown users", async () => {
+    const [first] = await caller().packagepro.travellers();
+    const trip = await caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 4, budgetCap: 500000, language: "ta", userId: first.userId });
+    expect(trip.userId).toBe(first.userId);
+    await expect(caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 4, budgetCap: 500000, language: "ta", userId: "usr_nobody00" })).rejects.toThrow(/Unknown traveller/);
+  });
+});

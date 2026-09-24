@@ -32,6 +32,7 @@ type Screen = "intake" | "reality" | "trip";
 export default function Home() {
   const [form, setForm] = useState<FormState>({ origin: "", destination: "", departDate: isoDateFromToday(3), returnDate: isoDateFromToday(6), travelers: 1, budgetCap: 0, language: "en-IN", interests: "" });
   const [uiLang, setUiLang] = useState<Lang>("en-IN");
+  const [travellerId, setTravellerId] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>("intake");
   const [tripId, setTripId] = useState<string | null>(null);
   const [newCap, setNewCap] = useState("");
@@ -48,7 +49,7 @@ export default function Home() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem("packagepro-draft");
-      if (saved) { const draft = JSON.parse(saved); if (draft.form) setForm(draft.form); if (draft.uiLang) setUiLang(draft.uiLang); if (draft.screen) setScreen(draft.screen); if (draft.tripId) setTripId(draft.tripId); }
+      if (saved) { const draft = JSON.parse(saved); if (draft.form) setForm(draft.form); if (draft.uiLang) setUiLang(draft.uiLang); if (draft.travellerId) setTravellerId(draft.travellerId); if (draft.screen) setScreen(draft.screen); if (draft.tripId) setTripId(draft.tripId); }
     } catch { /* ignore a malformed or blocked local draft */ }
     const sharedTrip = window.location.hash.match(/^#trip=(trp_[\w-]+)/)?.[1];
     if (sharedTrip) { setTripId(sharedTrip); setScreen("trip"); toast.success(t("en-IN", "sharedLoaded")); return; }
@@ -87,6 +88,16 @@ export default function Home() {
   const busy = createTrip.isPending || autoBuild.isPending || selectFlight.isPending || swapHotel.isPending || removeGuide.isPending || continuePackage.isPending || negotiate.isPending || goBack.isPending || confirm.isPending;
 
   const packageList = packages.data || [];
+  // Traveller profile (users + user_preferences): picking one applies their saved languages and interests.
+  const travellers = trpc.packagepro.travellers.useQuery();
+  const traveller = travellers.data?.find(item => item.userId === travellerId) ?? null;
+  function chooseTraveller(userId: string) {
+    const profile = travellers.data?.find(item => item.userId === userId);
+    setTravellerId(profile?.userId ?? null);
+    if (!profile) return;
+    if (LANGS.some(lang => lang.value === profile.locale)) setUiLang(profile.locale as Lang);
+    setForm(current => ({ ...current, language: profile.guideLanguage || profile.preferredLanguages[0] || current.language, interests: profile.interests || current.interests }));
+  }
   const [printing, setPrinting] = useState<"trip" | "estimate" | null>(null);
   const pdfKind: "trip" | "estimate" | null = screen === "trip" && trip?.package ? "trip" : screen === "reality" && estimate.data ? "estimate" : null;
   useEffect(() => {
@@ -144,7 +155,7 @@ export default function Home() {
   function buildTripRequest(request: any) {
     const durationDays = Math.max(1, Number(request.durationDays || 2));
     const departDate = request.departDate || isoDateFromToday(3);
-    autoBuild.mutate({ origin: request.origin?.code || form.origin, destination: request.destination?.code || form.destination, departDate, returnDate: request.returnDate || addDays(departDate, durationDays), travelers: form.travelers, budgetCap: form.budgetCap > 0 ? form.budgetCap : undefined, language: form.language, interests: form.interests, hotelTier: request.hotelTier, transportMode: request.transportMode });
+    autoBuild.mutate({ userId: travellerId ?? undefined, origin: request.origin?.code || form.origin, destination: request.destination?.code || form.destination, departDate, returnDate: request.returnDate || addDays(departDate, durationDays), travelers: form.travelers, budgetCap: form.budgetCap > 0 ? form.budgetCap : undefined, language: form.language, interests: form.interests, hotelTier: request.hotelTier, transportMode: request.transportMode });
   }
   function runTripCommand(command: { type: "swap_hotel" | "remove_guide"; target?: string }) {
     if (!tripId) return;
@@ -152,7 +163,7 @@ export default function Home() {
     if (command.type === "remove_guide") removeGuide.mutate({ tripId });
   }
   function startOver() { setTripId(null); setScreen("intake"); }
-  function saveDraft() { try { localStorage.setItem("packagepro-draft", JSON.stringify({ form, uiLang, tripId, screen })); } catch { /* storage unavailable */ } setDraftSaved(true); toast.success(copy("saved")); }
+  function saveDraft() { try { localStorage.setItem("packagepro-draft", JSON.stringify({ form, uiLang, tripId, screen, travellerId })); } catch { /* storage unavailable */ } setDraftSaved(true); toast.success(copy("saved")); }
   /** A saved trip shares by ID (the exact customised package, from the app database); before that, the search brief is shared. */
   async function sharePlan() {
     const hash = tripId ? `#trip=${tripId}` : `#plan=${encodeURIComponent(JSON.stringify(form))}`;
@@ -179,10 +190,16 @@ export default function Home() {
           <div className="text-left leading-tight"><div className="text-lg font-black tracking-tight">{copy("brand")}</div><div className={`text-[10px] font-semibold uppercase tracking-[.16em] ${screen === "intake" ? "text-white/70" : "text-[#5f6b7a]"}`}>{copy("tag")}</div></div>
         </button>
         {screen !== "intake" && <div className="hidden lg:block"><Stepper steps={steps} current={stepIndex} /></div>}
+        <div className="flex items-center gap-2">
+        {travellers.data && <label className={`hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold md:flex ${screen === "intake" ? "bg-white/15 ring-1 ring-white/25" : "bg-[#f2f5f9]"}`}>
+          <Users className="h-3.5 w-3.5" /><span>{copy("travellingAs")}</span>
+          <select value={travellerId ?? ""} onChange={event => chooseTraveller(event.target.value)} className="max-w-36 bg-transparent font-bold outline-none [&>option]:text-[#0b1f3a]"><option value="">—</option>{travellers.data.map(item => <option key={item.userId} value={item.userId}>{item.name} · {item.guideLanguage ?? item.preferredLanguages[0]}</option>)}</select>
+        </label>}
         <label className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${screen === "intake" ? "bg-white/15 ring-1 ring-white/25" : "bg-[#f2f5f9]"}`}>
           <Languages className="h-3.5 w-3.5" /><span className="hidden sm:inline">{copy("appLanguage")}</span>
           <select value={uiLang} onChange={event => setUiLang(event.target.value as Lang)} className="bg-transparent font-bold outline-none [&>option]:text-[#0b1f3a]">{LANGS.map(lang => <option key={lang.value} value={lang.value}>{lang.native}</option>)}</select>
         </label>
+        </div>
       </div>
     </header>
 
@@ -195,6 +212,12 @@ export default function Home() {
           <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-[11px] font-bold uppercase tracking-[.16em] ring-1 ring-white/25"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4ade80]" />{copy("live")} · Google Flights · PS-04</div>
           <h1 className="mt-4 max-w-3xl text-4xl font-black leading-[1.05] tracking-tight md:text-6xl">{copy("heroTitle")}</h1>
           <p className="mt-4 max-w-2xl text-sm text-white/80 md:text-base">{copy("heroLead")}</p>
+          {traveller && <div className="mt-4 inline-flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-white/12 px-4 py-2 text-xs text-white/90 ring-1 ring-white/20" title={copy("profileNote")}>
+            <span className="font-extrabold text-white">👤 {traveller.name}</span>
+            <span>🗣 {traveller.preferredLanguages.join(", ")}{traveller.guideLanguage ? ` · ${copy("guide")}: ${traveller.guideLanguage}` : ""}</span>
+            <span>❤️ {tr(traveller.interests)}</span>
+            <span>🧳 {traveller.pastTrips ? `${traveller.pastTrips} ${copy("pastTrips")}: ${traveller.recentTrips.map(item => tr(item.city)).join(", ")}` : copy("firstTrip")}</span>
+          </div>}
           <button type="button" onClick={startDemo} className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-extrabold text-[#0b4fb3] shadow-[0_10px_30px_rgba(0,0,0,.25)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_36px_rgba(0,0,0,.3)]">{copy("tryDemo")}</button>
 
           <form onSubmit={event => { event.preventDefault(); setScreen("reality"); }} className="relative mt-8 rounded-2xl bg-white p-2 pb-10 text-[#0b1f3a] shadow-[0_24px_60px_rgba(0,0,0,.3)]">
@@ -246,7 +269,7 @@ export default function Home() {
           </Panel>
           <div>
             <div className="mb-2 px-1"><div className="text-[15px] font-bold">{copy("planWithAi")}</div><p className="text-xs text-[#5f6b7a]">{copy("planWithAiSub")}</p></div>
-            <AgentTransparencyChat trip={trip} lang={uiLang} destination={destinationCity} plannerContext={{ availableOrigins: cities.data?.origins || [], availableDestinations: cities.data?.destinations || [], budgetCap: form.budgetCap, interests: form.interests, destinationInsight: recommendations.data?.destinationInsight }} onApplyTrip={applyTripRequest} onBuildPackage={buildTripRequest} onCommand={runTripCommand} />
+            <AgentTransparencyChat trip={trip} lang={uiLang} destination={destinationCity} plannerContext={{ userId: travellerId, availableOrigins: cities.data?.origins || [], availableDestinations: cities.data?.destinations || [], budgetCap: form.budgetCap, interests: form.interests, destinationInsight: recommendations.data?.destinationInsight }} onApplyTrip={applyTripRequest} onBuildPackage={buildTripRequest} onCommand={runTripCommand} />
           </div>
         </section>
 
@@ -297,7 +320,7 @@ export default function Home() {
         {demoMode && destinationCity === DEMO.city && trip?.status !== "confirmed" && <div className="mb-4 flex items-start gap-3 rounded-xl border border-[#b9d7fb] bg-[#eef6ff] px-4 py-3 text-xs leading-5 text-[#0b1f3a]"><Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#0b6bcb]" /><span className="flex-1">{copy("demoHint")}</span><button onClick={() => setDemoMode(false)} className="text-[#5f6b7a] hover:text-[#0b1f3a]"><X className="h-4 w-4" /></button></div>}
         {screen === "reality" && <>
           <ScreenHeader title={`${tr(cities.data?.origins.find(item => item.code === form.origin)?.city) || form.origin} → ${tr(destinationCity)}`} sub={`${form.departDate} → ${form.returnDate} · ${form.travelers} ${copy("travelers").toLowerCase()} · ${copy("guideLanguage")}: ${GUIDE_LANGS.find(lang => lang.value === form.language)?.native}`} onBack={back} backLabel={copy("back")} />
-          <EstimateView estimate={estimate.data} loading={estimate.isLoading} lang={uiLang} onFixParty={travelers => update("travelers", travelers)} continuing={createTrip.isPending} onContinue={() => createTrip.mutate({ ...form, budgetCap: form.budgetCap || 1 })} />
+          <EstimateView estimate={estimate.data} loading={estimate.isLoading} lang={uiLang} onFixParty={travelers => update("travelers", travelers)} continuing={createTrip.isPending} onContinue={() => createTrip.mutate({ ...form, budgetCap: form.budgetCap || 1, userId: travellerId ?? undefined })} />
           {estimate.error && <Panel className="mt-4 p-5 text-sm text-[#c0392b]">{estimate.error.message}</Panel>}
         </>}
         {screen === "trip" && trip && <>
@@ -335,7 +358,7 @@ export default function Home() {
           <Line label={copy("guideLanguage")} value={GUIDE_LANGS.find(lang => lang.value === (trip?.language || form.language))?.native || form.language} />
           <Line label={copy("appLanguage")} value={LANGS.find(lang => lang.value === uiLang)?.native || uiLang} />
         </Panel>
-        <AgentTransparencyChat trip={trip} lang={uiLang} destination={destinationCity} plannerContext={{ availableOrigins: cities.data?.origins || [], availableDestinations: cities.data?.destinations || [], budgetCap: form.budgetCap, interests: form.interests, destinationInsight: recommendations.data?.destinationInsight }} onApplyTrip={applyTripRequest} onBuildPackage={buildTripRequest} onCommand={runTripCommand} />
+        <AgentTransparencyChat trip={trip} lang={uiLang} destination={destinationCity} plannerContext={{ userId: travellerId, availableOrigins: cities.data?.origins || [], availableDestinations: cities.data?.destinations || [], budgetCap: form.budgetCap, interests: form.interests, destinationInsight: recommendations.data?.destinationInsight }} onApplyTrip={applyTripRequest} onBuildPackage={buildTripRequest} onCommand={runTripCommand} />
       </aside>
     </main>}
 

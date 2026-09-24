@@ -8,7 +8,7 @@
     "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
-    "verify": "tsc --noEmit && vitest run server/packagepro.test.ts server/aiChat.test.ts server/telegramBot.test.ts server/itineraryExport.test.ts server/auth.logout.test.ts && pnpm build",
+    "verify": "tsc --noEmit && vitest run server/hardProof.guideAvailability.test.ts server/conformance.test.ts server/packagepro.test.ts server/aiChat.test.ts server/telegramBot.test.ts server/itineraryExport.test.ts server/auth.logout.test.ts && pnpm build",
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",

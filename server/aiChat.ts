@@ -1,5 +1,13 @@
 import { PACKAGES, recommendPackages } from "./packagepro";
 import { translateText } from "./integrations";
+import { getTraveller, travellerSummary } from "./travellers";
+
+/** Attach the traveller's saved profile (users + user_preferences + booking history), looked up server-side from userId. */
+function withTraveller(context?: Record<string, unknown>) {
+  const userId = typeof context?.userId === "string" ? context.userId : undefined;
+  const profile = userId ? getTraveller(userId) : null;
+  return profile ? { ...context, traveller: travellerSummary(profile) } : context;
+}
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -220,6 +228,7 @@ function compactContext(context?: Record<string, unknown>) {
       substitutes: (issue.replacementOptions || []).slice(0, 3).map((option: any) => ({ name: option.guide?.name, city: option.guide?.city, languages: option.guide?.languages, specialisation: option.guide?.specialisation, priceDeltaVsRefused: option.priceDelta, newTotal: option.newTotal, distanceKm: option.distanceKm })),
     },
     destinationInsight: c.destinationInsight?.summary?.slice?.(0, 400),
+    traveller: c.traveller,
   };
 }
 
@@ -255,10 +264,13 @@ export async function matchPackagesFromInterests(text: string, context?: Record<
   // Hard budget rule: the model only sees packages that fit a stated budget, and over-budget picks are dropped.
   const affordable = budget ? PACKAGES.filter(pkg => pkg.basePrice <= budget) : PACKAGES;
   const pool = affordable.length >= 3 ? affordable : PACKAGES;
+  const traveller = context?.traveller as ReturnType<typeof travellerSummary> | undefined;
+  // Booking history + saved preferences (users, user_preferences, bookings → trips) ground the builder's picks.
+  const travellerBlock = traveller ? `\nTraveller profile (saved preferences and booking history): ${JSON.stringify(traveller)}. Use it: favour their favourite themes, interests and guide language, respect their budget band, prefer destinations they have NOT booked before (pastCities) unless they ask to return, and say in each reason which past trip or preference it builds on.` : "";
   const reply = await chatLLM([
     { role: "system", content: `You are PackagePro's package builder. Decide whether the traveller is describing what they want from a trip (interests, vibe, budget, who is travelling) WITHOUT asking about their current booking. If so, pick the 3 best packages from this catalogue ONLY (format: id | city | theme | tier | days | base price | languages | highlights | description):
 ${pool.map(catalogueLine).join("\n")}
-${budget ? `The traveller's budget is ₹${budget}; every pick's base price must be at or below it.` : "Respect any budget mentioned."} Prefer packages offered in the traveller's guide language (${language}) when it fits.
+${budget ? `The traveller's budget is ₹${budget}; every pick's base price must be at or below it.` : "Respect any budget mentioned."} Prefer packages offered in the traveller's guide language (${language}) when it fits.${travellerBlock}
 Return ONLY a JSON object: {"isPreferenceRequest": boolean, "picks": [{"id": "pkg_…", "reason": "one short sentence"}], "reply": "one or two friendly sentences"}. Write "reason" and "reply" in ${replyLanguage}.` },
     { role: "user", content: `${text}${planner.budgetCap ? `\n(Planner budget cap: ₹${planner.budgetCap})` : ""}` },
   ], { maxTokens: 450, temperature: 0.1, json: true, timeoutMs: 12000 });
@@ -271,7 +283,7 @@ Return ONLY a JSON object: {"isPreferenceRequest": boolean, "picks": [{"id": "pk
     } catch { /* fall back to keyword scoring */ }
   }
   if (!INTEREST_HINT.test(text)) return null;
-  const ranked = recommendPackages(text, language, undefined, budget ?? planner.budgetCap).packages.filter(pkg => !budget || pkg.basePrice <= budget);
+  const ranked = recommendPackages(traveller ? `${text} ${traveller.favouriteThemes.join(" ")} ${traveller.interests}` : text, language, undefined, budget ?? planner.budgetCap).packages.filter(pkg => !budget || pkg.basePrice <= budget);
   if (!ranked.length || ranked[0].score <= 0) return null;
   const suggestions = ranked.map(pkg => toSuggestion(pkg.id, pkg.matchReasons.filter(item => !["curated route", "flexible route"].includes(item)).join(" · "))).filter((item): item is PackageSuggestion => Boolean(item));
   const fallbackReply = `Here are the closest catalogue matches for “${text.slice(0, 80)}”.`;
@@ -283,7 +295,8 @@ async function inLanguage(text: string, context?: Record<string, unknown>) {
   return language === "en-IN" || language === "en" ? text : translateText(text, language);
 }
 
-export async function explainWithFreeOpenRouter(messages: ChatMessage[], context?: Record<string, unknown>) {
+export async function explainWithFreeOpenRouter(messages: ChatMessage[], rawContext?: Record<string, unknown>) {
+  const context = withTraveller(rawContext);
   const latest = messages[messages.length - 1]?.content || "";
   const command = parseTripCommand(latest, context);
   if (command) {
