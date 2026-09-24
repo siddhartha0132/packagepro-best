@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, BedDouble, Calendar, Check, Compass, Flame, Languages, Map as MapIcon, MapPin, Plane, Search, Share2, Sparkles, Star, Ticket, Users, UtensilsCrossed, X } from "lucide-react";
+import { ArrowRight, BedDouble, FileDown, Calendar, Check, Compass, Flame, Languages, Map as MapIcon, MapPin, Plane, Search, Share2, Sparkles, Star, Ticket, Users, UtensilsCrossed, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -9,7 +9,8 @@ import AgentTransparencyChat from "@/components/AgentTransparencyChat";
 import { buildWhatsAppUrl } from "@/lib/itineraryExport";
 import { PackageCustomiser, PriceBreakdown } from "@/components/PackageCustomiser";
 import { EstimateView, FlightRow, NegotiationPanel, Panel, ReviewPanel, ScreenHeader, SectionTitle, Stepper, money, prettyDate, slotLabel } from "@/components/TripScreens";
-import { useTr } from "@/lib/translate";
+import { translationsSettled, useTr } from "@/lib/translate";
+import { EstimateQuote, TripQuote } from "@/components/QuoteDocument";
 import { SmartImage } from "@/components/SmartImage";
 
 function isoDateFromToday(offset: number) { const date = new Date(); date.setDate(date.getDate() + offset); return date.toISOString().slice(0, 10); }
@@ -86,6 +87,25 @@ export default function Home() {
   const busy = createTrip.isPending || autoBuild.isPending || selectFlight.isPending || swapHotel.isPending || removeGuide.isPending || continuePackage.isPending || negotiate.isPending || goBack.isPending || confirm.isPending;
 
   const packageList = packages.data || [];
+  const [printing, setPrinting] = useState<"trip" | "estimate" | null>(null);
+  const pdfKind: "trip" | "estimate" | null = screen === "trip" && trip?.package ? "trip" : screen === "reality" && estimate.data ? "estimate" : null;
+  useEffect(() => {
+    if (!printing) return;
+    let cancelled = false;
+    const finish = () => { window.removeEventListener("afterprint", finish); document.title = previousTitle; setPrinting(null); };
+    const previousTitle = document.title;
+    void (async () => {
+      await translationsSettled(uiLang);
+      const images = Array.from(document.querySelectorAll<HTMLImageElement>("#print-root img"));
+      await Promise.race([Promise.all(images.map(image => image.complete ? Promise.resolve() : new Promise(resolve => { image.onload = image.onerror = resolve; }))), new Promise(resolve => setTimeout(resolve, 5000))]);
+      if (cancelled) return;
+      const place = printing === "trip" ? trip?.destination : estimate.data?.destination;
+      document.title = `PackagePro · ${place ?? "Trip"} · ${printing === "trip" ? (trip?.booking?.reference ?? "Quotation") : "Estimate"}`;
+      window.addEventListener("afterprint", finish);
+      window.print();
+    })();
+    return () => { cancelled = true; };
+  }, [printing]);
   const filtered = useMemo(() => packageList.filter(pkg => !theme || pkg.tags.includes(theme)), [packageList, theme]);
   const topBooked = new Set([...packageList].sort((a, b) => b.popularity.bookings - a.popularity.bookings).slice(0, 3).map(pkg => pkg.id));
   const heroImage = packageList.find(pkg => pkg.city === destinationCity && pkg.image.startsWith("http"))?.image || packageList.find(pkg => pkg.image.startsWith("http"))?.image;
@@ -290,6 +310,7 @@ export default function Home() {
         <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" className="h-10 rounded-full bg-white text-xs font-bold" onClick={saveDraft}><Check className="mr-1 h-3.5 w-3.5" />{draftSaved ? copy("saved") : copy("saveDraft")}</Button>
           <Button variant="outline" className="h-10 rounded-full bg-white text-xs font-bold" onClick={sharePlan}><Share2 className="mr-1 h-3.5 w-3.5" />{copy("share")}</Button>
+          {pdfKind && <Button disabled={Boolean(printing)} className="col-span-2 h-10 rounded-full bg-[#0b1f3a] text-xs font-bold text-white hover:bg-[#13315c]" onClick={() => setPrinting(pdfKind)}><FileDown className="mr-1 h-3.5 w-3.5" />{printing ? copy("preparingPdf") : pdfKind === "trip" ? copy("downloadQuote") : copy("downloadEstimate")}</Button>}
           {trip && <Button variant="outline" className="col-span-2 h-10 rounded-full border-[#25d366] bg-white text-xs font-bold text-[#128c4a]" onClick={exportWhatsApp}>{copy("whatsapp")}</Button>}
         </div>
         <Panel className="p-4 text-xs text-[#5f6b7a]">
@@ -302,6 +323,9 @@ export default function Home() {
         <AgentTransparencyChat trip={trip} lang={uiLang} destination={destinationCity} plannerContext={{ availableOrigins: cities.data?.origins || [], availableDestinations: cities.data?.destinations || [], budgetCap: form.budgetCap, interests: form.interests, destinationInsight: recommendations.data?.destinationInsight }} onApplyTrip={applyTripRequest} onBuildPackage={buildTripRequest} onCommand={runTripCommand} />
       </aside>
     </main>}
+
+    {printing === "trip" && trip && <TripQuote trip={trip} lang={uiLang} image={packageList.find(item => item.id === trip.package?.id)?.image} />}
+    {printing === "estimate" && estimate.data && <EstimateQuote estimate={estimate.data} lang={uiLang} travelers={form.travelers} origin={cities.data?.origins.find(item => item.code === form.origin)?.city || form.origin} image={estimate.data.insight.image || packageList.find(item => item.id === estimate.data?.package.id)?.image} />}
 
     {/* ---------- Package detail ---------- */}
     <Dialog open={Boolean(detail)} onOpenChange={open => !open && setDetailId(null)}>

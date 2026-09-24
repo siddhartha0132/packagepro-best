@@ -82,3 +82,16 @@ export function useTr(lang: string) {
     return text;
   }, [lang, version]);
 }
+
+/** Resolves once no translations are queued or in flight for `lang` (or after `timeoutMs`), so printed documents are fully translated. */
+export function translationsSettled(lang: string, timeoutMs = 15000) {
+  const started = Date.now();
+  return new Promise<void>(resolve => {
+    const check = () => {
+      const busy = (pending[lang]?.size ?? 0) + (inFlight[lang]?.size ?? 0);
+      if (!busy || Date.now() - started > timeoutMs) resolve();
+      else setTimeout(check, 150);
+    };
+    setTimeout(check, 120);
+  });
+}

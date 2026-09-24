@@ -273,6 +273,9 @@ const copy = {
     buildThis: "Build this package",
     agentThinking: "Reading your request against PackagePro data…",
     poweredBy: "powered by",
+    downloadQuote: "Download quotation PDF",
+    downloadEstimate: "Download estimate PDF",
+    preparingPdf: "Preparing PDF…",
   },
   ta: {
     brand: "பேக்கேஜ் புரோ",
@@ -539,6 +542,9 @@ const copy = {
     buildThis: "இந்தத் தொகுப்பை உருவாக்கு",
     agentThinking: "PackagePro தரவுடன் உங்கள் கோரிக்கையைப் படிக்கிறது…",
     poweredBy: "இயக்குவது",
+    downloadQuote: "விலைப்பட்டியல் PDF பதிவிறக்கு",
+    downloadEstimate: "மதிப்பீடு PDF பதிவிறக்கு",
+    preparingPdf: "PDF தயாராகிறது…",
   },
   hi: {
     brand: "पैकेजप्रो",
@@ -805,6 +811,9 @@ const copy = {
     buildThis: "यह पैकेज बनाएँ",
     agentThinking: "PackagePro डेटा से आपका अनुरोध समझ रहे हैं…",
     poweredBy: "संचालित",
+    downloadQuote: "कोटेशन PDF डाउनलोड करें",
+    downloadEstimate: "अनुमान PDF डाउनलोड करें",
+    preparingPdf: "PDF तैयार हो रहा है…",
   },
   te: {
     brand: "ప్యాకేజ్ ప్రో",
@@ -1071,6 +1080,9 @@ const copy = {
     buildThis: "ఈ ప్యాకేజీని రూపొందించు",
     agentThinking: "PackagePro డేటాతో మీ అభ్యర్థనను చదువుతోంది…",
     poweredBy: "ఆధారం",
+    downloadQuote: "కొటేషన్ PDF డౌన్‌లోడ్",
+    downloadEstimate: "అంచనా PDF డౌన్‌లోడ్",
+    preparingPdf: "PDF సిద్ధమవుతోంది…",
   },
 } as const;
 
