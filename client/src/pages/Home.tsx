@@ -1,33 +1,91 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { useEffect, useMemo, useState } from "react";
+import { Check, ChevronRight, CircleAlert, Copy, Heart, Languages, MapPin, Sparkles, Star, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { trpc } from "@/lib/trpc";
 
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Workflow, Frontend Best Practices, Design Guide and Common Pitfalls
- */
+const money = (value: number) => `₹${Math.round(value).toLocaleString("en-IN")}`;
+const languages = [{ value: "en-IN", label: "English" }, { value: "ta", label: "தமிழ்" }, { value: "hi", label: "हिन्दी" }, { value: "te", label: "తెలుగు" }];
+
 export default function Home() {
-  // The useAuth hook provides authentication state.
-  // To implement login/logout, call logout(), or start login from an event
-  // handler: onClick={() => startLogin()} (imported from "@/const"). Never call
-  // startLogin() during render (no href={startLogin()}) — it mints a one-time
-  // nonce cookie and must run only at the moment of navigation.
-  let { user, loading, error, isAuthenticated, logout } = useAuth();
+  const [language, setLanguage] = useState("ta");
+  const [query, setQuery] = useState("heritage, local food, living culture");
+  const [theme, setTheme] = useState("All");
+  const [selectedId, setSelectedId] = useState("pkg-thanjavur-heritage");
+  const [selectedComponents, setSelectedComponents] = useState<Record<string, string>>({});
+  const [openSwap, setOpenSwap] = useState<string | null>(null);
+  const [selectedGuideId, setSelectedGuideId] = useState<string | null>(null);
+  const [departDate, setDepartDate] = useState("2026-09-02");
+  const [saved, setSaved] = useState(false);
+  const [booked, setBooked] = useState(false);
+  const [shareLabel, setShareLabel] = useState("Share plan");
 
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
+  const packages = trpc.packagepro.list.useQuery({ theme: theme === "All" ? undefined : theme });
+  const selectedPackage = trpc.packagepro.detail.useQuery({ id: selectedId }, { enabled: Boolean(selectedId) });
+  const alternatives = trpc.packagepro.alternatives.useQuery({ packageId: selectedId, componentId: openSwap || "none" }, { enabled: Boolean(openSwap) && Boolean(selectedId) });
+  const guides = trpc.packagepro.guides.useQuery({ city: selectedPackage.data?.city || "", language }, { enabled: Boolean(selectedPackage.data?.city) });
+  const guideCheck = trpc.packagepro.checkGuide.useQuery({ guideId: selectedGuideId || "none", departDate, duration: selectedPackage.data?.duration || 3 }, { enabled: Boolean(selectedGuideId && selectedPackage.data) });
+  const recommendations = trpc.packagepro.recommend.useQuery({ query, language });
+
+  useEffect(() => {
+    if (!selectedPackage.data) return;
+    const defaults: Record<string, string> = {};
+    for (const component of selectedPackage.data.components) if (!defaults[component.swapGroup || component.id]) defaults[component.swapGroup || component.id] = component.id;
+    setSelectedComponents(defaults);
+    setSelectedGuideId(null);
+    setOpenSwap(null);
+    setBooked(false);
+  }, [selectedPackage.data?.id]);
+
+  const chosenComponents = useMemo(() => selectedPackage.data?.components.filter(component => Object.values(selectedComponents).includes(component.id)) || [], [selectedPackage.data, selectedComponents]);
+  const packageTotal = selectedPackage.data?.basePrice || 0;
+  const selectedGuide = guides.data?.find(guide => guide.id === selectedGuideId);
+  const guideTotal = guideCheck.data?.accepted ? guideCheck.data.total : 0;
+  const total = packageTotal + chosenComponents.reduce((sum, component) => sum + component.price, 0) / 2 + guideTotal;
+  const themes = ["All", ...Array.from(new Set((packages.data || []).map(pkg => pkg.theme)))];
+
+  function choosePackage(id: string) { setSelectedId(id); document.getElementById("customize")?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  function chooseAlternative(componentId: string) { setSelectedComponents(current => ({ ...current, [selectedPackage.data?.components.find(item => item.id === componentId)?.swapGroup || componentId]: componentId })); setOpenSwap(null); }
+  async function share() { const url = window.location.href.split("#")[0] + `#${selectedId}`; await navigator.clipboard?.writeText(url); setShareLabel("Link copied"); setTimeout(() => setShareLabel("Share plan"), 1800); }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
+    <div className="min-h-screen bg-[#f7f5ef] text-[#17231f]">
+      <header className="mx-auto max-w-[1380px] px-6 pb-5 pt-7 lg:px-12">
+        <div className="flex items-center justify-between border-b border-[#d8d7cd] pb-6">
+          <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-full bg-[#17231f] font-serif text-lg text-[#f7f5ef]">P<span className="text-[#ecd8b4]">+</span></div><div><div className="font-serif text-xl font-semibold tracking-tight">PackagePro</div><div className="text-[10px] uppercase tracking-[.18em] text-[#68736c]">dynamic tour packages</div></div></div>
+          <div className="flex items-center gap-3"><div className="hidden items-center gap-2 rounded-full bg-[#e1efea] px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[#286c62] md:flex"><span className="h-1.5 w-1.5 rounded-full bg-[#286c62]" /> live planner</div><select value={language} onChange={event => setLanguage(event.target.value)} className="rounded-md border border-[#d8d7cd] bg-transparent px-3 py-2 text-xs"><option value="en-IN">English</option><option value="ta">தமிழ்</option><option value="hi">हिन्दी</option><option value="te">తెలుగు</option></select></div>
+        </div>
+        <div className="flex items-center justify-between gap-4 overflow-x-auto pt-5 text-[10px] uppercase tracking-[.14em] text-[#68736c]"><span className="font-semibold text-[#286c62]">01 / Discover</span><span>02 / Shape</span><span>03 / Guide</span><span>04 / Confirm</span><div className="hidden h-px flex-1 bg-[#d8d7cd] sm:block" /><span className="whitespace-nowrap">Language-aware · budget-honest</span></div>
+      </header>
+
+      <main className="mx-auto max-w-[1380px] px-6 pb-20 lg:px-12">
+        <section className="grid gap-10 pb-16 pt-12 lg:grid-cols-[1.2fr_.8fr] lg:items-end lg:pt-20">
+          <div><div className="mb-4 text-[11px] font-bold uppercase tracking-[.2em] text-[#286c62]">A better way to travel</div><h1 className="max-w-4xl font-serif text-5xl font-medium leading-[.95] tracking-[-.06em] md:text-7xl">Build the trip you<br /><span className="text-[#b6762a]">actually want.</span></h1><p className="mt-7 max-w-xl text-base leading-7 text-[#68736c]">Start with a real curated package. Swap the hotel, reshape the day, add a local voice — and see the honest total change before you book.</p></div>
+          <Card className="border-[#d8d7cd] bg-white/60 shadow-none"><CardContent className="p-6"><div className="mb-4 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]"><Sparkles className="h-3.5 w-3.5" /> Find your starting point</div><Textarea value={query} onChange={event => setQuery(event.target.value)} className="min-h-20 resize-none border-[#d8d7cd] bg-[#fbfaf6] text-sm" /><div className="mt-4 flex items-center justify-between gap-3"><span className="text-xs text-[#68736c]">Recommendations are grounded in PackagePro records.</span><Button onClick={() => recommendations.refetch()} className="bg-[#17231f] text-[#f7f5ef] hover:bg-[#2b3933]">Refresh picks <ChevronRight className="ml-1 h-4 w-4" /></Button></div></CardContent></Card>
+        </section>
+
+        <section className="border-t border-[#d8d7cd] pt-8"><div className="mb-5 flex flex-wrap items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">Curated routes</div><h2 className="mt-2 font-serif text-3xl font-medium tracking-tight">Begin with a point of view.</h2></div><Tabs value={theme} onValueChange={setTheme}><TabsList className="bg-[#ece9df]">{themes.map(item => <TabsTrigger key={item} value={item} className="text-xs data-[state=active]:bg-white">{item}</TabsTrigger>)}</TabsList></Tabs></div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{packages.data?.map(pkg => <button key={pkg.id} onClick={() => choosePackage(pkg.id)} className={`group text-left ${selectedId === pkg.id ? "ring-2 ring-[#b6762a]" : ""}`}><Card className="h-full border-[#d8d7cd] bg-white/50 shadow-none transition hover:-translate-y-1 hover:bg-white"><CardHeader className="pb-3"><div className="mb-1 flex items-center justify-between"><Badge variant="outline" className="border-[#d8d7cd] text-[10px] uppercase tracking-wider">{pkg.theme}</Badge><span className="text-xs text-[#68736c]">{pkg.duration} days</span></div><CardTitle className="font-serif text-2xl font-medium">{pkg.name}</CardTitle></CardHeader><CardContent><p className="min-h-12 text-xs leading-5 text-[#68736c]">{pkg.description}</p><div className="mt-5 flex items-end justify-between"><span className="text-xs text-[#68736c]"><MapPin className="mr-1 inline h-3 w-3" />{pkg.city}</span><span className="font-serif text-lg">{money(pkg.basePrice)}</span></div></CardContent></Card></button>)}</div>
+        </section>
+
+        {selectedPackage.data && <section id="customize" className="grid gap-7 border-t border-[#d8d7cd] pt-14 lg:grid-cols-[1fr_350px] lg:pt-20">
+          <div><div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">02 / Shape your package</div><h2 className="mt-2 font-serif text-4xl font-medium tracking-tight">{selectedPackage.data.name}</h2><p className="mt-2 max-w-xl text-sm leading-6 text-[#68736c]">{selectedPackage.data.description}</p></div><div className="rounded-full bg-[#e1efea] px-3 py-2 text-xs text-[#286c62]"><MapPin className="mr-1 inline h-3.5 w-3.5" />{selectedPackage.data.city}</div></div>
+            <div className="space-y-3">{selectedPackage.data.components.map(component => { const active = selectedComponents[component.swapGroup || component.id] === component.id; return <div key={component.id} className={`rounded-md border p-4 transition ${active ? "border-[#286c62] bg-[#e1efea]/40" : "border-[#d8d7cd] bg-white/40"}`}><div className="flex items-center justify-between gap-4"><div className="flex items-start gap-3"><div className={`mt-1 grid h-6 w-6 place-items-center rounded-full ${active ? "bg-[#286c62] text-white" : "bg-[#ece9df] text-[#68736c]"}`}>{active ? <Check className="h-3.5 w-3.5" /> : <span className="text-[10px]">{component.type.slice(0, 1).toUpperCase()}</span>}</div><div><div className="font-medium">{component.label}</div><div className="mt-1 text-xs text-[#68736c]">{component.detail} · {money(component.price)}</div></div></div>{component.swapGroup && <Button variant="ghost" onClick={() => setOpenSwap(openSwap === component.id ? null : component.id)} className="text-xs text-[#286c62]">Swap</Button>}</div>{openSwap === component.id && <div className="mt-3 border-t border-[#d8d7cd] pt-3">{alternatives.isLoading ? <div className="text-xs text-[#68736c]">Finding alternatives…</div> : alternatives.data?.map(option => <button key={option.id} onClick={() => chooseAlternative(option.id)} className="flex w-full items-center justify-between rounded px-2 py-2 text-left text-xs hover:bg-white"><span>{option.label}<span className="ml-2 text-[#68736c]">{option.detail}</span></span><span>{money(option.price)}</span></button>)}</div>}</div>})}</div>
+          </div>
+          <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start"><Card className="border-[#17231f] bg-[#17231f] text-[#f7f5ef] shadow-none"><CardContent className="p-6"><div className="text-[10px] uppercase tracking-[.18em] text-[#ecd8b4]">Live package total</div><div className="mt-3 font-serif text-4xl">{money(total)}</div><div className="mt-5 space-y-2 border-t border-white/15 pt-4 text-xs text-white/70"><div className="flex justify-between"><span>Curated package</span><span>{money(packageTotal)}</span></div><div className="flex justify-between"><span>Guide</span><span>{guideTotal ? money(guideTotal) : "Not added"}</span></div></div><div className="mt-6 flex gap-2"><Button onClick={() => setSaved(!saved)} variant="outline" className="flex-1 border-white/30 bg-transparent text-[#f7f5ef] hover:bg-white/10"><Heart className={`mr-2 h-4 w-4 ${saved ? "fill-[#ecd8b4] text-[#ecd8b4]" : ""}`} />{saved ? "Saved" : "Save"}</Button><Button onClick={share} variant="outline" className="flex-1 border-white/30 bg-transparent text-[#f7f5ef] hover:bg-white/10"><Copy className="mr-2 h-4 w-4" />{shareLabel}</Button></div></CardContent></Card><div className="rounded-md border border-[#d8d7cd] bg-white/50 p-5"><div className="mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]"><Languages className="h-3.5 w-3.5" /> Your language, carried through</div><p className="text-xs leading-5 text-[#68736c]">Guides and recommendations are filtered for <strong className="text-[#17231f]">{languages.find(item => item.value === language)?.label}</strong> before you choose.</p></div></aside>
+        </section>}
+
+        {selectedPackage.data && <section className="grid gap-7 border-t border-[#d8d7cd] pt-14 lg:grid-cols-[1fr_350px] lg:pt-20"><div><div className="mb-7"><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">03 / Add a local voice</div><h2 className="mt-2 font-serif text-4xl font-medium tracking-tight">The right guide changes the day.</h2><p className="mt-2 text-sm text-[#68736c]">Optional, language-aware, and checked against your actual dates.</p></div><div className="mb-4 grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Start date<Input type="date" value={departDate} onChange={event => setDepartDate(event.target.value)} className="mt-2 bg-white/50" /></label><div className="flex items-end rounded-md border border-dashed border-[#d8d7cd] p-3 text-xs text-[#68736c]">{selectedPackage.data.duration} day guide window · availability checked per day</div></div><div className="grid gap-3 md:grid-cols-2">{guides.data?.map(guide => <button key={guide.id} onClick={() => setSelectedGuideId(guide.id)} className={`rounded-md border p-4 text-left ${selectedGuideId === guide.id ? "border-[#b6762a] bg-[#fbf3e4]" : "border-[#d8d7cd] bg-white/40"}`}><div className="flex items-start justify-between gap-3"><div><div className="font-medium">{guide.name}</div><div className="mt-1 text-xs text-[#68736c]">{guide.specialisation} · {guide.languages.join(", ")}</div></div><div className="text-right"><div className="flex items-center gap-1 text-xs"><Star className="h-3 w-3 fill-[#b6762a] text-[#b6762a]" />{guide.rating}</div><div className="mt-1 text-xs text-[#68736c]">{money(guide.dayRate)}/day</div></div></div><p className="mt-4 text-xs leading-5 text-[#68736c]">{guide.bio}</p></button>)}</div></div><aside>{selectedGuide && guideCheck.data && <Card className={`border shadow-none ${guideCheck.data.accepted ? "border-[#286c62] bg-[#e1efea]/50" : "border-[#ad4738] bg-[#f5e3df]"}`}><CardContent className="p-5">{guideCheck.data.accepted ? <><div className="flex items-center gap-2 text-sm font-semibold text-[#286c62]"><Check className="h-4 w-4" /> {selectedGuide.name} is available</div><p className="mt-3 text-xs leading-5 text-[#68736c]">All {guideCheck.data.dates.length} dates are clear. This adds <strong className="text-[#17231f]">{money(guideCheck.data.total)}</strong> to your trip.</p><Button onClick={() => setBooked(true)} className="mt-5 w-full bg-[#286c62] text-white hover:bg-[#20594f]">{booked ? "Guide added to plan" : "Add guide to package"}</Button></> : <><div className="flex items-start gap-2 text-sm font-semibold text-[#ad4738]"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /> {selectedGuide.name} is unavailable on {guideCheck.data.conflicts.join(", ")}</div><p className="mt-3 text-xs leading-5 text-[#68736c]">The selection is refused for the clashing date. We found a same-language, same-specialisation alternative.</p>{guideCheck.data.replacement && <button onClick={() => setSelectedGuideId(guideCheck.data.replacement!.id)} className="mt-4 w-full rounded-md border border-[#ad4738]/30 bg-white/65 p-3 text-left"><div className="flex items-center justify-between"><span className="font-semibold">{guideCheck.data.replacement.name}</span><span className="text-sm">{money(guideCheck.data.replacementTotal || 0)}</span></div><div className="mt-1 text-xs text-[#68736c]">Price delta: {guideCheck.data.priceDelta && guideCheck.data.priceDelta > 0 ? "+" : ""}{money(guideCheck.data.priceDelta || 0)} · same {guideCheck.data.replacement.specialisation} expertise</div></button>}</>}</CardContent></Card>}</aside></section>}
+
+        <section className="border-t border-[#d8d7cd] pt-14 lg:pt-20"><div className="mb-6 flex flex-wrap items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">Grounded recommendations</div><h2 className="mt-2 font-serif text-3xl font-medium">The data has a point of view.</h2></div><Badge variant="outline" className="border-[#d8d7cd] text-[#68736c]"><Users className="mr-1 h-3 w-3" /> {recommendations.data?.guides.length || 0} language matches</Badge></div><div className="grid gap-4 md:grid-cols-3">{recommendations.data?.packages.map(pkg => <Card key={pkg.id} className="border-[#d8d7cd] bg-white/45 shadow-none"><CardContent className="p-5"><div className="text-[10px] uppercase tracking-wider text-[#b6762a]">{pkg.theme}</div><h3 className="mt-2 font-serif text-xl">{pkg.name}</h3><p className="mt-2 text-xs leading-5 text-[#68736c]">{pkg.description}</p><div className="mt-4 text-sm">{money(pkg.basePrice)} <span className="text-xs text-[#68736c]">from</span></div></CardContent></Card>)}</div></section>
+
+        <section className="mt-14 flex flex-wrap items-center justify-between gap-4 border-t border-[#d8d7cd] pt-7"><div><div className="font-serif text-2xl">Ready to make it yours?</div><div className="mt-1 text-xs text-[#68736c]">Your choices stay editable until you confirm.</div></div><Button onClick={() => setBooked(true)} className="bg-[#17231f] px-6 text-[#f7f5ef] hover:bg-[#2b3933]">{booked ? "Package saved" : "Save customised package"} <ChevronRight className="ml-1 h-4 w-4" /></Button></section>
       </main>
+      {booked && <div className="fixed bottom-5 right-5 flex items-center gap-3 rounded-md bg-[#17231f] px-4 py-3 text-sm text-[#f7f5ef] shadow-xl"><Check className="h-4 w-4 text-[#ecd8b4]" /> Your package is ready to review.<button onClick={() => setBooked(false)}><X className="h-4 w-4 text-white/60" /></button></div>}
     </div>
   );
 }
