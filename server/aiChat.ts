@@ -1,3 +1,6 @@
+import { PACKAGES, recommendPackages } from "./packagepro";
+import { translateText } from "./integrations";
+
 type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -102,28 +105,34 @@ function nextWeekendStart() {
   return date;
 }
 
-function findPlace(text: string, places: CataloguePlace[]) {
+// Everyday names that differ from the dataset city name.
+const PLACE_ALIASES: Record<string, string[]> = {
+  jaipur: ["pink city"], "new delhi": ["delhi", "new delhi"], thanjavur: ["tanjore"], varanasi: ["banaras", "benaras", "kashi"],
+  panaji: ["goa", "panjim"], bengaluru: ["bangalore"], mysuru: ["mysore"], thiruvananthapuram: ["trivandrum"], kochi: ["cochin"],
+  pondicherry: ["puducherry", "pondy"], ooty: ["udhagamandalam", "ootacamund"], mumbai: ["bombay"], kolkata: ["calcutta"],
+  alleppey: ["alappuzha"], gangtok: ["sikkim"], leh: ["ladakh"], srinagar: ["kashmir"], chennai: ["madras"], puri: ["jagannath puri"],
+};
+const escapeRe = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function placeNames(place: CataloguePlace) {
+  const names = [place.city, ...(PLACE_ALIASES[place.city.toLowerCase()] || [])];
+  if (/^[A-Z]{3}$/.test(place.code)) names.push(place.code);
+  return names.map(value => value.toLowerCase());
+}
+
+function findPlace(text: string, places: CataloguePlace[], excludeCity?: string) {
   const lower = text.toLowerCase();
-  const aliases: Record<string, string[]> = {
-    jaipur: ["pink city", "jaipur", "jai"],
-    "new delhi": ["new delhi", "delhi", "capital", "del"],
-    thanjavur: ["thanjavur", "tanjore", "chola"],
-    varanasi: ["varanasi", "banaras", "kashi", "vns"],
-    goa: ["goa", "panaji", "panjim"],
-  };
-  return places.find(place => {
-    const names = [place.city, place.code, ...(aliases[place.city.toLowerCase()] || [])].map(value => value.toLowerCase());
-    return names.some(name => lower.includes(name));
-  });
+  return places.find(place => place.city !== excludeCity && placeNames(place).some(name => new RegExp(`(^|[^a-z])${escapeRe(name)}($|[^a-z])`).test(lower)));
 }
 
 export function parseTripRequest(text: string, context?: Record<string, unknown>): TripRequest | null {
   const lower = text.toLowerCase();
   const destinations = Array.isArray(context?.availableDestinations) ? context!.availableDestinations as CataloguePlace[] : [];
   const origins = Array.isArray(context?.availableOrigins) ? context!.availableOrigins as CataloguePlace[] : [];
-  const destination = findPlace(lower, destinations);
-  const originMatch = lower.match(/(?:from|starting in|leaving from)\s+([a-z][a-z\s-]{2,30}?)(?:\s+(?:next|this|on|for|to)\b|$)/i);
-  const origin = (originMatch ? findPlace(originMatch[1], origins) : undefined) || findPlace(lower, origins);
+  const originSegment = lower.match(/(?:from|starting in|leaving from)\s+([a-z][a-z\s-]{2,30}?)(?=\s+(?:next|this|on|for|to|in)\b|[,.!?]|$)/)?.[1];
+  const destinationSegment = lower.match(/(?:\bto|\bin|\bvisit(?:ing)?|\btrip to|\bholiday in)\s+([a-z][a-z\s-]{2,30}?)(?=\s+(?:next|this|on|for|from|in|with|under)\b|[,.!?]|$)/)?.[1];
+  const origin = (originSegment ? findPlace(originSegment, origins) : undefined) || findPlace(lower.replace(destinationSegment ?? "\u0000", " "), origins);
+  const destination = (destinationSegment ? findPlace(destinationSegment, destinations, origin?.city) : undefined) || findPlace(lower.replace(originSegment ?? "\u0000", " "), destinations, origin?.city);
   const durationMatch = lower.match(/(\d+)\s*(?:day|days|night|nights)\b/);
   const wordDuration = /\b(?:a couple of|couple of|two|2)\s+(?:days?|nights?)\b/.test(lower) ? 2 : /\b(?:three|3)\s+(?:days?|nights?)\b/.test(lower) ? 3 : undefined;
   const durationDays = durationMatch ? Number(durationMatch[1]) : wordDuration || (/\b(?:weekend|short break|quick getaway)\b/.test(lower) ? 2 : undefined);
@@ -170,7 +179,7 @@ async function parseTripRequestWithModel(text: string, context: Record<string, u
   const destinations = JSON.stringify((context.availableDestinations as CataloguePlace[] | undefined || []).map(place => ({ code: place.code, city: place.city })));
   const origins = JSON.stringify(context.availableOrigins || []);
   const reply = await chatLLM([
-    { role: "system", content: `Extract a travel request into JSON. Only return a JSON object, no markdown, no prose. Keys: isTripRequest (boolean), originCode, destinationCode, durationDays, departDate (YYYY-MM-DD), returnDate, hotelTier (budget|boutique|luxury), transportMode (flight|train|cab). Match origin and destination to these exact catalogue codes. The text may be in any Indian language. If this is not a request to plan a trip, set isTripRequest false. Resolve relative dates against today ${dateOnly(new Date())}. Origins: ${origins}. Destinations: ${destinations}.` },
+    { role: "system", content: `Extract a travel request into JSON. Only return a JSON object, no markdown, no prose. Keys: isTripRequest (boolean), originCode, destinationCode, durationDays, departDate (YYYY-MM-DD), returnDate, hotelTier (budget|boutique|luxury), transportMode (flight|train|cab). Match origin and destination to these exact catalogue codes. The text may be in any Indian language. Set isTripRequest true ONLY when the traveller explicitly names a destination city (in any language or script). Interests, a vibe, a theme (beach, honeymoon, trekking) or a budget without a named city is NOT a trip request — set isTripRequest false. Never invent an origin or destination that was not written. Resolve relative dates against today ${dateOnly(new Date())}. Origins: ${origins}. Destinations: ${destinations}.` },
     { role: "user", content: text },
   ], { maxTokens: 200, temperature: 0, json: true, timeoutMs: 6000 });
   if (!reply) return null;
@@ -187,20 +196,113 @@ async function parseTripRequestWithModel(text: string, context: Record<string, u
   }
 }
 
+export type PackageSuggestion = { packageId: string; cityId: string; city: string; name: string; theme: string; duration: number; basePrice: number; reason: string };
+
+/** The facts the agent needs, without the destination lists (which crowd out trip details). */
+function compactContext(context?: Record<string, unknown>) {
+  const c = (context || {}) as Record<string, any>;
+  const it = c.currentItinerary || {};
+  const issue = c.guideAvailabilityIssue;
+  return {
+    planner: c.planner,
+    destination: c.destination,
+    budgetCap: c.budgetCap,
+    runningTotal: c.runningTotal,
+    flight: it.chosenFlight && { airline: it.chosenFlight.airline, number: it.chosenFlight.id, route: it.chosenFlight.route, depart: it.chosenFlight.depart, arrive: it.chosenFlight.arrive, price: it.chosenFlight.price },
+    transport: it.chosenTransport && { operator: it.chosenTransport.operator, price: it.chosenTransport.price },
+    hotel: it.chosenHotel && { name: it.chosenHotel.name, detail: it.chosenHotel.detail },
+    package: it.package && { name: it.package.name, city: it.package.city, theme: it.package.theme },
+    packagePrice: it.packagePrice,
+    guide: it.chosenGuide && { name: it.chosenGuide.name, specialisation: it.chosenGuide.specialisation, languages: it.chosenGuide.languages, bookedDates: it.chosenGuide.bookedDates, cost: it.chosenGuide.totalCost },
+    guideRefusal: issue && {
+      refusedGuide: issue.guide?.name, specialisation: issue.guide?.specialisation, languages: issue.guide?.languages,
+      unavailableOn: issue.conflictingDates, datesChecked: issue.requestedDates, totalBefore: issue.currentTotal,
+      substitutes: (issue.replacementOptions || []).slice(0, 3).map((option: any) => ({ name: option.guide?.name, city: option.guide?.city, languages: option.guide?.languages, specialisation: option.guide?.specialisation, priceDeltaVsRefused: option.priceDelta, newTotal: option.newTotal, distanceKm: option.distanceKm })),
+    },
+    destinationInsight: c.destinationInsight?.summary?.slice?.(0, 400),
+  };
+}
+
+/** Budget stated in free text: "40000", "40,000", "50k", "50 हज़ार", "1.5 lakh", "2 லட்சம்" … */
+export function parseBudget(text: string): number | undefined {
+  const clean = text.replace(/,/g, "");
+  const lakh = clean.match(/(\d+(?:\.\d+)?)\s*(?:lakh|lac|लाख|லட்சம்|లక్ష)/i);
+  if (lakh) return Math.round(Number(lakh[1]) * 100000);
+  const thousand = clean.match(/(\d+(?:\.\d+)?)\s*(?:k\b|thousand|हज़ार|हजार|ஆயிரம்|వేల)/i);
+  if (thousand) return Math.round(Number(thousand[1]) * 1000);
+  const plain = clean.match(/(?:₹|rs\.?|inr)?\s*(\d{4,7})/i);
+  return plain ? Number(plain[1]) : undefined;
+}
+
+const catalogueLine = (pkg: (typeof PACKAGES)[number]) => `${pkg.id} | ${pkg.city} | ${pkg.theme} | ${pkg.tier} | ${pkg.duration}d | ₹${Math.round(pkg.basePrice)} | lang ${pkg.languagesOffered.join("/")} | ${pkg.components.filter(item => item.isDefault && item.type === "experience").map(item => item.label).slice(0, 2).join(", ")} | ${pkg.description.slice(0, 90)}`;
+const INTEREST_HINT = /(love|like|prefer|interest|into|enjoy|want|looking for|suggest|recommend|budget|under|relax|adventure|trek|mountain|beach|temple|food|heritage|wildlife|honeymoon|family|pilgrim|wellness|yoga|culture|history|पसंद|बजट|விரும்ப|பட்ஜெட்|ఇష్టం|బడ్జెట్)/i;
+const ABOUT_CURRENT_TRIP = /\b(why|explain|refus|substitut|this (package|hotel|flight|guide)|current|my trip|total)\b/i;
+
+function toSuggestion(packageId: string, reason: string): PackageSuggestion | null {
+  const pkg = PACKAGES.find(item => item.id === packageId);
+  return pkg ? { packageId: pkg.id, cityId: pkg.cityId, city: pkg.city, name: pkg.name, theme: pkg.theme, duration: pkg.duration, basePrice: pkg.basePrice, reason } : null;
+}
+
+/**
+ * AI package builder: free-text interests (any language) → up to 3 catalogue packages with reasons.
+ * The LLM only chooses among real package IDs; unknown IDs are dropped and keyword scoring is the fallback.
+ */
+export async function matchPackagesFromInterests(text: string, context?: Record<string, unknown>): Promise<{ reply: string; suggestions: PackageSuggestion[]; model: string } | null> {
+  const language = typeof context?.language === "string" ? context.language : "en-IN";
+  const replyLanguage = languageName(language);
+  const planner = (context?.planner || {}) as { budgetCap?: number; interests?: string };
+  const budget = parseBudget(text);
+  // Hard budget rule: the model only sees packages that fit a stated budget, and over-budget picks are dropped.
+  const affordable = budget ? PACKAGES.filter(pkg => pkg.basePrice <= budget) : PACKAGES;
+  const pool = affordable.length >= 3 ? affordable : PACKAGES;
+  const reply = await chatLLM([
+    { role: "system", content: `You are PackagePro's package builder. Decide whether the traveller is describing what they want from a trip (interests, vibe, budget, who is travelling) WITHOUT asking about their current booking. If so, pick the 3 best packages from this catalogue ONLY (format: id | city | theme | tier | days | base price | languages | highlights | description):
+${pool.map(catalogueLine).join("\n")}
+${budget ? `The traveller's budget is ₹${budget}; every pick's base price must be at or below it.` : "Respect any budget mentioned."} Prefer packages offered in the traveller's guide language (${language}) when it fits.
+Return ONLY a JSON object: {"isPreferenceRequest": boolean, "picks": [{"id": "pkg_…", "reason": "one short sentence"}], "reply": "one or two friendly sentences"}. Write "reason" and "reply" in ${replyLanguage}.` },
+    { role: "user", content: `${text}${planner.budgetCap ? `\n(Planner budget cap: ₹${planner.budgetCap})` : ""}` },
+  ], { maxTokens: 450, temperature: 0.1, json: true, timeoutMs: 12000 });
+  if (reply) {
+    try {
+      const parsed = JSON.parse(reply.text.match(/\{[\s\S]*\}/)?.[0] ?? reply.text) as { isPreferenceRequest?: boolean; picks?: { id?: string; reason?: string }[]; reply?: string };
+      if (!parsed.isPreferenceRequest) return null;
+      const suggestions = (parsed.picks || []).map(pick => toSuggestion(String(pick.id || ""), String(pick.reason || ""))).filter((item): item is PackageSuggestion => Boolean(item) && (!budget || pool !== affordable || item!.basePrice <= budget)).slice(0, 3);
+      if (suggestions.length) return { reply: parsed.reply || "", suggestions, model: reply.model };
+    } catch { /* fall back to keyword scoring */ }
+  }
+  if (!INTEREST_HINT.test(text)) return null;
+  const ranked = recommendPackages(text, language, undefined, budget ?? planner.budgetCap).packages.filter(pkg => !budget || pkg.basePrice <= budget);
+  if (!ranked.length || ranked[0].score <= 0) return null;
+  const suggestions = ranked.map(pkg => toSuggestion(pkg.id, pkg.matchReasons.filter(item => !["curated route", "flexible route"].includes(item)).join(" · "))).filter((item): item is PackageSuggestion => Boolean(item));
+  const fallbackReply = `Here are the closest catalogue matches for “${text.slice(0, 80)}”.`;
+  return { reply: language === "en-IN" ? fallbackReply : await translateText(fallbackReply, language), suggestions, model: "catalogue-keyword-match" };
+}
+
+async function inLanguage(text: string, context?: Record<string, unknown>) {
+  const language = typeof context?.language === "string" ? context.language : "en-IN";
+  return language === "en-IN" || language === "en" ? text : translateText(text, language);
+}
+
 export async function explainWithFreeOpenRouter(messages: ChatMessage[], context?: Record<string, unknown>) {
   const latest = messages[messages.length - 1]?.content || "";
   const command = parseTripCommand(latest, context);
   if (command) {
-    return { text: command.type === "remove_guide" ? "I’ll remove the guide from your current itinerary and reprice the running total." : `I’ll look for a ${command.target} hotel in the current destination and reprice the live total.`, modelUsed: "planner-command-parser", fallbackChain: ["catalogue-command-parser"], command };
+    const text = command.type === "remove_guide" ? "I’ll remove the guide from your current itinerary and reprice the running total." : `I’ll look for a ${command.target} hotel in the current destination and reprice the live total.`;
+    return { text: await inLanguage(text, context), modelUsed: "planner-command-parser", fallbackChain: ["catalogue-command-parser"], command };
   }
   const tripRequest = parseTripRequest(latest, context) || await parseTripRequestWithModel(latest, context || {});
   if (tripRequest) {
-    return { text: requestText(tripRequest), modelUsed: "planner-intent-parser", fallbackChain: ["catalogue-intent-parser"], tripRequest };
+    return { text: await inLanguage(requestText(tripRequest), context), modelUsed: "planner-intent-parser", fallbackChain: ["catalogue-intent-parser"], tripRequest };
+  }
+  const hasTrip = Boolean((context?.currentItinerary as { package?: unknown } | undefined)?.package);
+  if (!(hasTrip && ABOUT_CURRENT_TRIP.test(latest))) {
+    const match = await matchPackagesFromInterests(latest, context);
+    if (match) return { text: match.reply, modelUsed: match.model, fallbackChain: [match.model], suggestions: match.suggestions };
   }
 
   const replyLanguage = languageName(typeof context?.language === "string" ? context.language : undefined);
-  const systemPrompt = `You are the transparent PackagePro Agent inside a live travel planner. Use ONLY the supplied PackagePro context and catalogue facts. Explain exactly why a package, flight, hotel, guide, or substitute was selected. Mention the traveller's interests, selected city, budget math, language match, and real guide availability dates when relevant. Never assume a destination or invent inventory or prices.
-Live PackagePro context: ${JSON.stringify(context || {}).slice(0, 6000)}
+  const systemPrompt = `You are the transparent PackagePro Agent inside a live travel planner. Use ONLY the supplied PackagePro context and catalogue facts. Explain exactly why a package, flight, hotel, guide, or substitute was selected. Mention the traveller's interests, selected city, budget math, language match, and real guide availability dates when relevant. When a guide was refused, name the unavailable date and the substitute (same language and specialisation) with the new total. Never assume a destination or invent inventory or prices.
+Live PackagePro context: ${JSON.stringify(compactContext(context))}
 Style: concise (under 120 words), friendly, concrete, honest. Never mention what the context lacks — answer with what it has.
 Write the whole reply in natural ${replyLanguage}${replyLanguage === "English" ? "" : " script — translate words like destination, budget, guide and package; keep only proper nouns, flight numbers and ₹ figures as they are"}.`;
   const reply = await chatLLM([{ role: "system", content: systemPrompt }, ...messages.map(message => ({ role: message.role, content: message.content }))], { maxTokens: 500 });

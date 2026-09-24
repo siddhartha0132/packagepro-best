@@ -270,6 +270,9 @@ const copy = {
     reason_English_delivery: "English delivery",
     reason_within_your_budget: "within your budget",
     reason_stretch_option: "stretch option",
+    buildThis: "Build this package",
+    agentThinking: "Reading your request against PackagePro data…",
+    poweredBy: "powered by",
   },
   ta: {
     brand: "பேக்கேஜ் புரோ",
@@ -533,6 +536,9 @@ const copy = {
     reason_English_delivery: "ஆங்கிலத்தில்",
     reason_within_your_budget: "பட்ஜெட்டுக்குள்",
     reason_stretch_option: "சற்று அதிகம்",
+    buildThis: "இந்தத் தொகுப்பை உருவாக்கு",
+    agentThinking: "PackagePro தரவுடன் உங்கள் கோரிக்கையைப் படிக்கிறது…",
+    poweredBy: "இயக்குவது",
   },
   hi: {
     brand: "पैकेजप्रो",
@@ -796,6 +802,9 @@ const copy = {
     reason_English_delivery: "अंग्रेज़ी में",
     reason_within_your_budget: "बजट के भीतर",
     reason_stretch_option: "थोड़ा ऊपर",
+    buildThis: "यह पैकेज बनाएँ",
+    agentThinking: "PackagePro डेटा से आपका अनुरोध समझ रहे हैं…",
+    poweredBy: "संचालित",
   },
   te: {
     brand: "ప్యాకేజ్ ప్రో",
@@ -1059,6 +1068,9 @@ const copy = {
     reason_English_delivery: "ఆంగ్లంలో",
     reason_within_your_budget: "బడ్జెట్‌లోనే",
     reason_stretch_option: "కొంచెం ఎక్కువ",
+    buildThis: "ఈ ప్యాకేజీని రూపొందించు",
+    agentThinking: "PackagePro డేటాతో మీ అభ్యర్థనను చదువుతోంది…",
+    poweredBy: "ఆధారం",
   },
 } as const;
 
