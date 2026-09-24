@@ -45,7 +45,7 @@ export const appRouter = router({
       const result = guideCheck(guide, dates);
       return { guide, dates, ...result, accepted: result.conflicts.length === 0, total: guide.dayRate * dates.length, replacementTotal: result.replacement ? result.replacement.dayRate * dates.length : null };
     }),
-    recommend: publicProcedure.input(z.object({ query: z.string().default(""), language: languageSchema })).query(({ input }) => ({ ...recommendPackages(input.query, input.language), groundedIn: ["PackagePro package catalogue", "guide availability records", "language preferences"] })),
+    recommend: publicProcedure.input(z.object({ query: z.string().default(""), language: languageSchema, destination: z.string().optional(), budget: z.number().positive().optional() })).query(({ input }) => ({ ...recommendPackages(input.query, input.language, input.destination, input.budget), groundedIn: ["PackagePro package catalogue", "guide availability records", "language preferences"] })),
     translate: publicProcedure.input(z.object({ texts: z.array(z.string()).max(40), language: languageSchema })).mutation(({ input }) => translateMany(input.texts, input.language)),
   }),
   trip: router({

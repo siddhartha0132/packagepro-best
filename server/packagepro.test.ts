@@ -12,6 +12,13 @@ describe("packagepro catalogue", () => {
     const heritage = await caller().packagepro.list({ theme: "Heritage" });
     expect(heritage.every(item => item.theme === "Heritage" || item.tags.includes("heritage"))).toBe(true);
   });
+
+  it("personalizes recommendations using interests, destination, budget, and guide language", async () => {
+    const result = await caller().packagepro.recommend({ query: "local food", language: "ta", destination: "Thanjavur", budget: 50000 });
+    expect(result.packages[0]?.city).toBe("Thanjavur");
+    expect(result.packages[0]?.matchReasons).toContain("your destination");
+    expect(result.guides.every(guide => guide.city === "Thanjavur" && guide.languages.includes("ta"))).toBe(true);
+  });
 });
 
 describe("master trip flow", () => {

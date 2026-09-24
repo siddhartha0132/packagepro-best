@@ -155,10 +155,17 @@ export function guideCheck(guide: GuideRecord, dates: string[]) {
   return { conflicts, replacement, priceDelta: replacement ? (replacement.dayRate - guide.dayRate) * dates.length : null };
 }
 
-export function recommendPackages(query: string, language: string) {
+export function recommendPackages(query: string, language: string, destination?: string, budget?: number) {
   const terms = query.toLowerCase().split(/[^a-z-]+/).filter(term => term.length > 2);
-  const packages = PACKAGES.map(pkg => ({ ...pkg, score: terms.filter(term => `${pkg.name} ${pkg.description} ${pkg.tags.join(" ")}`.toLowerCase().includes(term)).length })).sort((a, b) => b.score - a.score || a.basePrice - b.basePrice);
-  const guides = GUIDES.filter(guide => guide.languages.includes(language) || guide.languages.includes("en-IN")).sort((a, b) => b.rating - a.rating);
+  const city = destination?.trim().toLowerCase();
+  const packages = PACKAGES.map(pkg => {
+    const searchable = `${pkg.name} ${pkg.description} ${pkg.theme} ${pkg.tags.join(" ")}`.toLowerCase();
+    const interestScore = terms.filter(term => searchable.includes(term)).length * 5;
+    const destinationScore = city && pkg.city.toLowerCase() === city ? 12 : 0;
+    const budgetScore = budget && pkg.basePrice <= budget ? 5 : budget ? -Math.min(8, Math.ceil((pkg.basePrice - budget) / 10000)) : 0;
+    return { ...pkg, score: interestScore + destinationScore + budgetScore, matchReasons: [interestScore ? "interest match" : "curated route", destinationScore ? "your destination" : "flexible route", budgetScore >= 0 ? "within your budget" : "stretch option"] };
+  }).sort((a, b) => b.score - a.score || a.basePrice - b.basePrice);
+  const guides = GUIDES.filter(guide => (guide.languages.includes(language) || guide.languages.includes("en-IN")) && (!city || guide.city.toLowerCase() === city)).sort((a, b) => b.rating - a.rating);
   return { packages: packages.slice(0, 3), guides: guides.slice(0, 3) };
 }
 

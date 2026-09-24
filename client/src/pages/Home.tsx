@@ -40,7 +40,6 @@ export default function Home() {
 
   const cities = trpc.packagepro.cities.useQuery();
   const packages = trpc.packagepro.list.useQuery({});
-  const recommendations = trpc.packagepro.recommend.useQuery({ query: form.interests, language: form.language });
   useEffect(() => {
     if (defaultsReady || !cities.data?.origins.length || !cities.data?.destinations.length || !packages.data?.length) return;
     setForm(current => ({ ...current, origin: current.origin || cities.data!.origins[0].code, destination: current.destination || cities.data!.destinations[0].code, budgetCap: current.budgetCap || packages.data![0].basePrice + 20000, interests: current.interests || "heritage, local food, living culture" }));
@@ -50,6 +49,7 @@ export default function Home() {
   const trip = tripQuery.data;
   const duration = Math.max(1, Math.round((Date.parse(`${form.returnDate}T00:00:00Z`) - Date.parse(`${form.departDate}T00:00:00Z`)) / 86400000));
   const destinationCity = cities.data?.destinations.find(item => item.code === form.destination)?.city || "Thanjavur";
+  const recommendations = trpc.packagepro.recommend.useQuery({ query: form.interests, language: form.language, destination: destinationCity, budget: form.budgetCap || undefined });
   const reality = trpc.packagepro.reality.useQuery({ destination: destinationCity, budget: form.budgetCap, duration }, { enabled: screen === "reality" });
   const guides = trpc.trip.guides.useQuery({ tripId: tripId || "" }, { enabled: trip?.status === "select_guide" });
   const alternatives = trpc.packagepro.alternatives.useQuery({ packageId: trip?.package?.id || "", componentId: openSwap || "none" }, { enabled: Boolean(openSwap && trip?.package?.id) });
