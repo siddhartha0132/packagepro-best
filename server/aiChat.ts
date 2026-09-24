@@ -219,3 +219,24 @@ function fallbackExplanation(userQuery: string, context?: Record<string, unknown
   }
   return `I can explain this live plan using its actual city, interests, budget, selected components, and guide availability. Ask “Why this package?”, “Why this hotel?”, or “Why was this guide replaced?” and I’ll show the relevant trade-off.`;
 }
+
+/** One grounded completion from the free OpenRouter model chain; null when no key or every model fails. */
+export async function completeGrounded(system: string, user: string, maxTokens = 320): Promise<{ text: string; model: string } | null> {
+  const key = env("OPENROUTER_API_KEY");
+  if (!key || process.env.NODE_ENV === "test" || process.env.VITEST) return null;
+  for (const model of (await getFreeModels()).slice(0, 3)) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "HTTP-Referer": "https://packagepro.local", "X-Title": "PackagePro Trip Estimate", "Content-Type": "application/json" },
+        body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], temperature: 0.2, max_tokens: maxTokens }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) continue;
+      const body = await res.json() as { choices?: { message?: { content?: string } }[] };
+      const text = body.choices?.[0]?.message?.content?.trim();
+      if (text) return { text, model };
+    } catch { /* try the next free model */ }
+  }
+  return null;
+}

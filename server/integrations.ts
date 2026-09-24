@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { FLIGHTS, HOTELS, type FlightRecord, type HotelRecord } from "./packagepro";
+import { FLIGHTS, HOTELS, PACKAGES, type FlightRecord, type HotelRecord } from "./packagepro";
 
 const SARVAM_LANG: Record<string, string> = {
   "en-IN": "en-IN",
@@ -30,16 +30,20 @@ export const ORIGINS = [
   { code: "VNS", city: "Varanasi", airport: "Lal Bahadur Shastri" },
 ];
 
-export const DESTINATIONS = [
-  { code: "BLR", city: "Thanjavur", label: "Thanjavur · Chola trail", airport: "Trichy / Chennai" },
-  { code: "MAA", city: "Thanjavur", label: "Thanjavur via Chennai", airport: "Chennai International" },
-  { code: "JAI", city: "Jaipur", label: "Jaipur · Pink City", airport: "Jaipur International" },
-  { code: "GOI", city: "Goa", label: "Goa · Coast & kitchens", airport: "Manohar International" },
-  { code: "VNS", city: "Varanasi", label: "Varanasi · Riverfront", airport: "Lal Bahadur Shastri" },
-  { code: "AMD", city: "Ahmedabad", label: "Ahmedabad · Old city", airport: "Sardar Vallabhbhai Patel" },
-  { code: "UDR", city: "Udaipur", label: "Udaipur · Lakes", airport: "Maharana Pratap" },
-  { code: "AGR", city: "Agra", label: "Agra · Heritage", airport: "Kheria" },
-];
+// Nearest commercial airport for each PS-04 package city (flight search needs IATA; several cities share one).
+const CITY_AIRPORT: Record<string, string> = {
+  Agra: "AGR", Ahmedabad: "AMD", Alleppey: "COK", Amritsar: "ATQ", Aurangabad: "IXU", Bengaluru: "BLR", Bhubaneswar: "BBI", Bhuj: "BHJ",
+  Chennai: "MAA", Darjeeling: "IXB", Gangtok: "PYG", Gokarna: "GOI", Guwahati: "GAU", Hampi: "HBX", Hyderabad: "HYD", Jaipur: "JAI",
+  Jaisalmer: "JSA", Jodhpur: "JDH", Kochi: "COK", Kolkata: "CCU", Leh: "IXL", Lucknow: "LKO", Madurai: "IXM", Manali: "KUU", Mumbai: "BOM",
+  Munnar: "COK", Mysuru: "MYQ", Nainital: "PGH", "New Delhi": "DEL", Ooty: "CJB", Panaji: "GOI", Pondicherry: "MAA", Pune: "PNQ", Puri: "BBI",
+  Rishikesh: "DED", Shillong: "SHL", Shimla: "SLV", Srinagar: "SXR", Thanjavur: "TRZ", Thiruvananthapuram: "TRV", Tirupati: "TIR",
+  Udaipur: "UDR", Varanasi: "VNS", Visakhapatnam: "VTZ", Wayanad: "CCJ",
+};
+
+/** One destination per PS-04 package city. `code` is the dataset city_id; `airport` is the IATA code used for flights. */
+export const DESTINATIONS = PACKAGES
+  .map(pkg => ({ code: pkg.cityId, city: pkg.city, label: `${pkg.city} · ${pkg.theme}`, airport: CITY_AIRPORT[pkg.city] || "" }))
+  .sort((a, b) => a.city.localeCompare(b.city));
 
 function env(name: string) {
   return process.env[name] || "";
@@ -91,9 +95,12 @@ function hotelbedsHeaders(apiKey: string, secret: string) {
 }
 
 export async function searchHotelsLive(city: string, checkIn: string, checkOut: string, adults: number): Promise<{ hotels: HotelRecord[]; source: string }> {
-  const fallback = HOTELS.filter(hotel => hotel.city === city);
-  const hotels = fallback.length ? fallback : HOTELS.filter(hotel => hotel.city === "Thanjavur");
-  if (process.env.NODE_ENV === "test" || process.env.VITEST) return { hotels, source: "catalogue" };
+  const nights = Math.max(1, Math.round((Date.parse(`${checkOut}T00:00:00Z`) - Date.parse(`${checkIn}T00:00:00Z`)) / 86400000) || 1);
+  // PS-04 dataset hotels first (cheapest active room × nights); live Hotelbeds rates are appended as extra options.
+  const hotels = HOTELS.filter(hotel => hotel.city === city)
+    .map(hotel => ({ ...hotel, total: Math.round((hotel.nightly ?? hotel.total) * nights * 100) / 100, detail: `${hotel.detail} · ${nights} night${nights > 1 ? "s" : ""}` }))
+    .sort((a, b) => a.total - b.total);
+  if (process.env.NODE_ENV === "test" || process.env.VITEST) return { hotels, source: "ps04" };
   const pairs = [
     [env("HOTELBEDS_API_KEY"), env("HOTELBEDS_API_SECRET")],
     [env("HOTELBEDS_API_KEY_ALT"), env("HOTELBEDS_API_SECRET_ALT")],
@@ -101,7 +108,8 @@ export async function searchHotelsLive(city: string, checkIn: string, checkOut: 
 
   for (const [apiKey, secret] of pairs) {
     try {
-      const dest = DESTINATIONS.find(item => item.city === city)?.code || "DEL";
+      const dest = DESTINATIONS.find(item => item.city === city)?.airport;
+      if (!dest) break;
       const res = await timedFetch("https://api.test.hotelbeds.com/hotel-api/1.0/hotels", {
         method: "POST",
         headers: hotelbedsHeaders(apiKey, secret),
@@ -131,17 +139,95 @@ export async function searchHotelsLive(city: string, checkIn: string, checkOut: 
           total,
         });
       }
-      if (mapped.length) return { hotels: [...mapped, ...hotels].slice(0, 8), source: "hotelbeds" };
+      if (mapped.length) return { hotels: [...hotels, ...mapped].slice(0, 10), source: hotels.length ? "ps04+hotelbeds" : "hotelbeds" };
     } catch {
       // try next credential pair
     }
   }
-  return { hotels, source: "catalogue" };
+  return { hotels, source: "ps04" };
 }
 
-export async function searchFlightsLive(origin: string, destination: string, departDate: string): Promise<{ flights: FlightRecord[]; source: string }> {
-  const fallback = FLIGHTS.map(flight => ({ ...flight, route: `${origin} → ${destination}` }));
+export type FlightInsights = { lowestPrice?: number; typicalRange?: [number, number]; priceLevel?: string };
+type FlightSearch = { flights: FlightRecord[]; source: string; insights?: FlightInsights; note?: string };
+
+const flightCache = new Map<string, { value: FlightSearch; at: number }>();
+const FLIGHT_CACHE_MS = 30 * 60 * 1000;
+
+const hhmm = (value?: string) => value && /\d{2}:\d{2}/.test(value) ? value.match(/(\d{2}:\d{2})/)![1] : "";
+const fmtDuration = (minutes: number) => `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+
+/**
+ * Live flights, best source first:
+ *  1. SerpAPI Google Flights — real fares, times, flight numbers, logos and Google's typical price range (≈6 s, so cached).
+ *  2. Sky-Scrapper (RapidAPI) — real fares when the key is subscribed.
+ *  3. Aviationstack — real schedules only; fares are catalogue estimates and flagged as such.
+ */
+export async function searchFlightsLive(origin: string, destination: string, departDate: string): Promise<FlightSearch> {
+  const fallback = FLIGHTS.map(flight => ({ ...flight, route: `${origin} → ${destination}`, source: "catalogue" }));
   if (process.env.NODE_ENV === "test" || process.env.VITEST) return { flights: fallback, source: "catalogue" };
+  if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination)) return { flights: fallback, source: "catalogue", note: "No airport code for this destination" };
+  if (departDate < new Date().toISOString().slice(0, 10)) return { flights: fallback, source: "catalogue", note: "Live fares are only available for future dates" };
+  const cacheKey = `${origin}-${destination}-${departDate}`;
+  const cached = flightCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < FLIGHT_CACHE_MS) return cached.value;
+  const remember = (value: FlightSearch) => { flightCache.set(cacheKey, { value, at: Date.now() }); return value; };
+
+  const serpKey = env("SERP_API_KEY");
+  if (serpKey) {
+    try {
+      const url = new URL("https://serpapi.com/search");
+      url.searchParams.set("engine", "google_flights");
+      url.searchParams.set("api_key", serpKey);
+      url.searchParams.set("departure_id", origin);
+      url.searchParams.set("arrival_id", destination);
+      url.searchParams.set("outbound_date", departDate);
+      url.searchParams.set("type", "2"); // one-way
+      url.searchParams.set("currency", "INR");
+      url.searchParams.set("hl", "en");
+      const res = await timedFetch(url, {}, 15000);
+      if (res.ok) {
+        type Leg = { departure_airport?: { id?: string; time?: string }; arrival_airport?: { id?: string; time?: string }; airline?: string; airline_logo?: string; flight_number?: string; duration?: number; airplane?: string; travel_class?: string };
+        type Option = { flights?: Leg[]; price?: number; total_duration?: number; airline_logo?: string };
+        const body = await res.json() as { best_flights?: Option[]; other_flights?: Option[]; price_insights?: { lowest_price?: number; typical_price_range?: [number, number]; price_level?: string }; error?: string };
+        const flights: FlightRecord[] = [];
+        const seen = new Set<string>();
+        for (const item of [...(body.best_flights || []), ...(body.other_flights || [])]) {
+          const legs = item.flights || [];
+          const first = legs[0];
+          const last = legs[legs.length - 1];
+          const price = Number(item.price || 0);
+          if (!first || !last || price <= 0) continue;
+          const id = (first.flight_number || `${origin}${destination}${flights.length}`).replace(/\s+/g, "");
+          if (seen.has(id)) continue;
+          seen.add(id);
+          const minutes = item.total_duration || legs.reduce((sum, leg) => sum + (leg.duration || 0), 0) || 150;
+          flights.push({
+            id,
+            airline: first.airline || "Live carrier",
+            route: `${first.departure_airport?.id || origin} → ${last.arrival_airport?.id || destination}`,
+            depart: hhmm(first.departure_airport?.time) || "—",
+            arrive: hhmm(last.arrival_airport?.time),
+            duration: fmtDuration(minutes),
+            stops: legs.length - 1,
+            via: legs.slice(0, -1).map(leg => leg.arrival_airport?.id).filter(Boolean).join(", "),
+            logo: first.airline_logo || item.airline_logo,
+            aircraft: first.airplane,
+            price: Math.round(price),
+            confidence: 0.95,
+            source: "google_flights",
+          });
+          if (flights.length >= 8) break;
+        }
+        if (flights.length) {
+          const insights = body.price_insights;
+          return remember({ flights, source: "serpapi", insights: insights ? { lowestPrice: insights.lowest_price, typicalRange: insights.typical_price_range, priceLevel: insights.price_level } : undefined });
+        }
+      }
+    } catch {
+      // fall through
+    }
+  }
+
   const rapidKey = env("SKYSCANNER_API_KEY");
   if (rapidKey) {
     try {
@@ -151,32 +237,29 @@ export async function searchFlightsLive(origin: string, destination: string, dep
       url.searchParams.set("date", departDate);
       url.searchParams.set("adults", "1");
       url.searchParams.set("currency", "INR");
-      const res = await timedFetch(url, {
-        headers: {
-          "X-RapidAPI-Key": rapidKey,
-          "X-RapidAPI-Host": "sky-scrapper.p.rapidapi.com",
-        },
-      }, 3500);
+      const res = await timedFetch(url, { headers: { "X-RapidAPI-Key": rapidKey, "X-RapidAPI-Host": "sky-scrapper.p.rapidapi.com" } }, 5000);
       if (res.ok) {
-        const body = await res.json() as { data?: { itineraries?: { id?: string; price?: { raw?: number }; legs?: { origin?: { displayCode?: string }; destination?: { displayCode?: string }; durationInMinutes?: number; carriers?: { marketing?: { name?: string }[] }; departure?: string }[] }[] } };
-        const itineraries = body.data?.itineraries || [];
+        const body = await res.json() as { data?: { itineraries?: { id?: string; price?: { raw?: number }; legs?: { origin?: { displayCode?: string }; destination?: { displayCode?: string }; durationInMinutes?: number; stopCount?: number; carriers?: { marketing?: { name?: string; logoUrl?: string }[] }; departure?: string; arrival?: string }[] }[] } };
         const flights: FlightRecord[] = [];
-        for (const item of itineraries.slice(0, 6)) {
+        for (const item of (body.data?.itineraries || []).slice(0, 8)) {
           const leg = item.legs?.[0];
           const price = Number(item.price?.raw || 0);
           if (!leg || price <= 0) continue;
-          const depart = leg.departure ? new Date(leg.departure).toISOString().slice(11, 16) : "—";
           flights.push({
             id: String(item.id || `${origin}-${destination}-${flights.length}`).slice(0, 18),
             airline: leg.carriers?.marketing?.[0]?.name || "Live carrier",
             route: `${leg.origin?.displayCode || origin} → ${leg.destination?.displayCode || destination}`,
-            depart,
-            duration: `${Math.round((leg.durationInMinutes || 150) / 60)}h ${(leg.durationInMinutes || 150) % 60}m`,
+            depart: hhmm(leg.departure) || "—",
+            arrive: hhmm(leg.arrival),
+            duration: fmtDuration(leg.durationInMinutes || 150),
+            stops: leg.stopCount ?? 0,
+            logo: leg.carriers?.marketing?.[0]?.logoUrl,
             price: Math.round(price),
-            confidence: 0.86,
+            confidence: 0.9,
+            source: "skyscanner",
           });
         }
-        if (flights.length) return { flights, source: "skyscanner" };
+        if (flights.length) return remember({ flights, source: "skyscanner" });
       }
     } catch {
       // fall through
@@ -191,19 +274,29 @@ export async function searchFlightsLive(origin: string, destination: string, dep
       url.searchParams.set("dep_iata", origin);
       url.searchParams.set("arr_iata", destination);
       url.searchParams.set("limit", "6");
-      const res = await timedFetch(url, {}, 3500);
+      const res = await timedFetch(url, {}, 5000);
       if (res.ok) {
-        const body = await res.json() as { data?: { flight?: { iata?: string }; airline?: { name?: string }; departure?: { scheduled?: string; iata?: string }; arrival?: { iata?: string } }[] };
-        const live = body.data || [];
+        const body = await res.json() as { data?: { flight?: { iata?: string }; airline?: { name?: string; iata?: string }; departure?: { scheduled?: string; iata?: string }; arrival?: { scheduled?: string; iata?: string } }[] };
+        const live = (body.data || []).filter(item => item.flight?.iata);
         if (live.length) {
-          const flights = live.slice(0, 6).map((item, index) => ({
-            ...fallback[index % fallback.length],
-            id: item.flight?.iata || fallback[index % fallback.length].id,
-            airline: item.airline?.name || fallback[index % fallback.length].airline,
-            route: `${item.departure?.iata || origin} → ${item.arrival?.iata || destination}`,
-            depart: item.departure?.scheduled ? new Date(item.departure.scheduled).toISOString().slice(11, 16) : fallback[index % fallback.length].depart,
-          }));
-          return { flights, source: "aviationstack" };
+          const flights = live.slice(0, 6).map((item, index) => {
+            const base = fallback[index % fallback.length];
+            const dep = item.departure?.scheduled ? Date.parse(item.departure.scheduled) : NaN;
+            const arr = item.arrival?.scheduled ? Date.parse(item.arrival.scheduled) : NaN;
+            return {
+              ...base,
+              id: item.flight!.iata!,
+              airline: item.airline?.name || base.airline,
+              route: `${item.departure?.iata || origin} → ${item.arrival?.iata || destination}`,
+              depart: hhmm(item.departure?.scheduled) || base.depart,
+              arrive: hhmm(item.arrival?.scheduled),
+              duration: Number.isFinite(dep) && Number.isFinite(arr) && arr > dep ? fmtDuration(Math.round((arr - dep) / 60000)) : base.duration,
+              logo: item.airline?.iata ? `https://www.gstatic.com/flights/airline_logos/70px/${item.airline.iata}.png` : undefined,
+              confidence: 0.6,
+              source: "aviationstack",
+            };
+          });
+          return remember({ flights, source: "aviationstack", note: "Real schedules; fares are estimates" });
         }
       }
     } catch {
@@ -211,7 +304,7 @@ export async function searchFlightsLive(origin: string, destination: string, dep
     }
   }
 
-  return { flights: fallback, source: "catalogue" };
+  return remember({ flights: fallback, source: "catalogue", note: "No live fares found for this route" });
 }
 
 export async function translateText(input: string, language: string) {

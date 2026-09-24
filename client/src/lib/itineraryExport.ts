@@ -12,7 +12,8 @@ export type ExportTrip = {
   chosenHotel?: { name?: string; rating?: number; detail?: string; total?: number } | null;
   package?: { name?: string; city?: string } | null;
   packagePrice?: number;
-  packageComponents?: { type?: string; label?: string; detail?: string; price?: number }[];
+  packageComponents?: { type?: string; label?: string; detail?: string; price?: number; included?: boolean }[];
+  itinerary?: { day: number; date: string; items: { slot: string; label: string; detail: string }[] }[];
   chosenGuide?: { name?: string; languages?: string[]; specialisation?: string; daysBooked?: number; totalCost?: number; bookedDates?: string[]; phone?: string; email?: string } | null;
   status?: string;
 };
@@ -35,6 +36,9 @@ function prettyDate(value: string) {
 }
 
 function schedule(trip: ExportTrip) {
+  if (trip.itinerary?.length) {
+    return trip.itinerary.map(day => `Day ${day.day} · ${prettyDate(day.date)}\n${day.items.map(item => `${item.slot}: ${item.label}`).join("\n")}`).join("\n\n");
+  }
   const dates = datesFrom(trip.departDate, trip.durationDays);
   const components = trip.packageComponents || [];
   return dates.map((date, index) => {
@@ -55,7 +59,7 @@ export function buildWhatsAppItineraryMessage(trip: ExportTrip) {
   const guideContact = guide
     ? `${guide.phone || guide.email || "Direct contact shared securely after confirmation"}`
     : "No guide added";
-  const componentLedger = (trip.packageComponents || []).map(component => `  • ${component.label || "Component"}: ${money(component.price)} (included in package baseline)`).join("\n");
+  const componentLedger = (trip.packageComponents || []).filter(component => component.included !== false).map(component => `  • ${component.label || "Component"}: ${money(component.price)} (included in package baseline)`).join("\n");
 
   return [
     "PACKAGEPRO · TRIP ITINERARY",

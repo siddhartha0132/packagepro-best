@@ -1,20 +1,37 @@
+import { fromPaise, loadCatalogue, rupees, toPaise, type HotelRow } from "./catalogue";
+
 export type PackageComponent = {
   id: string;
-  type: "hotel" | "experience" | "transfer";
+  type: "hotel" | "experience" | "transfer" | "meal" | "entry_ticket";
   label: string;
   detail: string;
   price: number;
   swapGroup?: string;
+  dayIndex?: number;
+  slot?: string;
+  optional?: boolean;
+  entityId?: string;
+  /** true for the line the curated package ships with; false for swap alternatives */
+  isDefault?: boolean;
 };
 
 export type PackageRecord = {
   id: string;
+  cityId: string;
   name: string;
   theme: string;
+  tier: string;
+  difficulty: string;
   city: string;
   duration: number;
+  durationNights: number;
   basePrice: number;
+  currency: string;
   description: string;
+  inclusions: string;
+  exclusions: string;
+  languagesOffered: string[];
+  guideSpecialisation: string;
   image: string;
   tags: string[];
   components: PackageComponent[];
@@ -24,30 +41,31 @@ export type GuideRecord = {
   id: string;
   name: string;
   city: string;
+  cityId: string;
   languages: string[];
   specialisation: string;
+  secondarySpecialisation: string | null;
   rating: number;
+  reviewCount: number;
+  yearsExperience: number;
+  certified: boolean;
   dayRate: number;
+  halfDayRate: number;
   bio: string;
+  /** guide_availability.is_available by for_date; a missing date means unknown and is treated as unavailable. */
   availability: Record<string, boolean>;
+  /** guide_availability.price_multiplier by for_date (peak-date uplift). */
+  priceMultiplier: Record<string, number>;
 };
 
-export type FlightRecord = { id: string; airline: string; route: string; depart: string; duration: string; price: number; confidence: number };
-export type HotelRecord = { id: string; name: string; city: string; rating: number; detail: string; total: number };
+export type FlightRecord = { id: string; airline: string; route: string; depart: string; arrive?: string; duration: string; stops?: number; via?: string; logo?: string; aircraft?: string; price: number; confidence: number; source?: string };
+export type HotelRecord = { id: string; name: string; city: string; rating: number; detail: string; total: number; nightly?: number };
 export type TransportRecord = { id: string; mode: "train" | "cab"; operator: string; route: string; depart: string; duration: string; price: number; confidence: number };
 
 export const FLIGHTS: FlightRecord[] = [
-  { id: "AI-203", airline: "Air India", route: "DEL → MAA", depart: "06:20", duration: "2h 45m", price: 6800, confidence: 0.94 },
-  { id: "6E-441", airline: "IndiGo", route: "DEL → MAA", depart: "09:10", duration: "2h 50m", price: 5900, confidence: 0.89 },
-  { id: "UK-821", airline: "Vistara", route: "DEL → MAA", depart: "17:35", duration: "2h 55m", price: 7600, confidence: 0.92 },
-];
-
-export const HOTELS: HotelRecord[] = [
-  { id: "hotel-courtyard", name: "Courtyard heritage stay", city: "Thanjavur", rating: 4.7, detail: "Boutique · breakfast included · old town", total: 6800 },
-  { id: "hotel-palace", name: "Palace garden stay", city: "Thanjavur", rating: 4.9, detail: "Luxury · breakfast included · private garden", total: 11900 },
-  { id: "hotel-haveli", name: "Pink haveli", city: "Jaipur", rating: 4.8, detail: "Boutique · breakfast included · old city", total: 9200 },
-  { id: "hotel-goa", name: "Garden boutique", city: "Goa", rating: 4.6, detail: "Boutique · breakfast included · quiet lane", total: 7600 },
-  { id: "hotel-vns", name: "Riverfront guesthouse", city: "Varanasi", rating: 4.5, detail: "Boutique · breakfast included · ghat-side", total: 6100 },
+  { id: "AI-203", airline: "Air India", route: "DEL → MAA", depart: "06:20", arrive: "09:05", duration: "2h 45m", price: 6800, confidence: 0.94 },
+  { id: "6E-441", airline: "IndiGo", route: "DEL → MAA", depart: "09:10", arrive: "12:00", duration: "2h 50m", price: 5900, confidence: 0.89 },
+  { id: "UK-821", airline: "Vistara", route: "DEL → MAA", depart: "17:35", arrive: "20:30", duration: "2h 55m", price: 7600, confidence: 0.92 },
 ];
 
 export const TRANSPORTS: TransportRecord[] = [
@@ -56,94 +74,176 @@ export const TRANSPORTS: TransportRecord[] = [
   { id: "vande-bharat-del-agra", mode: "train", operator: "Intercity Express", route: "New Delhi → Agra", depart: "07:00", duration: "2h 10m", price: 950, confidence: 0.91 },
 ];
 
-export const PACKAGES: PackageRecord[] = [
-  {
-    id: "pkg-thanjavur-heritage",
-    name: "The Chola trail",
-    theme: "Heritage",
-    city: "Thanjavur",
-    duration: 3,
-    basePrice: 21400,
-    description: "Tamil-speaking stories, living bronze craft, and the quiet geometry of the Chola heartland.",
-    image: "/manus-storage/thanjavur_ab6c3046.jpg",
-    tags: ["heritage", "culture", "slow travel"],
-    components: [
-      { id: "hotel-thanjavur-courtyard", type: "hotel", label: "Courtyard heritage stay", detail: "Boutique · breakfast included", price: 6800, swapGroup: "hotel" },
-      { id: "hotel-thanjavur-palace", type: "hotel", label: "Palace garden stay", detail: "Luxury · breakfast included", price: 11900, swapGroup: "hotel" },
-      { id: "experience-thanjavur-temple", type: "experience", label: "Brihadisvara at first light", detail: "Private heritage walk", price: 4100, swapGroup: "experience" },
-      { id: "experience-thanjavur-bronze", type: "experience", label: "The bronze makers", detail: "Living craft studio visit", price: 3500, swapGroup: "experience" },
-      { id: "transfer-thanjavur", type: "transfer", label: "Station to the old town", detail: "Private sedan", price: 1500, swapGroup: "transfer" },
-    ],
-  },
-  {
-    id: "pkg-jaipur-heritage",
-    name: "Rose City, slowly",
-    theme: "Heritage",
-    city: "Jaipur",
-    duration: 4,
-    basePrice: 28500,
-    description: "Pink city mornings, hand-block prints, and a heritage stay close to the old walls.",
-    image: "/manus-storage/jaipur_e21af428.jpg",
-    tags: ["heritage", "food", "slow travel"],
-    components: [
-      { id: "hotel-jaipur-boutique", type: "hotel", label: "Courtyard haveli stay", detail: "Boutique · breakfast included", price: 9200, swapGroup: "hotel" },
-      { id: "hotel-jaipur-grand", type: "hotel", label: "Grand palace hotel", detail: "Luxury · breakfast included", price: 16800, swapGroup: "hotel" },
-      { id: "experience-jaipur-walk", type: "experience", label: "Old city at first light", detail: "Guided heritage walk", price: 4200, swapGroup: "experience" },
-      { id: "experience-jaipur-food", type: "experience", label: "The thali trail", detail: "Market-to-table tasting", price: 5600, swapGroup: "experience" },
-      { id: "transfer-jaipur", type: "transfer", label: "Airport to haveli", detail: "Private sedan", price: 1800, swapGroup: "transfer" },
-    ],
-  },
-  {
-    id: "pkg-goa-coast",
-    name: "Goa, beyond the beach",
-    theme: "Slow travel",
-    city: "Goa",
-    duration: 4,
-    basePrice: 22400,
-    description: "A softer Goa built around local kitchens, quiet coves, and an unhurried final day.",
-    image: "/manus-storage/goa_a37cc251.jpg",
-    tags: ["beach", "food", "slow travel"],
-    components: [
-      { id: "hotel-goa-garden", type: "hotel", label: "Garden boutique", detail: "Boutique · breakfast included", price: 7600, swapGroup: "hotel" },
-      { id: "hotel-goa-retreat", type: "hotel", label: "Sea-facing retreat", detail: "Luxury · breakfast included", price: 14200, swapGroup: "hotel" },
-      { id: "experience-goa-kitchen", type: "experience", label: "Home kitchen supper", detail: "Local food experience", price: 3900, swapGroup: "experience" },
-      { id: "experience-goa-cove", type: "experience", label: "Coves by scooter", detail: "Half-day coastal route", price: 3300, swapGroup: "experience" },
-      { id: "transfer-goa", type: "transfer", label: "Airport to coast", detail: "Private sedan", price: 1600, swapGroup: "transfer" },
-    ],
-  },
-  {
-    id: "pkg-varanasi-river",
-    name: "River, ritual, morning light",
-    theme: "Pilgrimage",
-    city: "Varanasi",
-    duration: 3,
-    basePrice: 19800,
-    description: "A grounded introduction to the riverfront, living craft, and the city's devotional rhythm.",
-    image: "/manus-storage/varanasi_c36642d3.jpg",
-    tags: ["heritage", "religious", "culture"],
-    components: [
-      { id: "hotel-vns-house", type: "hotel", label: "Riverfront guesthouse", detail: "Boutique · breakfast included", price: 6100, swapGroup: "hotel" },
-      { id: "hotel-vns-palace", type: "hotel", label: "Ghat-side palace", detail: "Luxury · breakfast included", price: 11200, swapGroup: "hotel" },
-      { id: "experience-vns-dawn", type: "experience", label: "Dawn on the ghats", detail: "Private boat and walk", price: 3600, swapGroup: "experience" },
-      { id: "experience-vns-craft", type: "experience", label: "Silk and living craft", detail: "Textile studio visit", price: 3100, swapGroup: "experience" },
-      { id: "transfer-vns", type: "transfer", label: "Station to ghat", detail: "Private sedan", price: 1400, swapGroup: "transfer" },
-    ],
-  },
-];
+// ---------------------------------------------------------------------------
+// Catalogue loaded from the PS-04 dataset
+// ---------------------------------------------------------------------------
 
-export const GUIDES: GuideRecord[] = [
-  { id: "guide-arjun", name: "Arjun Nair", city: "Thanjavur", languages: ["ta", "en-IN", "kn"], specialisation: "heritage", rating: 4.9, dayRate: 2400, bio: "Living history, temple architecture, and the details most guidebooks miss.", availability: { "2026-09-02": false, "2026-09-03": true, "2026-09-04": true } },
-  { id: "guide-meera", name: "Meera Novak", city: "Thanjavur", languages: ["ta", "en-IN"], specialisation: "heritage", rating: 4.8, dayRate: 2700, bio: "A Tamil-speaking heritage specialist with a calm, story-rich pace.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
-  { id: "guide-kavya", name: "Kavya Menon", city: "Jaipur", languages: ["hi", "en-IN"], specialisation: "heritage", rating: 4.7, dayRate: 2600, bio: "Old-city walks, palace courtyards, and the quieter craft lanes.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
-  { id: "guide-ravi", name: "Ravi D'Souza", city: "Goa", languages: ["en-IN", "hi"], specialisation: "food", rating: 4.6, dayRate: 2100, bio: "Home kitchens, quiet coves, and the Goa that isn't on the postcard.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
-  { id: "guide-anika", name: "Anika Mishra", city: "Varanasi", languages: ["hi", "en-IN"], specialisation: "heritage", rating: 4.8, dayRate: 2300, bio: "River mornings, living craft, and the city's devotional rhythm.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
-  { id: "guide-priya", name: "Priya Reddy", city: "Ahmedabad", languages: ["gu", "en-IN"], specialisation: "heritage", rating: 4.8, dayRate: 2500, bio: "Heritage precincts, stepwells, and food traditions of Gujarat.", availability: { "2026-09-02": false, "2026-09-03": true, "2026-09-04": true } },
-  { id: "guide-riya", name: "Riya Costa", city: "Ahmedabad", languages: ["gu", "en-IN"], specialisation: "heritage", rating: 4.7, dayRate: 2200, bio: "A warm local storyteller for old-city walks and architecture.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
-];
+const data = loadCatalogue();
+
+export const CITIES = data.cities;
+const cityById = new Map(data.cities.map(city => [city.city_id, city]));
+const cityName = (cityId: string) => cityById.get(cityId)?.name ?? cityId;
+
+const THEME_LABEL: Record<string, string> = { food_trail: "Food trail" };
+const themeLabel = (theme: string) => THEME_LABEL[theme] ?? theme.charAt(0).toUpperCase() + theme.slice(1);
+
+// Which guide specialisation best serves each package theme.
+const THEME_SPECIALISATION: Record<string, string[]> = {
+  heritage: ["heritage", "photography"],
+  pilgrimage: ["religious", "heritage"],
+  food_trail: ["food", "shopping"],
+  adventure: ["trekking", "photography"],
+  wildlife: ["wildlife", "photography"],
+  honeymoon: ["photography", "heritage", "food"],
+  family: ["heritage", "accessibility", "food"],
+  wellness: ["accessibility", "trekking"],
+};
+
+const THEME_COLOUR: Record<string, [string, string]> = {
+  heritage: ["#8a5a2b", "#d9b27c"], pilgrimage: ["#7a3b2e", "#e0a36b"], food_trail: ["#9b4a1c", "#f0b56a"],
+  adventure: ["#1f5c4a", "#7cc3a4"], wildlife: ["#2f5d2a", "#9ccf7a"], honeymoon: ["#7d2f4f", "#e9a3b9"],
+  family: ["#2b4f7d", "#9ec3ea"], wellness: ["#3d5f5b", "#b5d9d0"],
+};
+
+function placeholderImage(city: string, theme: string) {
+  const [from, to] = THEME_COLOUR[theme] ?? ["#17231f", "#286c62"];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="800" height="500" fill="url(#g)"/><text x="40" y="440" font-family="Georgia,serif" font-size="64" fill="#fff" fill-opacity=".92">${city}</text><text x="42" y="480" font-family="sans-serif" font-size="22" letter-spacing="4" fill="#fff" fill-opacity=".7">${themeLabel(theme).toUpperCase()}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function hotelRating(row: HotelRow) {
+  return Math.round(row.guest_score * 5) / 10; // guest_score is /10 → /5 scale
+}
+
+function hotelDetail(row: HotelRow) {
+  return `${row.star_rating}★ ${row.property_type} · ${row.room_name} · ${row.distance_to_centre_km} km from centre`;
+}
+
+/** One night in the cheapest active room; searchHotelsLive scales `total` to the stay length. */
+export const HOTELS: HotelRecord[] = data.hotels.map(row => ({
+  id: row.hotel_id,
+  name: row.name,
+  city: cityName(row.city_id),
+  rating: hotelRating(row),
+  detail: hotelDetail(row),
+  total: rupees(row.min_rate),
+  nightly: rupees(row.min_rate),
+}));
+
+export const GUIDES: GuideRecord[] = (() => {
+  const availability = new Map<string, { availability: Record<string, boolean>; priceMultiplier: Record<string, number> }>();
+  for (const row of data.availability) {
+    const entry = availability.get(row.guide_id) ?? { availability: {}, priceMultiplier: {} };
+    entry.availability[row.for_date] = row.is_available === 1 && row.slots_available > 0;
+    entry.priceMultiplier[row.for_date] = Number(row.price_multiplier) || 1;
+    availability.set(row.guide_id, entry);
+  }
+  return data.guides.map(row => ({
+    id: row.guide_id,
+    name: row.display_name,
+    city: cityName(row.city_id),
+    cityId: row.city_id,
+    languages: row.languages.split(",").map(tag => tag.trim()).filter(Boolean),
+    specialisation: row.specialisation,
+    secondarySpecialisation: row.secondary_specialisation || null,
+    rating: row.rating ?? 0,
+    reviewCount: row.review_count,
+    yearsExperience: row.years_experience,
+    certified: row.certified === 1,
+    dayRate: rupees(row.day_rate),
+    halfDayRate: rupees(row.half_day_rate),
+    bio: row.bio,
+    ...(availability.get(row.guide_id) ?? { availability: {}, priceMultiplier: {} }),
+  }));
+})();
+
+export const PACKAGES: PackageRecord[] = data.packages.map(row => {
+  const city = cityName(row.city_id);
+  const rows = data.components.filter(component => component.package_id === row.package_id);
+  const components: PackageComponent[] = [];
+  const seenGroups = new Set<string>();
+  for (const component of rows) {
+    if (component.component_type === "guide") continue; // guides are booked through the availability-checked guide step
+    const type: PackageComponent["type"] = component.component_type === "poi" ? "experience" : component.component_type as PackageComponent["type"];
+    const hotel = type === "hotel" ? data.hotels.find(item => item.hotel_id === component.entity_id) : undefined;
+    components.push({
+      id: component.component_id,
+      type,
+      label: component.title,
+      detail: [`Day ${component.day_index} · ${component.slot}`, hotel ? hotelDetail(hotel) : null, component.is_optional ? "optional" : null].filter(Boolean).join(" · "),
+      price: rupees(component.price_delta),
+      swapGroup: component.swap_group || (type === "transfer" ? `transfer_${row.package_id.slice(-4)}` : undefined),
+      dayIndex: component.day_index,
+      slot: component.slot,
+      optional: component.is_optional === 1,
+      entityId: component.entity_id || undefined,
+      isDefault: !component.swap_group || !seenGroups.has(component.swap_group),
+    });
+    if (component.swap_group) seenGroups.add(component.swap_group);
+  }
+
+  // Hotel tier swap: other hotels in the same city, repriced from hotel_room_types against the included hotel.
+  const includedHotel = components.find(component => component.type === "hotel");
+  const includedHotelRow = data.hotels.find(item => item.hotel_id === includedHotel?.entityId);
+  if (includedHotel && includedHotelRow) {
+    const nights = Math.max(1, row.duration_nights);
+    for (const alt of data.hotels.filter(item => item.city_id === row.city_id && item.hotel_id !== includedHotelRow.hotel_id)) {
+      components.push({
+        id: alt.hotel_id, type: "hotel", label: alt.name,
+        detail: hotelDetail(alt),
+        price: fromPaise(toPaise(includedHotel.price.toFixed(2)) + (toPaise(alt.min_rate) - toPaise(includedHotelRow.min_rate)) * nights),
+        swapGroup: includedHotel.swapGroup, dayIndex: includedHotel.dayIndex, slot: includedHotel.slot, optional: false, entityId: alt.hotel_id, isDefault: false,
+      });
+    }
+  }
+
+  // Transfer swap: the city's transfer legs from the transfers table.
+  const includedTransfer = components.find(component => component.type === "transfer");
+  if (includedTransfer) {
+    const legs = data.transfers.filter(item => item.city_id === row.city_id).sort((a, b) => toPaise(a.cost) - toPaise(b.cost)).slice(0, 4);
+    for (const leg of legs) {
+      components.push({
+        id: leg.transfer_id, type: "transfer", label: `${leg.from_label} → ${leg.to_label}`,
+        detail: `${leg.mode.replaceAll("_", " ")} · ${leg.duration_minutes} min`,
+        price: rupees(leg.cost), swapGroup: includedTransfer.swapGroup, dayIndex: includedTransfer.dayIndex, slot: includedTransfer.slot, optional: false, entityId: leg.transfer_id, isDefault: false,
+      });
+    }
+  }
+
+  const cityGuides = data.guides.filter(guide => guide.city_id === row.city_id);
+  const preferred = THEME_SPECIALISATION[row.theme] ?? ["heritage"];
+  const guideSpecialisation = preferred.find(spec => cityGuides.some(guide => guide.specialisation === spec)) ?? cityGuides[0]?.specialisation ?? preferred[0];
+
+  return {
+    id: row.package_id,
+    cityId: row.city_id,
+    name: row.name,
+    theme: themeLabel(row.theme),
+    tier: row.tier,
+    difficulty: row.difficulty,
+    city,
+    duration: row.duration_days,
+    durationNights: row.duration_nights,
+    basePrice: rupees(row.base_price),
+    currency: row.currency,
+    description: row.description,
+    inclusions: row.inclusions,
+    exclusions: row.exclusions,
+    languagesOffered: row.languages_offered.split(",").map(tag => tag.trim()).filter(Boolean),
+    guideSpecialisation,
+    image: placeholderImage(city, row.theme),
+    tags: [row.theme, row.tier, row.difficulty],
+    components,
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Package + guide logic
+// ---------------------------------------------------------------------------
 
 export function getAlternatives(pkg: PackageRecord, componentId: string) {
   const component = pkg.components.find(item => item.id === componentId);
-  return component ? pkg.components.filter(item => item.swapGroup === component.swapGroup && item.id !== component.id) : [];
+  return component?.swapGroup ? pkg.components.filter(item => item.swapGroup === component.swapGroup && item.id !== component.id) : [];
 }
 
 export function datesBetween(start: string, duration: number) {
@@ -155,36 +255,77 @@ export function datesBetween(start: string, duration: number) {
   });
 }
 
-export function guideCheck(guide: GuideRecord, dates: string[], options: { language?: string; specialisation?: string; chargeDays?: number } = {}) {
+/** Guide cost for the given dates: day_rate × that date's price_multiplier, summed in paise. */
+export function guideCost(guide: GuideRecord, dates: string[]) {
+  const ratePaise = toPaise(guide.dayRate.toFixed(2));
+  return fromPaise(dates.reduce((sum, date) => sum + Math.round(ratePaise * (guide.priceMultiplier[date] ?? 1)), 0));
+}
+
+function distanceKm(fromCityId: string, toCityId: string) {
+  const a = cityById.get(fromCityId);
+  const b = cityById.get(toCityId);
+  if (!a || !b) return Number.POSITIVE_INFINITY;
+  if (a.city_id === b.city_id) return 0;
+  const rad = (deg: number) => deg * Math.PI / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  return Math.round(2 * 6371 * Math.asin(Math.sqrt(h)));
+}
+
+const SUBSTITUTE_RADIUS_KM = 400;
+
+/**
+ * Check a guide against every actual package date. Unknown dates count as unavailable.
+ * Substitutes must share the specialisation and the requested language and be free on every date;
+ * they are ranked nearest-first (same city = 0 km), then by smallest price change.
+ */
+export function guideCheck(guide: GuideRecord, dates: string[], options: { language?: string; specialisation?: string; chargeDates?: string[] } = {}) {
   const requiredSpecialisation = options.specialisation || guide.specialisation;
-  const speaksRequestedLanguage = (candidate: GuideRecord) => !options.language || candidate.languages.includes(options.language);
+  const chargeDates = options.chargeDates ?? dates;
   const conflicts = dates.filter(date => guide.availability[date] !== true);
-  const candidates = GUIDES.filter(candidate => candidate.id !== guide.id && candidate.city === guide.city && candidate.specialisation === requiredSpecialisation && speaksRequestedLanguage(candidate) && dates.every(date => candidate.availability[date] === true));
-  const chargeDays = options.chargeDays ?? dates.length;
-  const replacementOptions = candidates
-    .sort((a, b) => Math.abs(a.dayRate - guide.dayRate) - Math.abs(b.dayRate - guide.dayRate) || b.rating - a.rating)
-    .map(candidate => ({ guide: candidate, priceDelta: (candidate.dayRate - guide.dayRate) * chargeDays }));
-  const replacement = replacementOptions[0]?.guide ?? null;
-  return { conflicts, replacement, replacementOptions, priceDelta: replacement ? (replacement.dayRate - guide.dayRate) * chargeDays : null, requiredSpecialisation };
+  const guideTotal = guideCost(guide, chargeDates);
+  const replacementOptions = GUIDES
+    .filter(candidate => candidate.id !== guide.id
+      && candidate.specialisation === requiredSpecialisation
+      && (!options.language || candidate.languages.includes(options.language))
+      && dates.every(date => candidate.availability[date] === true))
+    .map(candidate => {
+      const totalCost = guideCost(candidate, chargeDates);
+      return { guide: candidate, totalCost, priceDelta: fromPaise(toPaise(totalCost.toFixed(2)) - toPaise(guideTotal.toFixed(2))), distanceKm: distanceKm(guide.cityId, candidate.cityId) };
+    })
+    .filter(option => option.distanceKm <= SUBSTITUTE_RADIUS_KM)
+    .sort((a, b) => a.distanceKm - b.distanceKm || Math.abs(a.priceDelta) - Math.abs(b.priceDelta) || b.guide.rating - a.guide.rating);
+  const best = replacementOptions[0] ?? null;
+  return { conflicts, guideTotal, replacement: best?.guide ?? null, replacementOptions, priceDelta: best ? best.priceDelta : null, requiredSpecialisation };
+}
+
+export function packageForCity(city: string) {
+  return PACKAGES.find(pkg => pkg.city.toLowerCase() === city.toLowerCase());
 }
 
 export function recommendPackages(query: string, language: string, destination?: string, budget?: number) {
   const terms = query.toLowerCase().split(/[^a-z-]+/).filter(term => term.length > 2);
   const city = destination?.trim().toLowerCase();
   const packages = PACKAGES.map(pkg => {
-    const searchable = `${pkg.name} ${pkg.description} ${pkg.theme} ${pkg.tags.join(" ")}`.toLowerCase();
+    const searchable = `${pkg.name} ${pkg.description} ${pkg.theme} ${pkg.tags.join(" ")} ${pkg.components.map(item => item.label).join(" ")}`.toLowerCase();
     const interestScore = terms.filter(term => searchable.includes(term)).length * 5;
     const destinationScore = city && pkg.city.toLowerCase() === city ? 12 : 0;
+    const languageScore = pkg.languagesOffered.includes(language) ? 6 : 0;
     const budgetScore = budget && pkg.basePrice <= budget ? 5 : budget ? -Math.min(8, Math.ceil((pkg.basePrice - budget) / 10000)) : 0;
-    return { ...pkg, score: interestScore + destinationScore + budgetScore, matchReasons: [interestScore ? "interest match" : "curated route", destinationScore ? "your destination" : "flexible route", budgetScore >= 0 ? "within your budget" : "stretch option"] };
+    return {
+      ...pkg,
+      score: interestScore + destinationScore + languageScore + budgetScore,
+      matchReasons: [interestScore ? "interest match" : "curated route", destinationScore ? "your destination" : "flexible route", languageScore ? "offered in your language" : "English delivery", budgetScore >= 0 ? "within your budget" : "stretch option"],
+    };
   }).sort((a, b) => b.score - a.score || a.basePrice - b.basePrice);
-  const guides = GUIDES.filter(guide => (guide.languages.includes(language) || guide.languages.includes("en-IN")) && (!city || guide.city.toLowerCase() === city)).sort((a, b) => b.rating - a.rating);
+  const guides = GUIDES.filter(guide => guide.languages.includes(language) && (!city || guide.city.toLowerCase() === city)).sort((a, b) => b.rating - a.rating);
   return { packages: packages.slice(0, 3), guides: guides.slice(0, 3) };
 }
 
 export function realityCheck(destination: string, budget: number, duration: number) {
-  const pkg = PACKAGES.find(item => item.city.toLowerCase() === destination.toLowerCase()) ?? PACKAGES[0];
-  const typical = pkg.basePrice + FLIGHTS[1].price + (HOTELS.find(hotel => hotel.city === pkg.city)?.total ?? 7000);
+  const pkg = packageForCity(destination) ?? PACKAGES[0];
+  const nightly = HOTELS.filter(hotel => hotel.city === pkg.city).map(hotel => hotel.nightly ?? hotel.total);
+  const hotelEstimate = (nightly.length ? Math.min(...nightly) : 3000) * Math.max(1, duration);
+  const typical = Math.round(pkg.basePrice + FLIGHTS[1].price + hotelEstimate);
   const gap = Math.round(((budget - typical) / typical) * 100);
   return { destination: pkg.city, typical, budget, gap, verdict: budget >= typical * 1.1 ? "comfortable" : budget >= typical * .82 ? "tight" : "unrealistic", closestPackage: pkg.name, duration };
 }

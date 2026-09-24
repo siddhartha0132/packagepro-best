@@ -21,6 +21,25 @@ const CURATED_CONTEXT: Record<string, string> = {
 
 function slug(city: string) { return city.trim().replace(/\s+/g, "_"); }
 
+const cityImages = new Map<string, string>();
+/** Wikimedia thumbnails are resizable by path: ask for a card-sized 960px rendition. */
+function largeThumb(url: string) { return url.replace(/\/(\d+)px-/, "/960px-"); }
+export function cityImage(city: string) { return cityImages.get(city.trim()); }
+
+/** Fetch destination photos once at startup (Wikipedia REST, no key) so package cards show real imagery. */
+export async function warmCityImages(cities: string[]) {
+  if (process.env.NODE_ENV === "test" || process.env.VITEST) return;
+  for (const city of cities) {
+    if (cityImages.has(city)) continue;
+    try {
+      const response = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(slug(city))}`, { headers: { Accept: "application/json", "User-Agent": "PackagePro/1.0 (hackathon demo)" }, signal: AbortSignal.timeout(5000) });
+      if (!response.ok) continue;
+      const body = await response.json() as { thumbnail?: { source?: string } };
+      if (body.thumbnail?.source) cityImages.set(city, largeThumb(body.thumbnail.source));
+    } catch { /* keep the generated placeholder */ }
+  }
+}
+
 export async function getDestinationInsight(city: string): Promise<Insight> {
   const key = city.trim();
   const cached = cache.get(key);
@@ -38,9 +57,10 @@ export async function getDestinationInsight(city: string): Promise<Insight> {
   try {
     const response = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(slug(key))}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(1800) });
     if (response.ok) {
-      const body = await response.json() as { extract?: string; content_urls?: { desktop?: { page?: string } }; thumbnail?: { source?: string } };
+      const body = await response.json() as { type?: string; extract?: string; content_urls?: { desktop?: { page?: string } }; thumbnail?: { source?: string } };
+      if (body.thumbnail?.source) cityImages.set(key, largeThumb(body.thumbnail.source));
       if (body.extract) {
-        const value: Insight = { city: key, summary: `${body.extract.slice(0, 520)} ${CURATED_CONTEXT[key] || ""}`.trim(), source: "Wikipedia REST summary + PackagePro catalogue", sourceUrl: body.content_urls?.desktop?.page, image: body.thumbnail?.source, fetchedAt: new Date().toISOString() };
+        const value: Insight = { city: key, summary: `${body.extract.slice(0, 520)} ${CURATED_CONTEXT[key] || ""}`.trim(), source: "Wikipedia REST summary + PackagePro catalogue", sourceUrl: body.content_urls?.desktop?.page, image: body.thumbnail?.source ? largeThumb(body.thumbnail.source) : undefined, fetchedAt: new Date().toISOString() };
         cache.set(key, { value, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
         return value;
       }

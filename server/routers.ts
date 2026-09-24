@@ -3,13 +3,21 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
-import { GUIDES, PACKAGES, datesBetween, getAlternatives, guideCheck, realityCheck, recommendPackages } from "./packagepro";
+import { GUIDES, PACKAGES, datesBetween, getAlternatives, guideCheck, guideCost, realityCheck, recommendPackages } from "./packagepro";
 import { DESTINATIONS, ORIGINS, translateMany } from "./integrations";
 import { explainWithFreeOpenRouter } from "./aiChat";
-import { getDestinationInsight } from "./insights";
+import { cityImage, getDestinationInsight, warmCityImages } from "./insights";
+import { PACKAGE_POPULARITY, estimateTrip } from "./estimate";
 import * as trips from "./trips";
 
 const languageSchema = z.string().min(2).max(20).default("en-IN");
+
+void warmCityImages(PACKAGES.map(pkg => pkg.city));
+
+/** Package as served to the client: real destination photo when warmed, plus dataset popularity. */
+function withMedia<T extends (typeof PACKAGES)[number]>(pkg: T) {
+  return { ...pkg, image: cityImage(pkg.city) ?? pkg.image, popularity: PACKAGE_POPULARITY[pkg.cityId] ?? { trips: 0, bookings: 0 } };
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -25,13 +33,17 @@ export const appRouter = router({
     cities: publicProcedure.query(() => ({ origins: ORIGINS, destinations: DESTINATIONS })),
     reality: publicProcedure.input(z.object({ destination: z.string(), budget: z.number().positive(), duration: z.number().int().positive() })).query(({ input }) => realityCheck(input.destination, input.budget, input.duration)),
     list: publicProcedure.input(z.object({ theme: z.string().optional(), language: languageSchema.optional() }).optional()).query(({ input }) => {
-      const theme = input?.theme?.toLowerCase();
-      return PACKAGES.filter(pkg => !theme || pkg.theme.toLowerCase() === theme || pkg.tags.some(tag => tag.toLowerCase() === theme));
+      const theme = input?.theme?.toLowerCase().replace(/\s+/g, "_");
+      const language = input?.language;
+      return PACKAGES
+        .filter(pkg => !theme || pkg.tags.includes(theme))
+        .map(withMedia)
+        .sort((a, b) => Number(!!language && b.languagesOffered.includes(language)) - Number(!!language && a.languagesOffered.includes(language)) || b.popularity.bookings - a.popularity.bookings);
     }),
     detail: publicProcedure.input(z.object({ id: z.string() })).query(({ input }) => {
       const pkg = PACKAGES.find(item => item.id === input.id);
       if (!pkg) throw new Error("Package not found");
-      return pkg;
+      return withMedia(pkg);
     }),
     alternatives: publicProcedure.input(z.object({ packageId: z.string(), componentId: z.string() })).query(({ input }) => {
       const pkg = PACKAGES.find(item => item.id === input.packageId);
@@ -45,9 +57,10 @@ export const appRouter = router({
       if (!guide) throw new Error("Guide not found");
       const dates = datesBetween(input.departDate, input.duration);
       const result = guideCheck(guide, dates, { language: input.language, specialisation: input.specialisation });
-      return { guide, dates, ...result, accepted: result.conflicts.length === 0, total: guide.dayRate * dates.length, replacementTotal: result.replacement ? result.replacement.dayRate * dates.length : null };
+      return { guide, dates, ...result, accepted: result.conflicts.length === 0, total: guideCost(guide, dates), replacementTotal: result.replacementOptions[0]?.totalCost ?? null };
     }),
     recommend: publicProcedure.input(z.object({ query: z.string().default(""), language: languageSchema, destination: z.string().optional(), budget: z.number().positive().optional() })).query(async ({ input }) => ({ ...recommendPackages(input.query, input.language, input.destination, input.budget), destinationInsight: input.destination ? await getDestinationInsight(input.destination) : null, groundedIn: ["PackagePro package catalogue", "guide availability records", "language preferences", "cached destination insight"] })),
+    estimate: publicProcedure.input(z.object({ origin: z.string(), destination: z.string(), departDate: z.string(), returnDate: z.string(), travelers: z.number().int().min(1).max(20), budget: z.number().positive(), language: languageSchema, interests: z.string().optional() })).query(({ input }) => estimateTrip(input)),
     translate: publicProcedure.input(z.object({ texts: z.array(z.string()).max(40), language: languageSchema })).mutation(({ input }) => translateMany(input.texts, input.language)),
     explain: publicProcedure.input(z.object({
       messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().min(1).max(2000) })),
@@ -65,7 +78,8 @@ export const appRouter = router({
     })).mutation(({ input }) => trips.autoBuildTrip(input)),
     get: publicProcedure.input(z.object({ tripId: z.string() })).query(({ input }) => trips.getTrip(input.tripId)),
     selectFlight: publicProcedure.input(z.object({ tripId: z.string(), flightId: z.string() })).mutation(({ input }) => trips.selectFlight(input.tripId, input.flightId)),
-    selectHotel: publicProcedure.input(z.object({ tripId: z.string(), hotelId: z.string() })).mutation(({ input }) => trips.selectHotel(input.tripId, input.hotelId)),
+    toggleAddOn: publicProcedure.input(z.object({ tripId: z.string(), componentId: z.string(), include: z.boolean() })).mutation(({ input }) => trips.toggleAddOn(input.tripId, input.componentId, input.include)),
+    setDuration: publicProcedure.input(z.object({ tripId: z.string(), days: z.number().int().min(1).max(21) })).mutation(({ input }) => trips.setDuration(input.tripId, input.days)),
     swapHotel: publicProcedure.input(z.object({ tripId: z.string(), target: z.string().min(2).max(120) })).mutation(({ input }) => trips.swapHotel(input.tripId, input.target)),
     removeGuide: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.removeGuide(input.tripId)),
     swap: publicProcedure.input(z.object({ tripId: z.string(), fromId: z.string(), toId: z.string() })).mutation(({ input }) => trips.swapComponent(input.tripId, input.fromId, input.toId)),
