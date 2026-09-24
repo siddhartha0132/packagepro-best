@@ -65,17 +65,32 @@ export function FlightRow({ flight, lang, onSelect, disabled, cheapest }: { flig
 
 function RangeBar({ low, typical, high, budget, lang }: { low: number; typical: number; high: number; budget: number; lang: Lang }) {
   const copy = (key: CopyKey) => t(lang, key);
+  // Scale from just below the cheapest value (not ₹0) so close figures still spread across the bar.
+  const min = Math.min(low, budget) * 0.85;
   const max = Math.max(high, budget) * 1.05;
-  const pos = (value: number) => `${Math.min(100, Math.max(0, (value / max) * 100))}%`;
+  const pct = (value: number) => Math.min(100, Math.max(0, ((value - min) / Math.max(1, max - min)) * 100));
+  const pos = (value: number) => `${pct(value)}%`;
+  // Near-identical low and typical collapse into one label; otherwise labels are pushed at least GAP% apart.
+  const GAP = 16;
+  const merged = Math.abs(typical - low) / Math.max(1, typical) < 0.03;
+  const labels = merged
+    ? [{ key: "lt", label: `${copy("low")} ≈ ${copy("typicalEst")}`, value: money(low) === money(typical) ? money(low) : `${money(low)}–${money(typical).slice(1)}`, at: pct(low) }, { key: "high", label: copy("high"), value: money(high), at: pct(high) }]
+    : [{ key: "low", label: copy("low"), value: money(low), at: pct(low) }, { key: "typ", label: copy("typicalEst"), value: money(typical), at: pct(typical) }, { key: "high", label: copy("high"), value: money(high), at: pct(high) }];
+  for (let i = 1; i < labels.length; i++) labels[i].at = Math.max(labels[i].at, labels[i - 1].at + GAP);
+  labels[labels.length - 1].at = Math.min(labels[labels.length - 1].at, 100);
+  for (let i = labels.length - 2; i >= 0; i--) labels[i].at = Math.min(labels[i].at, labels[i + 1].at - GAP);
+  const align = (at: number) => (at < 8 ? "translate-x-0 text-left" : at > 92 ? "-translate-x-full text-right" : "-translate-x-1/2 text-center");
+  const budgetAt = pct(budget);
   return <div className="mt-5">
+    <div className="relative mb-1 h-5 text-[10px] font-bold text-[#0b1f3a]"><span className={`absolute whitespace-nowrap rounded bg-[#0b1f3a] px-1.5 py-0.5 text-white ${align(budgetAt)}`} style={{ left: `${budgetAt}%` }}>{copy("yourBudget")} {money(budget)}</span></div>
     <div className="relative h-3 rounded-full bg-[#eef2f7]">
       <div className="absolute inset-y-0 rounded-full bg-gradient-to-r from-[#34c38f] via-[#f5b83d] to-[#ef6a4c]" style={{ left: pos(low), width: `calc(${pos(high)} - ${pos(low)})` }} />
-      <div className="absolute -top-1.5 h-6 w-1 rounded bg-[#0b1f3a]" style={{ left: pos(budget) }} />
+      {[low, typical].map((value, index) => <div key={index} className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#0b1f3a]/70" style={{ left: pos(value) }} />)}
+      <div className="absolute -top-1.5 h-6 w-1 -translate-x-1/2 rounded bg-[#0b1f3a]" style={{ left: `${budgetAt}%` }} />
     </div>
     <div className="relative mt-2 h-10 text-[11px] text-[#5f6b7a]">
-      {[{ label: copy("low"), value: low }, { label: copy("typicalEst"), value: typical }, { label: copy("high"), value: high }].map(item => <div key={item.label} className="absolute -translate-x-1/2 text-center" style={{ left: pos(item.value) }}><div className="font-bold text-[#0b1f3a]">{money(item.value)}</div>{item.label}</div>)}
+      {labels.map(item => <div key={item.key} className={`absolute whitespace-nowrap ${align(item.at)}`} style={{ left: `${Math.max(0, item.at)}%` }}><div className="font-bold text-[#0b1f3a]">{item.value}</div>{item.label}</div>)}
     </div>
-    <div className="text-[11px] font-semibold text-[#0b1f3a]">▮ {copy("yourBudget")}: {money(budget)}</div>
   </div>;
 }
 
