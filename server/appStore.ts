@@ -46,6 +46,13 @@ function store() {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_app_bookings_trip ON app_bookings(trip_id);
+    CREATE TABLE IF NOT EXISTS app_bot_sessions (
+      chat_id TEXT PRIMARY KEY,
+      channel TEXT NOT NULL DEFAULT 'telegram',
+      state_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
   return db;
 }
@@ -89,4 +96,18 @@ export function listBookings(limit = 20) {
     SELECT b.booking_id, b.booking_reference, b.total_amount, b.currency, b.status, b.confirmed_at, t.trip_id, t.destination, t.start_date, t.end_date
     FROM app_bookings b JOIN app_trips t USING (trip_id) ORDER BY b.created_at DESC LIMIT ?
   `).all(limit);
+}
+
+/** Chat-bot conversation state (Telegram), so a conversation survives restarts and redeploys. */
+export function loadBotSession<T>(chatId: string): T | null {
+  const row = store().prepare("SELECT state_json FROM app_bot_sessions WHERE chat_id = ?").get(chatId) as { state_json: string } | undefined;
+  return row ? JSON.parse(row.state_json) as T : null;
+}
+
+export function saveBotSession(chatId: string, state: unknown, channel = "telegram") {
+  const now = nowIst();
+  store().prepare(`
+    INSERT INTO app_bot_sessions (chat_id, channel, state_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(chat_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at
+  `).run(chatId, channel, JSON.stringify(state), now, now);
 }

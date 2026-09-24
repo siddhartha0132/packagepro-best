@@ -456,3 +456,16 @@ The AI layer is an explanation and planning assistant. It must remain grounded i
 [6]: https://en.wikipedia.org/api/rest_v1/ "Wikipedia REST API documentation"
 
 [7]: https://cli.github.com/manual/gh_repo_create "GitHub CLI repository creation documentation"
+
+## Telegram bot (@wayypoint_Bot)
+
+The bot runs inside the server (`server/telegramBot.ts`) and uses the same engine as the web app — live fares, PS-04 packages,
+per-date guide availability with same-language/same-specialisation substitutes, budget negotiation and bookings — in
+English, हिन्दी, தமிழ் and తెలుగు (hand-written bot copy; dataset content via the cached Sarvam translations).
+
+- **Buttons:** browse packages by theme → package card with photo → plan: origin, calendar date, days, travellers, budget,
+  guide language → live estimate → flights → customise (hotel, add-ons, guide, days) → review → confirm (PNR).
+- **Free text / AI:** "beach honeymoon under 40k" gets package picks; "Mumbai to Goa for 3 days" pre-fills the planner;
+  questions about the current trip ("why was Meera refused?") get grounded answers; "cheaper hotel" edits the trip.
+- **Setup:** set `TELEGRAM_BOT_TOKEN`. Long polling needs no webhook. Only one instance may poll a token, so set
+  `TELEGRAM_BOT_DISABLED=true` locally once the deployed server runs the bot. Sessions persist in the app database.

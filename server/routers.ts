@@ -17,6 +17,7 @@ void warmCityImages(PACKAGES.map(pkg => pkg.city));
 // Demo languages: package names, cities, themes and copy translate once in the background (Sarvam, cached on disk).
 void prewarmTranslations(Array.from(new Set([
   ...PACKAGES.flatMap(pkg => [pkg.name, pkg.city, pkg.theme, pkg.description, pkg.inclusions, pkg.exclusions]),
+  ...PACKAGES.flatMap(pkg => pkg.components.filter(component => component.type !== "hotel").map(component => component.label)),
   ...ORIGINS.flatMap(origin => [origin.city, origin.airport]),
 ])), ["hi", "ta", "te"]);
 
