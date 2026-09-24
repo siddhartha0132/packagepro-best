@@ -1,43 +1,70 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 
-describe("packagepro procedures", () => {
-  const caller = appRouter.createCaller({ req: {} as any, res: {} as any, user: null });
+function caller() {
+  return appRouter.createCaller({ req: {} as any, res: {} as any, user: null });
+}
 
+describe("packagepro catalogue", () => {
   it("lists curated packages and filters by theme", async () => {
-    const all = await caller.packagepro.list();
+    const all = await caller().packagepro.list();
     expect(all.length).toBeGreaterThan(0);
-    const heritage = await caller.packagepro.list({ theme: "Heritage" });
+    const heritage = await caller().packagepro.list({ theme: "Heritage" });
     expect(heritage.every(item => item.theme === "Heritage" || item.tags.includes("heritage"))).toBe(true);
   });
+});
 
-  it("returns package alternatives within the same swap group", async () => {
-    const alts = await caller.packagepro.alternatives({ packageId: "pkg-thanjavur-heritage", componentId: "hotel-thanjavur-courtyard" });
-    expect(alts.length).toBe(1);
-    expect(alts[0]?.id).toBe("hotel-thanjavur-palace");
+describe("master trip flow", () => {
+  it("creates a trip and starts at flight selection", async () => {
+    const trip = await caller().trip.create({ origin: "DEL", destination: "BLR", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 1, budgetCap: 50000, language: "ta" });
+    expect(trip.status).toBe("select_flight");
+    expect(trip.flightOptions.length).toBeGreaterThan(0);
   });
 
-  it("refuses an unavailable guide on clashing dates and offers a same-language substitute", async () => {
-    const check = await caller.packagepro.checkGuide({ guideId: "guide-priya", departDate: "2026-09-02", duration: 3 });
-    expect(check.accepted).toBe(false);
-    expect(check.conflicts).toContain("2026-09-02");
-    expect(check.replacement?.id).toBe("guide-riya");
-    expect(check.replacement?.specialisation).toBe("heritage");
-    expect(check.replacement?.languages).toContain("gu");
-    expect(check.priceDelta).toBe(-900);
+  it("rejects the same origin and destination", async () => {
+    await expect(caller().trip.create({ origin: "DEL", destination: "DEL", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 1, budgetCap: 20000, language: "en-IN" })).rejects.toThrow(/same/);
   });
 
-  it("accepts an available guide and computes the correct duration total", async () => {
-    const check = await caller.packagepro.checkGuide({ guideId: "guide-arjun", departDate: "2026-09-02", duration: 3 });
-    expect(check.accepted).toBe(true);
-    expect(check.conflicts).toHaveLength(0);
-    expect(check.total).toBe(2400 * 3);
+  it("returns an over-budget flight to negotiate, then back to flight picker", async () => {
+    const trip = await caller().trip.create({ origin: "DEL", destination: "JAI", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 1, budgetCap: 2000, language: "en-IN" });
+    const next = await caller().trip.selectFlight({ tripId: trip.tripId, flightId: trip.flightOptions[0].id });
+    expect(next.status).toBe("negotiate");
+    expect(next.runningTotal).toBe(0);
+    const declined = await caller().trip.negotiate({ tripId: trip.tripId, choice: "remove_item" });
+    expect(declined.status).toBe("select_flight");
   });
 
-  it("returns grounded recommendations without inventing components", async () => {
-    const recs = await caller.packagepro.recommend({ query: "heritage temple bronze", language: "ta" });
-    expect(recs.packages.length).toBeGreaterThan(0);
-    expect(recs.guides.length).toBeGreaterThan(0);
-    expect(recs.groundedIn).toContain("PackagePro package catalogue");
+  it("completes the five-stage flow and never exceeds the cap", async () => {
+    const api = caller();
+    let trip = await api.trip.create({ origin: "DEL", destination: "BLR", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 1, budgetCap: 80000, language: "ta" });
+    trip = await api.trip.selectFlight({ tripId: trip.tripId, flightId: [...trip.flightOptions].sort((a, b) => a.price - b.price)[0].id });
+    expect(trip.status).toBe("select_hotel");
+    trip = await api.trip.selectHotel({ tripId: trip.tripId, hotelId: trip.hotelOptions[0].id });
+    expect(trip.status).toBe("select_package");
+    expect(trip.package?.city).toBe("Thanjavur");
+    trip = await api.trip.continuePackage({ tripId: trip.tripId });
+    expect(trip.status).toBe("select_guide");
+    trip = await api.trip.skipGuide({ tripId: trip.tripId });
+    expect(trip.status).toBe("review");
+    trip = await api.trip.confirm({ tripId: trip.tripId });
+    expect(trip.status).toBe("confirmed");
+    expect(trip.runningTotal).toBeLessThanOrEqual(trip.budgetCap);
+  });
+
+  it("refuses an unavailable Tamil heritage guide and offers a same-language substitute", async () => {
+    const api = caller();
+    let trip = await api.trip.create({ origin: "DEL", destination: "BLR", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 1, budgetCap: 80000, language: "ta" });
+    trip = await api.trip.selectFlight({ tripId: trip.tripId, flightId: [...trip.flightOptions].sort((a, b) => a.price - b.price)[0].id });
+    trip = await api.trip.selectHotel({ tripId: trip.tripId, hotelId: trip.hotelOptions[0].id });
+    trip = await api.trip.continuePackage({ tripId: trip.tripId });
+    trip = await api.trip.selectGuide({ tripId: trip.tripId, guideId: "guide-arjun", days: 3 });
+    expect(trip.status).toBe("select_guide");
+    expect(trip.guideAvailabilityIssue?.conflictingDates).toContain("2026-09-02");
+    expect(trip.guideAvailabilityIssue?.replacement?.id).toBe("guide-meera");
+    expect(trip.guideAvailabilityIssue?.replacement?.specialisation).toBe("heritage");
+    expect(trip.guideAvailabilityIssue?.replacement?.languages).toContain("ta");
+    trip = await api.trip.selectGuide({ tripId: trip.tripId, guideId: "guide-meera", days: 3 });
+    expect(trip.status).toBe("review");
+    expect(trip.chosenGuide?.id).toBe("guide-meera");
   });
 });

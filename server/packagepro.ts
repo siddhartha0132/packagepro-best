@@ -31,6 +31,23 @@ export type GuideRecord = {
   availability: Record<string, boolean>;
 };
 
+export type FlightRecord = { id: string; airline: string; route: string; depart: string; duration: string; price: number; confidence: number };
+export type HotelRecord = { id: string; name: string; city: string; rating: number; detail: string; total: number };
+
+export const FLIGHTS: FlightRecord[] = [
+  { id: "AI-203", airline: "Air India", route: "DEL → MAA", depart: "06:20", duration: "2h 45m", price: 6800, confidence: 0.94 },
+  { id: "6E-441", airline: "IndiGo", route: "DEL → MAA", depart: "09:10", duration: "2h 50m", price: 5900, confidence: 0.89 },
+  { id: "UK-821", airline: "Vistara", route: "DEL → MAA", depart: "17:35", duration: "2h 55m", price: 7600, confidence: 0.92 },
+];
+
+export const HOTELS: HotelRecord[] = [
+  { id: "hotel-courtyard", name: "Courtyard heritage stay", city: "Thanjavur", rating: 4.7, detail: "Boutique · breakfast included · old town", total: 6800 },
+  { id: "hotel-palace", name: "Palace garden stay", city: "Thanjavur", rating: 4.9, detail: "Luxury · breakfast included · private garden", total: 11900 },
+  { id: "hotel-haveli", name: "Pink haveli", city: "Jaipur", rating: 4.8, detail: "Boutique · breakfast included · old city", total: 9200 },
+  { id: "hotel-goa", name: "Garden boutique", city: "Goa", rating: 4.6, detail: "Boutique · breakfast included · quiet lane", total: 7600 },
+  { id: "hotel-vns", name: "Riverfront guesthouse", city: "Varanasi", rating: 4.5, detail: "Boutique · breakfast included · ghat-side", total: 6100 },
+];
+
 export const PACKAGES: PackageRecord[] = [
   {
     id: "pkg-thanjavur-heritage",
@@ -103,8 +120,11 @@ export const PACKAGES: PackageRecord[] = [
 ];
 
 export const GUIDES: GuideRecord[] = [
-  { id: "guide-arjun", name: "Arjun Nair", city: "Thanjavur", languages: ["ta", "en-IN", "kn"], specialisation: "heritage", rating: 4.9, dayRate: 2400, bio: "Living history, temple architecture, and the details most guidebooks miss.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
+  { id: "guide-arjun", name: "Arjun Nair", city: "Thanjavur", languages: ["ta", "en-IN", "kn"], specialisation: "heritage", rating: 4.9, dayRate: 2400, bio: "Living history, temple architecture, and the details most guidebooks miss.", availability: { "2026-09-02": false, "2026-09-03": true, "2026-09-04": true } },
   { id: "guide-meera", name: "Meera Novak", city: "Thanjavur", languages: ["ta", "en-IN"], specialisation: "heritage", rating: 4.8, dayRate: 2700, bio: "A Tamil-speaking heritage specialist with a calm, story-rich pace.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
+  { id: "guide-kavya", name: "Kavya Menon", city: "Jaipur", languages: ["hi", "en-IN"], specialisation: "heritage", rating: 4.7, dayRate: 2600, bio: "Old-city walks, palace courtyards, and the quieter craft lanes.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
+  { id: "guide-ravi", name: "Ravi D'Souza", city: "Goa", languages: ["en-IN", "hi"], specialisation: "food", rating: 4.6, dayRate: 2100, bio: "Home kitchens, quiet coves, and the Goa that isn't on the postcard.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
+  { id: "guide-anika", name: "Anika Mishra", city: "Varanasi", languages: ["hi", "en-IN"], specialisation: "heritage", rating: 4.8, dayRate: 2300, bio: "River mornings, living craft, and the city's devotional rhythm.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
   { id: "guide-priya", name: "Priya Reddy", city: "Ahmedabad", languages: ["gu", "en-IN"], specialisation: "heritage", rating: 4.8, dayRate: 2500, bio: "Heritage precincts, stepwells, and food traditions of Gujarat.", availability: { "2026-09-02": false, "2026-09-03": true, "2026-09-04": true } },
   { id: "guide-riya", name: "Riya Costa", city: "Ahmedabad", languages: ["gu", "en-IN"], specialisation: "heritage", rating: 4.7, dayRate: 2200, bio: "A warm local storyteller for old-city walks and architecture.", availability: { "2026-09-02": true, "2026-09-03": true, "2026-09-04": true } },
 ];
@@ -124,7 +144,7 @@ export function datesBetween(start: string, duration: number) {
 }
 
 export function guideCheck(guide: GuideRecord, dates: string[]) {
-  const conflicts = dates.filter(date => guide.availability[date] !== true);
+  const conflicts = dates.filter(date => guide.availability[date] === false);
   const candidates = GUIDES.filter(candidate => candidate.id !== guide.id && candidate.city === guide.city && candidate.specialisation === guide.specialisation && candidate.languages.some(language => guide.languages.includes(language)) && dates.every(date => candidate.availability[date] === true));
   const replacement = candidates.sort((a, b) => Math.abs(a.dayRate - guide.dayRate) - Math.abs(b.dayRate - guide.dayRate) || b.rating - a.rating)[0] ?? null;
   return { conflicts, replacement, priceDelta: replacement ? (replacement.dayRate - guide.dayRate) * dates.length : null };
@@ -135,4 +155,11 @@ export function recommendPackages(query: string, language: string) {
   const packages = PACKAGES.map(pkg => ({ ...pkg, score: terms.filter(term => `${pkg.name} ${pkg.description} ${pkg.tags.join(" ")}`.toLowerCase().includes(term)).length })).sort((a, b) => b.score - a.score || a.basePrice - b.basePrice);
   const guides = GUIDES.filter(guide => guide.languages.includes(language) || guide.languages.includes("en-IN")).sort((a, b) => b.rating - a.rating);
   return { packages: packages.slice(0, 3), guides: guides.slice(0, 3) };
+}
+
+export function realityCheck(destination: string, budget: number, duration: number) {
+  const pkg = PACKAGES.find(item => item.city.toLowerCase() === destination.toLowerCase()) ?? PACKAGES[0];
+  const typical = pkg.basePrice + FLIGHTS[1].price + (HOTELS.find(hotel => hotel.city === pkg.city)?.total ?? 7000);
+  const gap = Math.round(((budget - typical) / typical) * 100);
+  return { destination: pkg.city, typical, budget, gap, verdict: budget >= typical * 1.1 ? "comfortable" : budget >= typical * .82 ? "tight" : "unrealistic", closestPackage: pkg.name, duration };
 }

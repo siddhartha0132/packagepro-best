@@ -3,7 +3,8 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
-import { GUIDES, PACKAGES, datesBetween, getAlternatives, guideCheck, recommendPackages } from "./packagepro";
+import { GUIDES, PACKAGES, datesBetween, getAlternatives, guideCheck, realityCheck, recommendPackages } from "./packagepro";
+import * as trips from "./trips";
 
 const languageSchema = z.string().min(2).max(20).default("en-IN");
 
@@ -18,6 +19,7 @@ export const appRouter = router({
     }),
   }),
   packagepro: router({
+    reality: publicProcedure.input(z.object({ destination: z.string(), budget: z.number().positive(), duration: z.number().int().positive() })).query(({ input }) => realityCheck(input.destination, input.budget, input.duration)),
     list: publicProcedure.input(z.object({ theme: z.string().optional(), language: languageSchema.optional() }).optional()).query(({ input }) => {
       const theme = input?.theme?.toLowerCase();
       return PACKAGES.filter(pkg => !theme || pkg.theme.toLowerCase() === theme || pkg.tags.some(tag => tag.toLowerCase() === theme));
@@ -42,6 +44,22 @@ export const appRouter = router({
       return { guide, dates, ...result, accepted: result.conflicts.length === 0, total: guide.dayRate * dates.length, replacementTotal: result.replacement ? result.replacement.dayRate * dates.length : null };
     }),
     recommend: publicProcedure.input(z.object({ query: z.string().default(""), language: languageSchema })).query(({ input }) => ({ ...recommendPackages(input.query, input.language), groundedIn: ["PackagePro package catalogue", "guide availability records", "language preferences"] })),
+  }),
+  trip: router({
+    create: publicProcedure.input(z.object({
+      origin: z.string(), destination: z.string(), departDate: z.string(), returnDate: z.string(),
+      travelers: z.number().int().min(1).max(20), budgetCap: z.number().positive(), language: languageSchema, interests: z.string().optional(),
+    })).mutation(({ input }) => trips.createTrip(input)),
+    get: publicProcedure.input(z.object({ tripId: z.string() })).query(({ input }) => trips.getTrip(input.tripId)),
+    selectFlight: publicProcedure.input(z.object({ tripId: z.string(), flightId: z.string() })).mutation(({ input }) => trips.selectFlight(input.tripId, input.flightId)),
+    selectHotel: publicProcedure.input(z.object({ tripId: z.string(), hotelId: z.string() })).mutation(({ input }) => trips.selectHotel(input.tripId, input.hotelId)),
+    swap: publicProcedure.input(z.object({ tripId: z.string(), fromId: z.string(), toId: z.string() })).mutation(({ input }) => trips.swapComponent(input.tripId, input.fromId, input.toId)),
+    continuePackage: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.continueFromPackage(input.tripId)),
+    guides: publicProcedure.input(z.object({ tripId: z.string(), specialisation: z.string().optional() })).query(({ input }) => trips.listGuides(input.tripId, input.specialisation)),
+    selectGuide: publicProcedure.input(z.object({ tripId: z.string(), guideId: z.string(), days: z.number().int().min(1).max(30) })).mutation(({ input }) => trips.selectGuide(input.tripId, input.guideId, input.days)),
+    skipGuide: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.skipGuide(input.tripId)),
+    negotiate: publicProcedure.input(z.object({ tripId: z.string(), choice: z.enum(["approve_overage", "swap_cheaper", "remove_item", "raise_cap"]), newCap: z.number().optional() })).mutation(({ input }) => trips.negotiate(input.tripId, input.choice, input.newCap)),
+    confirm: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.confirmTrip(input.tripId)),
   }),
 });
 
