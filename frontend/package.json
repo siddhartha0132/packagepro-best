@@ -1,0 +1,11 @@
+{
+  "name": "@packagepro/frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PackagePro web app — React 19, Vite, Tailwind, tRPC client. Dependencies are hoisted in the workspace root package.json; Vite config lives at the root (vite.config.ts, root: frontend/).",
+  "scripts": {
+    "build": "cd .. && vite build",
+    "typecheck": "cd .. && tsc --noEmit"
+  }
+}

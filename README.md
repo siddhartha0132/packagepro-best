@@ -28,7 +28,11 @@
 
 ## Architecture
 
-**Web app** (React 19, Vite, Tailwind, `frontend/`) and **Telegram bot** (`backend/src/telegramBot.ts`) → **tRPC API** (`backend/src/routers.ts`) → **trip engine** (`backend/src/trips.ts`: pricing, swaps, negotiation, booking) → **catalogue and guide rules** (`backend/src/packagepro.ts`) over the read-only **PS-04 dataset** (`data-model/seed/PS-04.db`), plus a read-write **app database** (canonical tables + additions). **AI** (`ai/pipeline.ts`, Sarvam) and **integrations** (`backend/src/integrations.ts`: SerpAPI Google Flights, Sarvam translation, Wikipedia photos) sit beside the engine. Diagram and flows: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · API: [docs/API.md](docs/API.md).
+**Web app** (React 19, Vite, Tailwind, `frontend/`) and **Telegram bot** (`backend/src/telegramBot.ts`) → **tRPC API** (`backend/src/routers.ts`) → **trip engine** (`backend/src/trips.ts`: pricing, swaps, negotiation, booking) → **catalogue and guide rules** (`backend/src/packagepro.ts`) over the read-only **PS-04 dataset** (`data-model/seed/PS-04.db`), plus a read-write **app database** (canonical tables + additions). **AI** (`ai/pipeline.ts`, Sarvam) and **integrations** (`backend/src/integrations.ts`: SerpAPI Google Flights, Sarvam translation, Wikipedia photos) sit beside the engine. 
+
+![PackagePro system overview](docs/diagrams/1-system-overview.svg)
+
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has 8 diagrams: system overview, repository map, the guide availability check (sequence), the booking transaction, the pricing model, the AI pipeline, the data model (ER) and deployment. API: [docs/API.md](docs/API.md).
 
 ## Data model
 
@@ -125,16 +129,16 @@ Only one running instance may poll a Telegram token: set `TELEGRAM_BOT_DISABLED=
 
 ### Repository layout
 
-Monorepo with one `package.json` at the root (pnpm).
+A pnpm workspace (`pnpm-workspace.yaml`). `frontend/` and `backend/` are workspace packages with their own `package.json` and scripts, for example `pnpm --filter @packagepro/backend dev`. Shared dependencies are hoisted in the root `package.json`, whose scripts (`pnpm dev`, `pnpm build`, `pnpm verify`) run the whole app.
 
 | Path | What |
 |---|---|
-| `frontend/` | UI app (React 19 + Vite + Tailwind): `src/pages`, `src/components`, `src/i18n.ts`, `src/lib`, `index.html` |
-| `backend/src/` | API and services (Node + Express + tRPC): trip engine `trips.ts`, catalogue and guide rules `packagepro.ts`, `travellers.ts`, `estimate.ts`, `integrations.ts`, `appStore.ts`, Telegram bot, `routers.ts`, `_core/` server bootstrap |
+| `frontend/` | UI app (React 19 + Vite + Tailwind): `package.json`, `src/pages`, `src/components`, `src/i18n.ts`, `src/lib`, `index.html` |
+| `backend/` | `package.json` + `src/`: API and services (Node + Express + tRPC): trip engine `trips.ts`, catalogue and guide rules `packagepro.ts`, `travellers.ts`, `estimate.ts`, `integrations.ts`, `appStore.ts`, Telegram bot, `routers.ts`, `_core/` server bootstrap |
 | `backend/shared/`, `backend/drizzle/` | Template auth/session helpers (not used by PackagePro's flows) |
 | `data-model/` | `DATA_MODEL.md` (tables used, additions, rules), generated `schema.sql`, `seed/` (PS-04 dataset + DDL + enums + starter queries + demo caches) |
 | `ai/` | AI pipeline (`pipeline.ts`: model calls, trip parser, package builder, agent) and `prompts/` (every system prompt) |
-| `docs/` | `ARCHITECTURE.md`, `API.md`, `DEMO_SCRIPT.md` |
+| `docs/` | `ARCHITECTURE.md` (8 diagrams), `diagrams/*.svg`, `API.md`, `DEMO_SCRIPT.md` |
 | `tests/` | Automated tests, including the hard-proof `hardProof.guideAvailability.test.ts` and `conformance.test.ts` |
 | `tools/` | Organisers' `validate_conformance.py` |
 | `scripts/` | `conformance.mjs`, `show-bookings.mjs`, `dump-schema.mjs` |

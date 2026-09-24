@@ -1,0 +1,16 @@
+{
+  "name": "@packagepro/backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PackagePro API and services — Node 22, Express, tRPC, SQLite (node:sqlite), trip engine, AI pipeline wiring, Telegram bot. Scripts run from the repo root so data-model/seed paths resolve. Dependencies are hoisted in the workspace root package.json.",
+  "scripts": {
+    "dev": "cd .. && NODE_ENV=development tsx watch backend/src/_core/index.ts",
+    "build": "cd .. && esbuild backend/src/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "start": "cd .. && NODE_ENV=production node dist/index.js",
+    "test": "cd .. && vitest run tests"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

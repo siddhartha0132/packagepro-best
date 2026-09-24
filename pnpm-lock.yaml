@@ -279,6 +279,10 @@ importers:
         specifier: ^2.1.4
         version: 2.1.9(@types/node@24.7.0)(lightningcss@1.30.1)
 
+  backend: {}
+
+  frontend: {}
+
 packages:
 
   '@antfu/install-pkg@1.1.0':

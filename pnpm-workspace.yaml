@@ -1,0 +1,5 @@
+# pnpm workspace: the UI app and the API/services are separate packages.
+# Shared dependencies are hoisted in the root package.json; each package keeps its own scripts.
+packages:
+  - frontend
+  - backend
