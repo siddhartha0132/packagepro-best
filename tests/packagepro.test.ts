@@ -370,3 +370,12 @@ describe("day-by-day guide planning", () => {
     expect(trip.chosenGuide?.id).toBe(MEERA);
   });
 });
+
+describe("estimate ordering", () => {
+  it("never prices the typical option below the cheapest (Value ≤ Recommended ≤ Premium)", async () => {
+    const estimate = await caller().packagepro.estimate({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 4, budget: 300000, language: "ta" });
+    expect(estimate.low).toBeLessThanOrEqual(estimate.typical);
+    expect(estimate.typical).toBeLessThanOrEqual(estimate.high);
+    expect(estimate.flights.typical).toBeGreaterThanOrEqual(estimate.flights.low);
+  });
+});

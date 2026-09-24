@@ -101,8 +101,9 @@ export async function estimateTrip(input: { origin: string; destination: string;
   const fares = flightSearch.flights.map(flight => flight.price * party.pax).filter(price => price > 0);
   const cheapestFlight = [...flightSearch.flights].sort((a, b) => a.price - b.price)[0] ?? null;
   const flightLow = fares.length ? Math.min(...fares) : 0;
-  const flightTypical = flightSearch.insights?.typicalRange ? Math.round((flightSearch.insights.typicalRange[0] + flightSearch.insights.typicalRange[1]) / 2) * party.pax : median(fares);
-  const flightHigh = flightSearch.insights?.typicalRange?.[1] ? flightSearch.insights.typicalRange[1] * party.pax : (fares.length ? Math.max(...fares) : 0);
+  // Google's "typical" band can sit below the cheapest fare actually on offer; never estimate below a bookable fare.
+  const flightTypical = Math.max(flightLow, flightSearch.insights?.typicalRange ? Math.round((flightSearch.insights.typicalRange[0] + flightSearch.insights.typicalRange[1]) / 2) * party.pax : median(fares));
+  const flightHigh = Math.max(flightTypical, flightSearch.insights?.typicalRange?.[1] ? flightSearch.insights.typicalRange[1] * party.pax : (fares.length ? Math.max(...fares) : 0));
 
   const packageBase = Math.round(pkg.basePrice * days / Math.max(1, pkg.duration) * 100) * party.pax / 100;
   // base + the price_delta of every default component kept on these days (same formula as the live trip)
@@ -122,8 +123,9 @@ export async function estimateTrip(input: { origin: string; destination: string;
   const guideTypical = guides.find(guide => guide.available)?.tripCost ?? 0;
 
   const low = Math.round(flightLow + packageBase + componentsTotal);
-  const typical = Math.round(flightTypical + packageBase + componentsTotal + guideTypical);
-  const high = Math.round(flightHigh + packageBase + componentsTotal + hotelUpgrade + addOnTotal + Math.max(guideTypical, ...guides.map(guide => guide.tripCost)));
+  // Always ordered: low ≤ typical ≤ high.
+  const typical = Math.max(low, Math.round(flightTypical + packageBase + componentsTotal + guideTypical));
+  const high = Math.max(typical, Math.round(flightHigh + packageBase + componentsTotal + hotelUpgrade + addOnTotal + Math.max(guideTypical, ...guides.map(guide => guide.tripCost))));
   const groupSize = { min: pkg.minGroupSize, max: pkg.maxGroupSize, ok: party.pax >= pkg.minGroupSize && party.pax <= pkg.maxGroupSize };
   const verdict = input.budget >= typical * 1.1 ? "comfortable" : input.budget >= low ? "tight" : "unrealistic";
   const popularity = cityPopularity(pkg.cityId);

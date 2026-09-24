@@ -11,6 +11,7 @@ export const QUOTE_EN: Record<string, string> = {
 
 export const QUOTE_COPY: Partial<Record<Lang, Record<string, string>>> = {
   hi: {
+    "Package base": "पैकेज बेस", "per person": "प्रति व्यक्ति", "day-by-day plan": "दिन-वार योजना", "Check-out and departure": "चेक-आउट और वापसी",
     "Reference": "संदर्भ", "Booking": "बुकिंग",
     LETTER_TRIP: "PackagePro के साथ योजना बनाने के लिए धन्यवाद। यह रही आपकी {city} छुट्टी — आपकी पसंद से तैयार, लाइव कीमतों के साथ, और हर गाइड तारीख की जाँच के साथ।",
     LETTER_EST: "{city} के लिए यह हमारा पहला अनुमान है, जो लाइव किराए, असली पैकेज कैटलॉग और पिछले यात्रियों की पसंद पर आधारित है। एक विकल्प चुनें और हम आपके साथ उसे अनुकूलित करेंगे।",
@@ -45,6 +46,7 @@ export const QUOTE_COPY: Partial<Record<Lang, Record<string, string>>> = {
     "Cancellation: free within 24 hours of booking; after that, supplier charges apply.": "रद्दीकरण: बुकिंग के 24 घंटे के भीतर मुफ़्त; उसके बाद सप्लायर शुल्क लागू होंगे।",
   },
   ta: {
+    "Package base": "தொகுப்பு அடிப்படை", "per person": "ஒருவருக்கு", "day-by-day plan": "நாள்வாரித் திட்டம்", "Check-out and departure": "செக்-அவுட் மற்றும் திரும்புதல்",
     "Reference": "குறிப்பு எண்", "Booking": "முன்பதிவு",
     LETTER_TRIP: "PackagePro உடன் திட்டமிட்டதற்கு நன்றி. இதோ உங்கள் {city} விடுமுறை — நீங்களே தனிப்பயனாக்கியது, நேரடி விலைகளுடன், ஒவ்வொரு வழிகாட்டி தேதியும் சரிபார்க்கப்பட்டது.",
     LETTER_EST: "{city} பயணத்திற்கான எங்கள் முதல் மதிப்பீடு இது — நேரடி கட்டணங்கள், உண்மையான தொகுப்புப் பட்டியல் மற்றும் முந்தைய பயணிகளின் தேர்வுகளின் அடிப்படையில். ஒரு தேர்வைத் தேர்ந்தெடுங்கள், உங்களுடன் சேர்ந்து அதைத் தனிப்பயனாக்குவோம்.",
@@ -79,6 +81,7 @@ export const QUOTE_COPY: Partial<Record<Lang, Record<string, string>>> = {
     "Cancellation: free within 24 hours of booking; after that, supplier charges apply.": "ரத்து: முன்பதிவு செய்த 24 மணி நேரத்திற்குள் இலவசம்; அதன் பிறகு சப்ளையர் கட்டணங்கள் பொருந்தும்.",
   },
   te: {
+    "Package base": "ప్యాకేజీ బేస్", "per person": "ఒక్కరికి", "day-by-day plan": "రోజువారీ ప్లాన్", "Check-out and departure": "చెక్-అవుట్ మరియు తిరుగు ప్రయాణం",
     "Reference": "రిఫరెన్స్", "Booking": "బుకింగ్",
     LETTER_TRIP: "PackagePro తో ప్లాన్ చేసినందుకు ధన్యవాదాలు. ఇదిగో మీ {city} సెలవు ప్రయాణం — మీరే తీర్చిదిద్దినది, లైవ్ ధరలతో, ప్రతి గైడ్ తేదీ తనిఖీ చేయబడింది.",
     LETTER_EST: "{city} కోసం ఇది మా మొదటి అంచనా — లైవ్ ఛార్జీలు, నిజమైన ప్యాకేజీ జాబితా మరియు గత ప్రయాణికుల ఎంపికల ఆధారంగా. ఒక ఎంపికను ఎంచుకోండి, మీతో కలిసి దాన్ని తీర్చిదిద్దుతాం.",

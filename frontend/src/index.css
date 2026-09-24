@@ -198,3 +198,5 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 @keyframes hw-float { 0%, 100% { transform: translateY(0) rotateX(52deg) rotateZ(-32deg); } 50% { transform: translateY(-10px) rotateX(52deg) rotateZ(-32deg); } }
 @keyframes hw-rise { from { transform: translateZ(4px); } to { transform: translateZ(38px); } }
 @keyframes hw-sink { from { transform: translateZ(4px); } to { transform: translateZ(-6px); } }
+.q-table .q-subrow td { padding-top: 1.5mm; padding-bottom: 1.5mm; font-size: 9pt; color: #475569; }
+.q-table .q-subrow td:first-child { padding-left: 6mm; }

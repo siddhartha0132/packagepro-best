@@ -4,12 +4,14 @@ import type { Lang } from "@/i18n";
 import { useTr } from "@/lib/translate";
 import { QUOTE_COPY, QUOTE_EN } from "@/lib/quoteCopy";
 import type { TripView } from "./PackageCustomiser";
-import { type Estimate, money, specLabel } from "./TripScreens";
+import { type Estimate, money, slotLabel, specLabel } from "./TripScreens";
 
 // Printable A4 quotation (browser "Save as PDF"): keeps Indic scripts crisp and photos sharp without a PDF library.
 // A table's thead/tfoot repeat on every printed page, giving each page a brand strip and footer.
 
-const cleanDetail = (detail: string) => detail.replace(/^Day \d+ · \w+ · /, "");
+const cleanDetail = (detail: string) => detail.replace(/^Day \d+ · \w+( · )?/, "");
+/** "Thanjavur Honeymoon — 6 Days" → "Thanjavur Honeymoon": the trip's own length is shown separately. */
+const baseName = (name: string) => name.replace(/\s*[—-]\s*\d+\s*Days?$/i, "");
 
 const KIND_TAG: Record<string, string> = { arrival: "Flight", experience: "Activity", transfer: "Transfer", meal: "Meal", entry_ticket: "Ticket", guide: "Guide", hotel: "Stay" };
 
@@ -40,8 +42,9 @@ function itemLabel(label: string, tr: (text: string) => string) {
   return tr(label);
 }
 
-function itemDetail(item: { kind: string; detail: string }, lang: Lang, tr: (text: string) => string) {
-  if (item.kind === "arrival") return item.detail;
+function itemDetail(item: { kind: string; detail: string; slot?: string }, lang: Lang, tr: (text: string) => string, flight?: { depart: string; arrive?: string } | null) {
+  if (item.kind === "arrival") return flight ? `${item.detail} · ${flight.depart} → ${flight.arrive ?? ""}` : item.detail;
+  if (/^Day \d+ · \w+$/.test(item.detail)) return slotLabel(lang, item.slot);
   if (item.kind === "guide") { const [spec, ...rest] = item.detail.split(" · "); return [specLabel(lang, spec), ...rest].join(" · "); }
   return tr(cleanDetail(item.detail));
 }
@@ -97,17 +100,21 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
   const reference = trip.booking?.reference ? `PNR ${trip.booking.reference}` : `#${trip.tripId.replace(/^trp_/, "").toUpperCase()}`;
   const flight = trip.chosenFlight;
   const hotel = trip.chosenHotel;
-  const rows: [string, number][] = [
-    [flight ? `${tr("Flight")} · ${flight.airline} ${flight.id}${trip.travelers > 1 ? ` × ${trip.travelers}` : ""}` : trip.chosenTransport ? `${tr("Transport")} · ${trip.chosenTransport.operator}` : tr("Transport"), b.transport],
-    [`${tr("Package")} · ${tr(trip.package?.name ?? "")} (${trip.durationDays} ${tr("days")})`, b.packageBase],
-    ...(b.components ? [[tr("Hotel, activities & transfers"), b.components] as [string, number]] : []),
-    ...(b.addOns ? [[tr("Add-ons"), b.addOns] as [string, number]] : []),
-    ...(trip.chosenGuide ? [[`${tr("Guide")} · ${[trip.chosenGuide, ...(trip.extraGuides ?? [])].map(guide => guide.name).join(" + ")}`, b.guide] as [string, number]] : []),
+  const nights = trip.durationDays;
+  const guidesOnPlan = [trip.chosenGuide, ...(trip.extraGuides ?? [])].filter((guide): guide is NonNullable<typeof guide> => Boolean(guide));
+  const shortDates = (dates: string[]) => dates.map(date => longDate(date, lang).label).join(", ");
+  // Every line of the total: transport, the prorated base, each kept component / add-on as priced in the itinerary, each guide.
+  const componentLines = trip.itinerary.flatMap(day => day.items).filter(item => item.kind !== "arrival" && item.kind !== "guide" && item.price != null && item.price !== 0);
+  const rows: { label: string; value: number; sub?: boolean }[] = [
+    { label: flight ? `${tr("Flight")} · ${flight.airline} ${flight.id} · ${money(flight.price)} × ${trip.travelers}` : trip.chosenTransport ? `${tr("Transport")} · ${trip.chosenTransport.operator} × ${trip.travelers}` : tr("Transport"), value: b.transport },
+    { label: `${tr("Package base")} · ${tr(baseName(trip.package?.name ?? ""))} · ${money(trip.package?.basePrice ?? 0)} ${tr("per person")} × ${trip.durationDays}/${trip.package?.duration ?? trip.durationDays} ${tr("days")} × ${trip.travelers}`, value: b.packageBase },
+    ...componentLines.map(item => ({ label: `${itemLabel(item.label, tr)} · ${tr(KIND_TAG[item.kind] ?? item.kind)}`, value: item.price!, sub: true })),
+    ...guidesOnPlan.map(guide => ({ label: `${tr("Guide")} · ${guide.name} · ${shortDates(guide.bookedDates)}`, value: guide.totalCost })),
   ];
   return <Sheet reference={reference} tr={tr} lang={lang}>
-    <Cover image={image} title={tr(trip.destination)} subtitle={tr(trip.package?.name ?? "")} meta={[
-      [tr("Duration"), `${trip.durationDays} ${tr("days")}`],
-      [tr("Departure"), longDate(trip.departDate, lang).full],
+    <Cover image={image} title={tr(trip.destination)} subtitle={`${tr(baseName(trip.package?.name ?? ""))} · ${nights} ${tr("nights")} / ${nights + 1} ${tr("days")}`} meta={[
+      [tr("Duration"), `${nights} ${tr("nights")} · ${nights + 1} ${tr("days")}`],
+      [tr("Departure"), `${longDate(trip.departDate, lang).label} → ${longDate(trip.returnDate, lang).full}`],
       [tr("Travellers"), String(trip.travelers)],
       [tr(trip.booking ? "Booking" : "Reference"), trip.booking?.reference ?? reference],
     ]} />
@@ -122,7 +129,7 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
       <Heading kicker={tr("Investment")} title={tr("Your price")} />
       <table className="q-table">
         <thead><tr><th>{tr("Item")}</th><th className="r">{tr("Amount")}</th></tr></thead>
-        <tbody>{rows.map(([label, value]) => <tr key={label}><td>{label}</td><td className="r">{value < 0 ? "−" : ""}{money(Math.abs(value))}</td></tr>)}</tbody>
+        <tbody>{rows.map((row, index) => <tr key={index} className={row.sub ? "q-subrow" : ""}><td>{row.label}</td><td className="r">{row.value < 0 ? "−" : ""}{money(Math.abs(row.value))}</td></tr>)}</tbody>
         <tfoot><tr><td>{tr("Total")}<span className="q-sub">{tr("Your budget")} {money(trip.budgetCap)} · {money(Math.max(0, trip.budgetCap - b.total))} {tr("remaining")}</span></td><td className="r q-total">{money(b.total)}</td></tr></tfoot>
       </table>
     </section>
@@ -143,8 +150,8 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
           {hotel.rating > 0 && <div className="q-stars">{"★".repeat(hotel.rating)} <span>{hotel.rating} {tr("Star")}</span></div>}
           <div className="q-muted">{tr(cleanDetail(hotel.detail))}</div>
         </div>}
-        {[trip.chosenGuide, ...(trip.extraGuides ?? [])].filter(Boolean).map(guide => <div key={guide!.id} className="q-card q-avoid">
-          <div className="q-card-kicker">{tr("Local guide")} · {tr("available on every date")}</div>
+        {guidesOnPlan.map(guide => <div key={guide!.id} className="q-card q-avoid">
+          <div className="q-card-kicker">{tr("Local guide")} · {guide!.wholeTrip === false ? tr("day-by-day plan") : tr("available on every date")}</div>
           <div className="q-card-title">{guide!.name} <span className="q-muted">★ {guide!.rating}</span></div>
           <div className="q-muted">{specLabel(lang, guide!.specialisation)} · {guide!.languages.join(", ")} · {money(guide!.totalCost)}</div>
           <div className="q-muted">{guide!.bookedDates.map(date => longDate(date, lang).label).join(" · ")}</div>
@@ -159,11 +166,16 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
         return <div key={day.date} className="q-day q-avoid">
           <div className="q-day-badge"><span>{tr("Day")}</span><strong>{String(day.day).padStart(2, "0")}</strong><em>{date.weekday}</em><small>{date.label}</small></div>
           <div className="q-day-items">{day.items.map((item, index) => <div key={index} className="q-item">
-            <div><div className="q-item-title">{itemLabel(item.label, tr)}</div>{item.detail && <div className="q-muted">• {itemDetail(item, lang, tr)}</div>}</div>
+            <div><div className="q-item-title">{itemLabel(item.label, tr)}</div>{item.detail && <div className="q-muted">• {itemDetail(item, lang, tr, flight)}</div>}</div>
             <span className="q-tag">{tr(KIND_TAG[item.kind] ?? item.kind)}</span>
           </div>)}</div>
         </div>;
-      })}</div>
+      })}
+        {(() => { const date = longDate(trip.returnDate, lang); return <div className="q-day q-avoid">
+          <div className="q-day-badge"><span>{tr("Day")}</span><strong>{String(trip.itinerary.length + 1).padStart(2, "0")}</strong><em>{date.weekday}</em><small>{date.label}</small></div>
+          <div className="q-day-items"><div className="q-item"><div><div className="q-item-title">{tr("Check-out and departure")}</div>{hotel && <div className="q-muted">• {hotel.name}</div>}</div><span className="q-tag">{tr("Stay")}</span></div></div>
+        </div>; })()}
+      </div>
     </section>
 
     {trip.package && <section className="q-avoid">
@@ -189,7 +201,7 @@ export function EstimateQuote({ estimate: e, lang, travelers, origin, image }: {
   const reference = `#EST-${e.cityId.replace(/^\w+_/, "").slice(0, 6).toUpperCase()}`;
   return <Sheet reference={reference} tr={tr} lang={lang}>
     <Cover image={image} title={tr(e.destination)} subtitle={tr(e.package.name)} meta={[
-      [tr("Duration"), `${e.days} ${tr("days")}`],
+      [tr("Duration"), `${e.days} ${tr("nights")} · ${e.days + 1} ${tr("days")}`],
       [tr("Departure"), longDate(e.dates[0], lang).full],
       [tr("Travellers"), String(travelers)],
       [tr("Budget"), money(e.budget)],
