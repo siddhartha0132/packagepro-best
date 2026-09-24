@@ -123,6 +123,8 @@ const copy = {
     useThisSetup: "Use this setup",
     requestApplied: "Trip details loaded into your planner",
     packageReady: "Your trip package is ready to review",
+    whatsapp: "Send itinerary on WhatsApp",
+    whatsappReady: "WhatsApp itinerary opened",
   },
   ta: {
     brand: "பேக்கேஜ் புரோ",
@@ -239,6 +241,8 @@ const copy = {
     useThisSetup: "இந்த அமைப்பைப் பயன்படுத்துங்கள்",
     requestApplied: "பயண விவரங்கள் உங்கள் திட்டத்தில் ஏற்றப்பட்டன",
     packageReady: "உங்கள் பயணத் தொகுப்பு மதிப்பாய்வுக்கு தயாராக உள்ளது",
+    whatsapp: "WhatsApp-ல் பயணத் திட்டத்தை அனுப்புங்கள்",
+    whatsappReady: "WhatsApp பயணத் திட்டம் திறக்கப்பட்டது",
   },
   hi: {
     brand: "पैकेजप्रो",
@@ -355,6 +359,8 @@ const copy = {
     useThisSetup: "यह सेटअप उपयोग करें",
     requestApplied: "यात्रा विवरण आपके प्लानर में लोड हो गया",
     packageReady: "आपका ट्रिप पैकेज समीक्षा के लिए तैयार है",
+    whatsapp: "WhatsApp पर यात्रा योजना भेजें",
+    whatsappReady: "WhatsApp यात्रा योजना खुल गई",
   },
   te: {
     brand: "ప్యాకేజ్ ప్రో",
@@ -471,6 +477,8 @@ const copy = {
     useThisSetup: "ఈ సెటప్ ఉపయోగించండి",
     requestApplied: "ట్రిప్ వివరాలు మీ ప్లానర్‌లో లోడ్ అయ్యాయి",
     packageReady: "మీ ట్రిప్ ప్యాకేజీ సమీక్షకు సిద్ధంగా ఉంది",
+    whatsapp: "WhatsAppలో ప్రయాణ ప్రణాళిక పంపండి",
+    whatsappReady: "WhatsApp ప్రయాణ ప్రణాళిక తెరవబడింది",
   },
 } as const;
 
