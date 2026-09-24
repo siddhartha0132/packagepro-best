@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
+import { clearGuideBookingsForTests } from "./appStore";
 
 // PS-04 dataset: two Tamil-speaking heritage guides in Thanjavur. Arjun is unavailable on 2026-09-02; Meera is free 2–4 Sep.
 const ARJUN = "gid_ad5b7c5f";
@@ -218,5 +219,49 @@ describe("party pricing", () => {
     const two = await caller().packagepro.estimate({ ...base, travelers: 2 });
     expect(two.package.forTrip).toBeCloseTo(one.package.forTrip * 2, 2);
     expect(two.low).toBeGreaterThan(one.low * 1.9);
+  });
+});
+
+describe("guide bookings hold real slots", () => {
+  // Dataset slots for Arjun Nair: 28 Sept = 2, 29 Sept = 1, 30 Sept = 1. A confirmed booking uses one slot per date.
+  const planWithArjun = async () => {
+    const created = await caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 1, budgetCap: 200000, language: "ta" });
+    await caller().trip.selectFlight({ tripId: created.tripId, flightId: created.flightOptions[0].id });
+    return caller().trip.selectGuide({ tripId: created.tripId, guideId: ARJUN, days: 3 });
+  };
+
+  it("blocks the next traveller once a confirmed trip holds the guide's last slot", async () => {
+    clearGuideBookingsForTests();
+    const first = await planWithArjun();
+    expect(first.chosenGuide?.id).toBe(ARJUN);
+    const booked = await caller().trip.confirm({ tripId: first.tripId });
+    expect(booked.status).toBe("confirmed");
+
+    const second = await planWithArjun();
+    expect(second.chosenGuide).toBeNull();
+    expect(second.guideAvailabilityIssue?.guide.id).toBe(ARJUN);
+    expect(second.guideAvailabilityIssue?.conflictingDates).toEqual(["2026-09-29", "2026-09-30"]);
+    expect(second.guideAvailabilityIssue?.guide.availability).toMatchObject({ "2026-09-28": true, "2026-09-29": false, "2026-09-30": false });
+    const listed = (await caller().trip.guides({ tripId: second.tripId })).find(guide => guide.id === ARJUN)!;
+    expect(listed.isAvailableForTrip).toBe(false);
+    expect(listed.unavailableDates).toEqual(["2026-09-29", "2026-09-30"]);
+
+    const bookings = await caller().trip.bookings();
+    expect(bookings.find(row => row.trip_id === first.tripId)).toMatchObject({ guide_id: ARJUN, guide_dates: "2026-09-28, 2026-09-29, 2026-09-30" });
+  });
+
+  it("re-checks at confirmation: the second of two travellers holding the same guide is refused, not booked", async () => {
+    clearGuideBookingsForTests();
+    const a = await planWithArjun();
+    const b = await planWithArjun();
+    expect(a.chosenGuide?.id).toBe(ARJUN);
+    expect(b.chosenGuide?.id).toBe(ARJUN);
+    expect((await caller().trip.confirm({ tripId: a.tripId })).status).toBe("confirmed");
+    const late = await caller().trip.confirm({ tripId: b.tripId });
+    expect(late.status).toBe("select_package");
+    expect(late.booking ?? null).toBeNull();
+    expect(late.chosenGuide).toBeNull();
+    expect(late.guideAvailabilityIssue?.conflictingDates).toEqual(["2026-09-29", "2026-09-30"]);
+    expect(late.runningTotal).toBeLessThan(b.runningTotal);
   });
 });

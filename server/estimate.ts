@@ -3,7 +3,7 @@ import { partyUnits, unitsFor } from "./trips";
 import { completeGrounded, languageName } from "./aiChat";
 import { getDestinationInsight } from "./insights";
 import { DESTINATIONS, searchFlightsLive } from "./integrations";
-import { GUIDES, PACKAGES, datesBetween, guideCost, packageForCity } from "./packagepro";
+import { GUIDES, PACKAGES, datesBetween, guideCost, packageForCity, isGuideFree } from "./packagepro";
 
 // ---------------------------------------------------------------------------
 // What past PackagePro travellers did in a city (PS-04 trips, bookings, itineraries, preferences)
@@ -112,8 +112,8 @@ export async function estimateTrip(input: { origin: string; destination: string;
 
   const guides = GUIDES.filter(guide => guide.cityId === pkg.cityId && guide.languages.includes(input.language)).map(guide => ({
     id: guide.id, name: guide.name, specialisation: guide.specialisation, rating: guide.rating, languages: guide.languages,
-    tripCost: guideCost(guide, dates), available: dates.every(date => guide.availability[date] === true),
-    unavailableDates: dates.filter(date => guide.availability[date] !== true),
+    tripCost: guideCost(guide, dates), available: dates.every(date => isGuideFree(guide, date)),
+    unavailableDates: dates.filter(date => !isGuideFree(guide, date)),
   })).sort((a, b) => Number(b.available) - Number(a.available) || a.tripCost - b.tripCost);
   const guideTypical = guides.find(guide => guide.available)?.tripCost ?? 0;
 

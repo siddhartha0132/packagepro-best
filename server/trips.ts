@@ -1,8 +1,8 @@
 import { nanoid } from "nanoid";
 import { fromPaise, toPaise } from "./catalogue";
-import { GUIDES, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, packageForCity, realityCheck, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
+import { GUIDES, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, isGuideFree, liveAvailability, packageForCity, realityCheck, withLiveAvailability, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
 import { DESTINATIONS, searchFlightsLive, sendConfirmation } from "./integrations";
-import { loadTrip, recordBooking, saveTrip } from "./appStore";
+import { GuideSlotTakenError, loadTrip, recordBooking, saveTrip } from "./appStore";
 
 // Flow: select_flight → select_package (customise: itinerary, swaps, add-ons, guide, duration) → review → confirmed.
 // The total is never accumulated: it is recomputed from the current selection after every change.
@@ -359,8 +359,9 @@ export function listGuides(tripId: string, specialisation?: string) {
     requestedDates,
     tripCost: guideCost(guide, requestedDates),
     matchesPackage: guide.specialisation === trip.guideSpecialisation,
-    unavailableDates: requestedDates.filter(date => guide.availability[date] !== true),
-    isAvailableForTrip: requestedDates.every(date => guide.availability[date] === true),
+    availability: liveAvailability(guide),
+    unavailableDates: requestedDates.filter(date => !isGuideFree(guide, date)),
+    isAvailableForTrip: requestedDates.every(date => isGuideFree(guide, date)),
   })).sort((a, b) => Number(b.matchesPackage) - Number(a.matchesPackage) || Number(b.isAvailableForTrip) - Number(a.isAvailableForTrip) || b.rating - a.rating);
 }
 
@@ -368,7 +369,7 @@ function availabilityIssue(trip: Trip, guide: GuideRecord, check: ReturnType<typ
   const currentTotal = priceBreakdown(base).total;
   const replacementOptions = check.replacementOptions.map(option => ({ ...option, newTotal: priceBreakdown({ ...base, chosenGuide: { ...option.guide, daysBooked: 0, bookedDates: [], totalCost: option.totalCost } }).total }));
   return {
-    guide, conflictingDates: check.conflicts, requestedDates: dates, replacement: check.replacement, replacementOptions,
+    guide: withLiveAvailability(guide), conflictingDates: check.conflicts, requestedDates: dates, replacement: check.replacement, replacementOptions,
     replacementTotalCost: replacementOptions[0]?.totalCost ?? null, priceDelta: check.priceDelta, currentTotal,
   };
 }
@@ -460,11 +461,34 @@ export function setLanguage(tripId: string, language: string) {
   return snapshot(trip);
 }
 
+/** The chosen guide lost a slot before confirmation: drop them, reprice, and offer same-language substitutes instead of booking. */
+function guideTakenMeanwhile(trip: Trip, guide: GuideRecord) {
+  const packageDates = datesBetween(trip.departDate, trip.durationDays);
+  const check = guideCheck(guide, packageDates, { language: trip.language, specialisation: guide.specialisation, chargeDates: trip.chosenGuide?.bookedDates });
+  trip.guideAvailabilityIssue = availabilityIssue(trip, guide, check, packageDates, { ...trip, chosenGuide: null });
+  trip.chosenGuide = null;
+  trip.runningTotal = priceBreakdown(trip).total;
+  trip.status = "select_package";
+  log(trip, "decision", `Guide ${guide.name} was booked by another traveller on ${check.conflicts.join(", ")} before this booking — removed and repriced${check.replacement ? `; offered ${check.replacement.name}` : "; no compliant substitute free"}`);
+  return snapshot(trip);
+}
+
 export async function confirmTrip(tripId: string, contact?: { email?: string; phone?: string }) {
   const trip = need(tripId);
   if (trip.status !== "review" && trip.status !== "select_package") throw new Error(trip.status === "negotiate" ? "Resolve the pending budget negotiation first" : `Can't confirm from '${trip.status}'`);
+  // Re-check the guide at the moment of booking: another traveller may have taken the last slot since it was selected.
+  const guide = trip.chosenGuide ? GUIDES.find(item => item.id === trip.chosenGuide!.id) : undefined;
+  if (guide && trip.chosenGuide!.bookedDates.some(date => !isGuideFree(guide, date))) return guideTakenMeanwhile(trip, guide);
+  try {
+    trip.booking = recordBooking({
+      tripId: trip.tripId, total: trip.runningTotal, guideId: trip.chosenGuide?.id, email: contact?.email, phone: contact?.phone,
+      guide: guide ? { guideId: guide.id, dates: trip.chosenGuide!.bookedDates, capacity: guide.slots } : undefined,
+    });
+  } catch (error) {
+    if (guide && error instanceof GuideSlotTakenError) return guideTakenMeanwhile(trip, guide);
+    throw error;
+  }
   trip.status = "confirmed";
-  trip.booking = recordBooking({ tripId: trip.tripId, total: trip.runningTotal, guideId: trip.chosenGuide?.id, email: contact?.email, phone: contact?.phone });
   const summary = `PackagePro booking ${trip.booking.reference} confirmed: ${trip.origin} → ${trip.destination} ${trip.departDate} to ${trip.returnDate}. Total ${inr(trip.runningTotal)} of ${inr(trip.budgetCap)}.`;
   log(trip, "decision", `Booking ${trip.booking.reference} (${trip.booking.bookingId}) confirmed — final total ${inr(trip.runningTotal)} of ${inr(trip.budgetCap)} cap`);
   if (contact?.email || contact?.phone) {

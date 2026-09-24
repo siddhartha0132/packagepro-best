@@ -510,7 +510,13 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
       return showTrip(chatId, s, await trips.negotiate(s.tripId!, value));
     case "R": return showTrip(chatId, s, trips.continueFromPackage(s.tripId!));
     case "BK": return showTrip(chatId, s, trips.goBack(s.tripId!));
-    case "K": await typing(chatId); return showTrip(chatId, s, await trips.confirmTrip(s.tripId!));
+    case "K": {
+      await typing(chatId);
+      const next = await trips.confirmTrip(s.tripId!);
+      // Another traveller took the guide's last slot first: show the refusal and substitutes instead of a booking.
+      if (next.status !== "confirmed" && next.guideAvailabilityIssue) return showGuideRefusal(chatId, s, next);
+      return showTrip(chatId, s, next);
+    }
     default: return showMenu(chatId, s);
   }
 }

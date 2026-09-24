@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleUpdate } from "./telegramBot";
-import { loadBotSession } from "./appStore";
+import { clearGuideBookingsForTests, loadBotSession } from "./appStore";
 import { PACKAGES } from "./packagepro";
 import * as trips from "./trips";
 
@@ -32,7 +32,7 @@ beforeAll(() => {
 });
 
 afterAll(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
-beforeEach(() => { sent = []; });
+beforeEach(() => { sent = []; clearGuideBookingsForTests(); });
 
 const say = (chatId: number, text: string, languageCode = "en") => handleUpdate({ update_id: updateId++, message: { message_id: updateId, chat: { id: chatId }, from: { language_code: languageCode }, text } });
 const tap = (chatId: number, data: string) => handleUpdate({ update_id: updateId++, callback_query: { id: `cb${updateId}`, data, message: { message_id: 1, chat: { id: chatId } } } });

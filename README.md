@@ -469,3 +469,13 @@ English, हिन्दी, தமிழ் and తెలుగు (hand-writte
   questions about the current trip ("why was Meera refused?") get grounded answers; "cheaper hotel" edits the trip.
 - **Setup:** set `TELEGRAM_BOT_TOKEN`. Long polling needs no webhook. Only one instance may poll a token, so set
   `TELEGRAM_BOT_DISABLED=true` locally once the deployed server runs the bot. Sessions persist in the app database.
+
+## Guide bookings hold real slots
+
+`guide_availability.slots_available` (0–2 per guide per day) is the guide's capacity. A guide is free on a date only when the
+dataset marks them available **and** a slot is left after PackagePro's confirmed bookings (`app_guide_bookings`). Confirming a
+trip reserves the guide's dates inside one database transaction and re-checks capacity there, so two travellers can never take
+the same last slot: the later one is refused, the guide is removed and repriced, and same-language substitutes are offered.
+
+- `pnpm db:show` — bookings, which guide dates they hold, and slot usage per guide/date (open / FULL).
+- `pnpm db:reset` — clears trips, bookings, guide reservations and Telegram chats (run before a demo). The PS-04 dataset is untouched.

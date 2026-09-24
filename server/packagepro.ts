@@ -1,4 +1,5 @@
 import { fromPaise, loadCatalogue, rupees, toPaise, type HotelRow } from "./catalogue";
+import { guideBookedCount } from "./appStore";
 
 export type PackageComponent = {
   id: string;
@@ -56,6 +57,8 @@ export type GuideRecord = {
   availability: Record<string, boolean>;
   /** guide_availability.price_multiplier by for_date (peak-date uplift). */
   priceMultiplier: Record<string, number>;
+  /** guide_availability.slots_available by for_date: how many groups the guide can take that day. */
+  slots: Record<string, number>;
 };
 
 export type FlightRecord = { id: string; airline: string; route: string; depart: string; arrive?: string; duration: string; stops?: number; via?: string; logo?: string; aircraft?: string; price: number; confidence: number; source?: string };
@@ -131,11 +134,12 @@ export const HOTELS: HotelRecord[] = data.hotels.map(row => ({
 }));
 
 export const GUIDES: GuideRecord[] = (() => {
-  const availability = new Map<string, { availability: Record<string, boolean>; priceMultiplier: Record<string, number> }>();
+  const availability = new Map<string, { availability: Record<string, boolean>; priceMultiplier: Record<string, number>; slots: Record<string, number> }>();
   for (const row of data.availability) {
-    const entry = availability.get(row.guide_id) ?? { availability: {}, priceMultiplier: {} };
+    const entry = availability.get(row.guide_id) ?? { availability: {}, priceMultiplier: {}, slots: {} };
     entry.availability[row.for_date] = row.is_available === 1 && row.slots_available > 0;
     entry.priceMultiplier[row.for_date] = Number(row.price_multiplier) || 1;
+    entry.slots[row.for_date] = row.is_available === 1 ? Number(row.slots_available) || 0 : 0;
     availability.set(row.guide_id, entry);
   }
   return data.guides.map(row => ({
@@ -153,7 +157,7 @@ export const GUIDES: GuideRecord[] = (() => {
     dayRate: rupees(row.day_rate),
     halfDayRate: rupees(row.half_day_rate),
     bio: row.bio,
-    ...(availability.get(row.guide_id) ?? { availability: {}, priceMultiplier: {} }),
+    ...(availability.get(row.guide_id) ?? { availability: {}, priceMultiplier: {}, slots: {} }),
   }));
 })();
 
@@ -274,6 +278,23 @@ function distanceKm(fromCityId: string, toCityId: string) {
 const SUBSTITUTE_RADIUS_KM = 400;
 
 /**
+ * Live availability: the dataset says the guide works that day AND a slot is still free after PackagePro's own confirmed
+ * bookings (slots_available minus confirmed guide bookings). A confirmed trip therefore blocks the next traveller.
+ */
+export function isGuideFree(guide: GuideRecord, date: string) {
+  return guide.availability[date] === true && (guide.slots?.[date] ?? 0) - guideBookedCount(guide.id, date) > 0;
+}
+
+/** The guide's availability map with confirmed bookings applied — what the UI shows as ✓ / ✕. */
+export function liveAvailability(guide: GuideRecord): Record<string, boolean> {
+  return Object.fromEntries(Object.keys(guide.availability).map(date => [date, isGuideFree(guide, date)]));
+}
+
+export function withLiveAvailability<T extends GuideRecord>(guide: T): T {
+  return { ...guide, availability: liveAvailability(guide) };
+}
+
+/**
  * Check a guide against every actual package date. Unknown dates count as unavailable.
  * Substitutes must share the specialisation and the requested language and be free on every date;
  * they are ranked nearest-first (same city = 0 km), then by smallest price change.
@@ -281,16 +302,16 @@ const SUBSTITUTE_RADIUS_KM = 400;
 export function guideCheck(guide: GuideRecord, dates: string[], options: { language?: string; specialisation?: string; chargeDates?: string[] } = {}) {
   const requiredSpecialisation = options.specialisation || guide.specialisation;
   const chargeDates = options.chargeDates ?? dates;
-  const conflicts = dates.filter(date => guide.availability[date] !== true);
+  const conflicts = dates.filter(date => !isGuideFree(guide, date));
   const guideTotal = guideCost(guide, chargeDates);
   const replacementOptions = GUIDES
     .filter(candidate => candidate.id !== guide.id
       && candidate.specialisation === requiredSpecialisation
       && (!options.language || candidate.languages.includes(options.language))
-      && dates.every(date => candidate.availability[date] === true))
+      && dates.every(date => isGuideFree(candidate, date)))
     .map(candidate => {
       const totalCost = guideCost(candidate, chargeDates);
-      return { guide: candidate, totalCost, priceDelta: fromPaise(toPaise(totalCost.toFixed(2)) - toPaise(guideTotal.toFixed(2))), distanceKm: distanceKm(guide.cityId, candidate.cityId) };
+      return { guide: withLiveAvailability(candidate), totalCost, priceDelta: fromPaise(toPaise(totalCost.toFixed(2)) - toPaise(guideTotal.toFixed(2))), distanceKm: distanceKm(guide.cityId, candidate.cityId) };
     })
     .filter(option => option.distanceKm <= SUBSTITUTE_RADIUS_KM)
     .sort((a, b) => a.distanceKm - b.distanceKm || Math.abs(a.priceDelta) - Math.abs(b.priceDelta) || b.guide.rating - a.guide.rating);
