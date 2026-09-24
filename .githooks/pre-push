@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs before every `git push`: type check, offline tests (web + Telegram bot) and a production build.
+# Skip once with `git push --no-verify`.
+echo "pre-push: running pnpm verify…"
+pnpm verify || { echo "pre-push: verify failed — push cancelled."; exit 1; }

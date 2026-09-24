@@ -4,6 +4,7 @@ import type { Lang } from "../client/src/i18n";
 // is reliable in Hindi, Tamil and Telugu from the first message. {name} placeholders are filled by `say()`.
 
 const en = {
+  catalogueFares: "ℹ️ Live fares are unavailable right now — showing catalogue fares.",
   welcome: "👋 <b>Welcome to PackagePro</b> — holiday packages priced live, with local guides who speak your language.\n\nनमस्ते · வணக்கம் · నమస్కారం\n\nChoose your language · भाषा चुनें · மொழியைத் தேர்ந்தெடுங்கள் · భాషను ఎంచుకోండి:",
   menu: "What would you like to do?",
   btnBrowse: "🧳 Browse packages", btnAi: "✨ Plan with AI", btnTrip: "📋 My trip", btnLang: "🌐 Language",
@@ -66,6 +67,7 @@ const en = {
 type Copy = typeof en;
 
 const hi: Copy = {
+  catalogueFares: "ℹ️ अभी लाइव किराए उपलब्ध नहीं हैं — कैटलॉग किराए दिखाए जा रहे हैं।",
   welcome: en.welcome,
   menu: "आप क्या करना चाहेंगे?",
   btnBrowse: "🧳 पैकेज देखें", btnAi: "✨ AI से प्लान करें", btnTrip: "📋 मेरी यात्रा", btnLang: "🌐 भाषा",
@@ -126,6 +128,7 @@ const hi: Copy = {
 };
 
 const ta: Copy = {
+  catalogueFares: "ℹ️ நேரடி கட்டணங்கள் இப்போது கிடைக்கவில்லை — பட்டியல் கட்டணங்கள் காட்டப்படுகின்றன.",
   welcome: en.welcome,
   menu: "நீங்கள் என்ன செய்ய விரும்புகிறீர்கள்?",
   btnBrowse: "🧳 தொகுப்புகளைப் பார்க்க", btnAi: "✨ AI உடன் திட்டமிட", btnTrip: "📋 என் பயணம்", btnLang: "🌐 மொழி",
@@ -186,6 +189,7 @@ const ta: Copy = {
 };
 
 const te: Copy = {
+  catalogueFares: "ℹ️ ప్రస్తుతం లైవ్ ఛార్జీలు అందుబాటులో లేవు — కేటలాగ్ ఛార్జీలు చూపిస్తున్నాం.",
   welcome: en.welcome,
   menu: "మీరు ఏమి చేయాలనుకుంటున్నారు?",
   btnBrowse: "🧳 ప్యాకేజీలు చూడండి", btnAi: "✨ AI తో ప్లాన్ చేయండి", btnTrip: "📋 నా ప్రయాణం", btnLang: "🌐 భాష",

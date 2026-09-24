@@ -238,6 +238,7 @@ async function runEstimate(chatId: string, s: Session) {
     `${say(s.lang, "low")} ${money(e.low)} · <b>${say(s.lang, "typical")} ${money(e.typical)}</b> · ${say(s.lang, "high")} ${money(e.high)}`,
     say(s.lang, `verdict_${e.verdict}` as BotKey),
     "",
+    e.flights.source === "catalogue" ? say(s.lang, "catalogueFares") : "",
     flight ? `✈️ ${say(s.lang, "cheapestFlight")}: ${esc(flight.airline)} ${flight.depart}${flight.arrive ? `→${flight.arrive}` : ""} · ${money(flight.price)}` : `✈️ ${say(s.lang, "noFlights")}`,
     `🧳 ${say(s.lang, "packageDays", { days: e.days })}: ${money(e.package.forTrip)}`,
     `🧭 ${guide ? `${say(s.lang, "guideFrom")}: ${esc(guide.name)} ★${guide.rating} · ${money(guide.tripCost)}` : say(s.lang, "noGuide")}`,
@@ -272,7 +273,7 @@ async function showFlights(chatId: string, s: Session, trip: TripView) {
   if (!trip.flightOptions.length) return send(chatId, say(s.lang, "noFlights"), [[{ text: say(s.lang, "back"), data: "M:menu" }]]);
   const order = trip.flightOptions.map((flight, index) => ({ flight, index })).sort((a, b) => a.flight.price - b.flight.price).slice(0, 6);
   const stops = (n?: number) => (n ? say(s.lang, "stops", { n }) : say(s.lang, "nonstop"));
-  await send(chatId, `${say(s.lang, "pickFlight")}\n${esc(trip.origin)} → ${esc(trip.destination)} · ${shortDate(trip.departDate, s.lang)}`,
+  await send(chatId, `${say(s.lang, "pickFlight")}\n${esc(trip.origin)} → ${esc(trip.destination)} · ${shortDate(trip.departDate, s.lang)}${trip.flightSource === "catalogue" ? `\n${say(s.lang, "catalogueFares")}` : ""}`,
     order.map(({ flight, index }) => [{ text: `${flight.airline} ${flight.depart}${flight.arrive ? `→${flight.arrive}` : ""} · ${stops(flight.stops)} · ${money(flight.price)}`, data: `F:${index}` }]));
 }
 
@@ -406,6 +407,8 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
   const kind = separator < 0 ? data : data.slice(0, separator);
   const value = separator < 0 ? "" : data.slice(separator + 1);
   const trip = () => trips.getTrip(s.tripId!);
+  // Buttons from an old message can arrive after the trip is gone (or before one exists): send them to the menu.
+  if (["F", "H", "A", "GD", "GS", "GR", "GX", "ND", "NG", "R", "BK", "K"].includes(kind) && !s.tripId) return showMenu(chatId, s, say(s.lang, "noTrip"));
   switch (kind) {
     case "x": return;
     case "L": s.lang = (LANGS.find(lang => lang.value === value)?.value ?? "en-IN"); return showMenu(chatId, s, say(s.lang, "langSet"));
@@ -592,7 +595,10 @@ export function handleUpdate(update: Update) {
       }
     } catch (error) {
       console.warn("[telegram] handler error:", (error as Error).message);
-      await send(chatId, `${say(session.lang, "error")}\n<i>${esc((error as Error).message).slice(0, 200)}</i>`, [[{ text: say(session.lang, "btnTrip"), data: "M:trip" }, { text: "☰", data: "M:menu" }]]).catch(() => undefined);
+      // Planner rule messages ("Can't confirm from 'negotiate'") help the user; internal errors stay in the server log.
+      const detail = (error as Error).message;
+      const shown = /sqlite|fetch|undefined|null|cannot read|json|timeout|abort/i.test(detail) ? "" : `\n<i>${esc(detail).slice(0, 200)}</i>`;
+      await send(chatId, `${say(session.lang, "error")}${shown}`, [[{ text: say(session.lang, "btnTrip"), data: "M:trip" }, { text: "☰", data: "M:menu" }]]).catch(() => undefined);
     } finally {
       saveBotSession(chatId, session);
     }
