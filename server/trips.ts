@@ -98,15 +98,25 @@ function editable(trip: Trip, action: string) {
  * tour_packages.base_price covers the default (non-optional) components for duration_days.
  * Swapping a line applies price_delta(new) − price_delta(default); optional add-ons add their own price_delta.
  */
-function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "durationDays" | "chosenFlight" | "chosenTransport" | "chosenGuide">) {
-  const transport = paise(trip.chosenTransport?.price ?? trip.chosenFlight?.price ?? 0);
-  const base = trip.package ? Math.round(paise(trip.package.basePrice) * Math.max(1, trip.durationDays) / Math.max(1, trip.package.duration)) : 0;
+/** How many units of a component a party needs: per person, per room (2 per room) or per vehicle (up to 4); guides are per group. */
+export function partyUnits(travelers: number) {
+  const pax = Math.max(1, Math.floor(travelers || 1));
+  return { pax, rooms: Math.ceil(pax / 2), vehicles: Math.ceil(pax / 4) };
+}
+export const unitsFor = (type: PackageComponent["type"], party: ReturnType<typeof partyUnits>) => (type === "hotel" ? party.rooms : type === "transfer" ? party.vehicles : party.pax);
+
+function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "durationDays" | "chosenFlight" | "chosenTransport" | "chosenGuide" | "travelers">) {
+  const party = partyUnits(trip.travelers);
+  // Flight/train and the package are per person; hotel swaps per room; transfers per vehicle; experiences, meals, tickets per person.
+  const transport = paise(trip.chosenTransport?.price ?? trip.chosenFlight?.price ?? 0) * party.pax;
+  const base = trip.package ? Math.round(paise(trip.package.basePrice) * Math.max(1, trip.durationDays) / Math.max(1, trip.package.duration)) * party.pax : 0;
   let swaps = 0;
   let addOns = 0;
   for (const component of trip.packageComponents) {
     if (!component.included) continue;
-    if (component.optional) addOns += paise(component.price);
-    else swaps += paise(component.price) - paise(component.defaultPrice);
+    const units = unitsFor(component.type, party);
+    if (component.optional) addOns += paise(component.price) * units;
+    else swaps += (paise(component.price) - paise(component.defaultPrice)) * units;
   }
   const guide = paise(trip.chosenGuide?.totalCost ?? 0);
   const packageTotal = base + swaps + addOns;
@@ -118,6 +128,7 @@ function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "dura
     packageTotal: fromPaise(packageTotal),
     guide: fromPaise(guide),
     total: fromPaise(transport + packageTotal + guide),
+    party,
   };
 }
 
@@ -475,7 +486,8 @@ export async function autoBuildTrip(input: { origin: string; destination: string
   const packageEstimate = pkg.basePrice * durationDays / Math.max(1, pkg.duration);
   const guideRates = GUIDES.filter(guide => guide.city === destination && guide.languages.includes(input.language)).map(guide => guide.dayRate * 1.35);
   const guideEstimate = (guideRates.length ? Math.min(...guideRates) : 0) * durationDays;
-  const suggestedCap = Math.ceil((7000 + packageEstimate * 1.25 + guideEstimate) * 1.12 / 500) * 500;
+  const pax = Math.max(1, input.travelers);
+  const suggestedCap = Math.ceil((7000 * pax + packageEstimate * 1.25 * pax + guideEstimate) * 1.12 / 500) * 500;
   const created = await createTrip({ ...input, budgetCap: input.budgetCap && input.budgetCap > 0 ? input.budgetCap : suggestedCap });
   const trip = need(created.tripId);
 

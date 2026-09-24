@@ -7,6 +7,7 @@ import { cityImage } from "./insights";
 import { DESTINATIONS, ORIGINS, translateMany } from "./integrations";
 import { PACKAGES, getAlternatives } from "./packagepro";
 import * as trips from "./trips";
+import { unitsFor } from "./trips";
 
 // PackagePro on Telegram: the same engine as the web app (live fares, PS-04 packages, per-date guide checks with
 // same-language substitutes, budget negotiation, bookings), driven by inline buttons and free-text AI in 4 languages.
@@ -127,7 +128,18 @@ async function showMenu(chatId: string, s: Session, lead?: string) {
   await send(chatId, `${lead ? `${lead}\n\n` : ""}${say(s.lang, "menu")}`, [
     [{ text: say(s.lang, "btnBrowse"), data: "M:browse" }, { text: say(s.lang, "btnAi"), data: "M:ai" }],
     [{ text: say(s.lang, "btnTrip"), data: "M:trip" }, { text: say(s.lang, "btnLang"), data: "M:lang" }],
+    [{ text: say(s.lang, "btnDemo"), data: "M:demo" }],
   ]);
+}
+
+/** One-tap demo: Delhi → Thanjavur on 28 Sept with a Tamil guide; Meera Novak is busy that day, Arjun Nair is free. */
+async function startDemo(chatId: string, s: Session) {
+  const cityId = DESTINATIONS.find(item => item.city === "Thanjavur")?.code;
+  if (!cityId) return showMenu(chatId, s);
+  startPlanning(s, cityId);
+  s.draft = { ...s.draft, origin: "DEL", departDate: "2026-09-28", days: 3, travelers: 1, budget: 60000, language: "ta" };
+  await send(chatId, say(s.lang, "demoIntro"));
+  return runEstimate(chatId, s);
 }
 
 async function showThemes(chatId: string, s: Session) {
@@ -274,7 +286,7 @@ async function showFlights(chatId: string, s: Session, trip: TripView) {
   const order = trip.flightOptions.map((flight, index) => ({ flight, index })).sort((a, b) => a.flight.price - b.flight.price).slice(0, 6);
   const stops = (n?: number) => (n ? say(s.lang, "stops", { n }) : say(s.lang, "nonstop"));
   await send(chatId, `${say(s.lang, "pickFlight")}\n${esc(trip.origin)} → ${esc(trip.destination)} · ${shortDate(trip.departDate, s.lang)}${trip.flightSource === "catalogue" ? `\n${say(s.lang, "catalogueFares")}` : ""}`,
-    order.map(({ flight, index }) => [{ text: `${flight.airline} ${flight.depart}${flight.arrive ? `→${flight.arrive}` : ""} · ${stops(flight.stops)} · ${money(flight.price)}`, data: `F:${index}` }]));
+    order.map(({ flight, index }) => [{ text: `${flight.airline} ${flight.depart}${flight.arrive ? `→${flight.arrive}` : ""} · ${stops(flight.stops)} · ${money(flight.price * trip.travelers)}${trip.travelers > 1 ? ` (${trip.travelers}×${money(flight.price)})` : ""}`, data: `F:${index}` }]));
 }
 
 function packageSummary(s: Session, trip: TripView, tr: (text: string) => string) {
@@ -319,7 +331,7 @@ async function showHotels(chatId: string, s: Session, trip: TripView) {
   const stars = (detail: string) => detail.match(/(\d)★/)?.[1];
   await send(chatId, say(s.lang, "pickHotel"), [
     [{ text: `✓ ${current.label}${stars(current.detail) ? ` · ${stars(current.detail)}★` : ""} (${say(s.lang, "current")})`, data: "x" }],
-    ...alternatives.map((item, index) => [{ text: `${item.label}${stars(item.detail) ? ` · ${stars(item.detail)}★` : ""} · ${signed(item.price - current.price)}`, data: `H:${index}` }]),
+    ...alternatives.map((item, index) => [{ text: `${item.label}${stars(item.detail) ? ` · ${stars(item.detail)}★` : ""} · ${signed((item.price - current.price) * trip.priceBreakdown.party.rooms)}`, data: `H:${index}` }]),
     [{ text: say(s.lang, "back"), data: "M:trip" }],
   ]);
 }
@@ -327,7 +339,7 @@ async function showHotels(chatId: string, s: Session, trip: TripView) {
 function addOnRows(s: Session, trip: TripView, tr: (text: string) => string): Rows {
   return [
     ...trip.packageComponents.map((item, index) => ({ item, index })).filter(({ item }) => item.optional)
-      .map(({ item, index }) => [{ text: `${item.included ? "✅" : "➕"} ${tr(item.label)} · ${money(item.price)}`, data: `A:${index}` }]),
+      .map(({ item, index }) => [{ text: `${item.included ? "✅" : "➕"} ${tr(item.label)} · ${money(item.price * unitsFor(item.type, trip.priceBreakdown.party))}`, data: `A:${index}` }]),
     [{ text: say(s.lang, "back"), data: "M:trip" }],
   ];
 }
@@ -350,8 +362,11 @@ async function showGuideRefusal(chatId: string, s: Session, trip: TripView) {
   const issue = trip.guideAvailabilityIssue!;
   const options = issue.replacementOptions.slice(0, 2);
   const refusedCost = (option: (typeof options)[number]) => option.totalCost - (option.priceDelta ?? 0);
+  // Date strip per guide (✓ free, ✕ busy) so the clash is visible at a glance.
+  const strip = (availability: Record<string, boolean>) => issue.requestedDates.map(date => `${new Date(`${date}T00:00:00Z`).getUTCDate()} ${availability[date] === true ? "✅" : "❌"}`).join(" · ");
   const lines = [
     say(s.lang, "refused", { guide: esc(issue.guide.name), dates: issue.conflictingDates.map(date => shortDate(date, s.lang)).join(", ") }),
+    [issue.guide, ...options.map(option => option.guide)].map(guide => `<code>${esc(guide.name.padEnd(13))}</code> ${strip(guide.availability)}`).join("\n"),
     ...options.map(option => say(s.lang, "substitute", {
       guide: esc(option.guide.name), spec: specName(s.lang, option.guide.specialisation), where: option.distanceKm < 1 ? say(s.lang, "sameCity") : say(s.lang, "kmAway", { km: Math.round(option.distanceKm) }),
       cost: money(option.totalCost), delta: signed(option.priceDelta), old: money(refusedCost(option)),
@@ -417,6 +432,7 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
       if (value === "ai") return send(chatId, say(s.lang, "aiPrompt"));
       if (value === "trip") return showTrip(chatId, s);
       if (value === "lang") return showWelcome(chatId);
+      if (value === "demo") return startDemo(chatId, s);
       return showMenu(chatId, s);
     case "T": return showPackageList(chatId, s, value);
     case "P": return showPackageCard(chatId, s, value);
@@ -505,6 +521,7 @@ async function onText(chatId: string, s: Session, text: string) {
     if (command === "start") { s.draft = {}; s.step = undefined; s.history = []; return showWelcome(chatId); }
     if (command === "language") return showWelcome(chatId);
     if (command === "packages") return showThemes(chatId, s);
+    if (command === "demo") return startDemo(chatId, s);
     if (command === "plan") return send(chatId, say(s.lang, "aiPrompt"));
     if (command === "trip") return showTrip(chatId, s);
     if (command === "reset") { s.draft = {}; s.step = undefined; s.tripId = undefined; s.history = []; return showMenu(chatId, s); }
@@ -610,10 +627,10 @@ export function handleUpdate(update: Update) {
 // ---------------------------------------------------------------------------
 
 const COMMANDS: Record<Lang, [string, string][]> = {
-  "en-IN": [["start", "Start / choose language"], ["menu", "Main menu"], ["packages", "Browse packages"], ["plan", "Plan with AI"], ["trip", "My trip"], ["language", "Change language"], ["reset", "Start over"]],
-  hi: [["start", "शुरू करें / भाषा चुनें"], ["menu", "मेन्यू"], ["packages", "पैकेज देखें"], ["plan", "AI से प्लान करें"], ["trip", "मेरी यात्रा"], ["language", "भाषा बदलें"], ["reset", "नई शुरुआत"]],
-  ta: [["start", "தொடங்கு / மொழி"], ["menu", "மெனு"], ["packages", "தொகுப்புகள்"], ["plan", "AI உடன் திட்டமிடு"], ["trip", "என் பயணம்"], ["language", "மொழியை மாற்று"], ["reset", "புதிதாகத் தொடங்கு"]],
-  te: [["start", "ప్రారంభించు / భాష"], ["menu", "మెనూ"], ["packages", "ప్యాకేజీలు"], ["plan", "AI తో ప్లాన్"], ["trip", "నా ప్రయాణం"], ["language", "భాష మార్చు"], ["reset", "కొత్తగా ప్రారంభించు"]],
+  "en-IN": [["demo", "Try the demo trip"], ["start", "Start / choose language"], ["menu", "Main menu"], ["packages", "Browse packages"], ["plan", "Plan with AI"], ["trip", "My trip"], ["language", "Change language"], ["reset", "Start over"]],
+  hi: [["demo", "डेमो आज़माएँ"], ["start", "शुरू करें / भाषा चुनें"], ["menu", "मेन्यू"], ["packages", "पैकेज देखें"], ["plan", "AI से प्लान करें"], ["trip", "मेरी यात्रा"], ["language", "भाषा बदलें"], ["reset", "नई शुरुआत"]],
+  ta: [["demo", "டெமோ பயணம்"], ["start", "தொடங்கு / மொழி"], ["menu", "மெனு"], ["packages", "தொகுப்புகள்"], ["plan", "AI உடன் திட்டமிடு"], ["trip", "என் பயணம்"], ["language", "மொழியை மாற்று"], ["reset", "புதிதாகத் தொடங்கு"]],
+  te: [["demo", "డెమో ప్రయాణం"], ["start", "ప్రారంభించు / భాష"], ["menu", "మెనూ"], ["packages", "ప్యాకేజీలు"], ["plan", "AI తో ప్లాన్"], ["trip", "నా ప్రయాణం"], ["language", "భాష మార్చు"], ["reset", "కొత్తగా ప్రారంభించు"]],
 };
 
 let running = false;

@@ -45,7 +45,7 @@ export function AirlineLogo({ flight }: { flight: Pick<Flight, "logo" | "airline
 }
 
 /** Flight result row in the booking-site layout: carrier · depart — duration — arrive · fare · CTA. */
-export function FlightRow({ flight, lang, onSelect, disabled, cheapest }: { flight: Flight; lang: Lang; onSelect?: () => void; disabled?: boolean; cheapest?: boolean }) {
+export function FlightRow({ flight, lang, onSelect, disabled, cheapest, travelers = 1 }: { flight: Flight; lang: Lang; onSelect?: () => void; disabled?: boolean; cheapest?: boolean; travelers?: number }) {
   const copy = (key: CopyKey) => t(lang, key);
   const [from, to] = flight.route.split("→").map(part => part.trim());
   const stops = flight.stops ?? 0;
@@ -57,7 +57,7 @@ export function FlightRow({ flight, lang, onSelect, disabled, cheapest }: { flig
       <div><div className="text-xl font-extrabold text-[#0b1f3a]">{flight.arrive || "—"}</div><div className="text-[11px] font-semibold text-[#5f6b7a]">{to}</div></div>
     </div>
     <div className="col-span-2 flex items-center justify-between gap-4 border-t border-dashed border-[#e6ebf2] pt-3 sm:col-span-1 sm:flex-col sm:items-end sm:border-0 sm:pt-0">
-      <div className="text-right"><div className="text-xl font-extrabold text-[#0b1f3a]">{money(flight.price)}</div><div className="text-[10px] text-[#5f6b7a]">{copy(flight.source === "google_flights" ? "srcGoogle" : flight.source === "aviationstack" ? "srcSchedule" : flight.source === "skyscanner" ? "srcSkyscanner" : "srcCatalogue")}</div></div>
+      <div className="text-right"><div className="text-xl font-extrabold text-[#0b1f3a]">{money(flight.price)}</div>{travelers > 1 && <div className="text-[11px] text-[#5f6b7a]">{copy("perPerson")} · <strong className="text-[#0b1f3a]">{money(flight.price * travelers)}</strong> ×{travelers}</div>}<div className="text-[10px] text-[#5f6b7a]">{copy(flight.source === "google_flights" ? "srcGoogle" : flight.source === "aviationstack" ? "srcSchedule" : flight.source === "skyscanner" ? "srcSkyscanner" : "srcCatalogue")}</div></div>
       {onSelect && <Button disabled={disabled} onClick={onSelect} className="h-9 rounded-full bg-gradient-to-r from-[#1a8cff] to-[#0b5ed7] px-6 text-xs font-bold uppercase tracking-wide text-white shadow-md hover:opacity-95">{copy("select")}</Button>}
     </div>
   </div>;
@@ -121,7 +121,7 @@ export function EstimateView({ estimate, loading, lang, onContinue, continuing }
     <Panel className="p-5">
       <SectionTitle icon={<Plane className="h-4 w-4 text-[#0b6bcb]" />} title={copy("liveFlights")} sub={e.flights.note ? tr(e.flights.note) : `${e.flights.source === "serpapi" ? copy("srcGoogle") : e.flights.source} · ${e.dates[0]}`}
         right={e.flights.insights?.typicalRange && <div className="text-right text-[11px] text-[#5f6b7a]">{copy("typicalFare")}<div className="text-sm font-bold text-[#0b1f3a]">{money(e.flights.insights.typicalRange[0])}–{money(e.flights.insights.typicalRange[1])}</div>{e.flights.insights.priceLevel && <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${e.flights.insights.priceLevel === "low" ? "bg-[#e7f8f0] text-[#0e8a5f]" : e.flights.insights.priceLevel === "high" ? "bg-[#fdecea] text-[#c0392b]" : "bg-[#fff4e0] text-[#b45309]"}`}>{copy("priceLevel")}: {e.flights.insights.priceLevel}</span>}</div>} />
-      <div className="mt-4 space-y-2">{e.flights.options.slice(0, 3).map((flight, index) => <FlightRow key={flight.id} flight={flight} lang={lang} cheapest={index === 0} />)}</div>
+      <div className="mt-4 space-y-2">{e.flights.options.slice(0, 3).map((flight, index) => <FlightRow key={flight.id} flight={flight} lang={lang} cheapest={index === 0} travelers={e.party.pax} />)}</div>
     </Panel>
 
     <div className="grid gap-4 md:grid-cols-2">
@@ -180,7 +180,7 @@ export function ReviewPanel({ trip, lang, busy, email, phone, setEmail, setPhone
   const leg = trip.chosenFlight;
   return <div className="space-y-4">
     {confirmed && <Panel className="flex items-center gap-3 border border-[#b7ebd3] bg-[#e7f8f0] p-5 text-[#0e8a5f]"><Check className="h-6 w-6" /><div className="flex-1"><div className="font-extrabold">{copy("confirmed")}</div><div className="text-xs">{copy("final")} {money(trip.runningTotal)} {copy("of")} {money(trip.budgetCap)}</div></div>{trip.booking && <div className="rounded-xl bg-white px-4 py-2 text-right"><div className="text-[10px] font-bold uppercase tracking-wider text-[#5f6b7a]">PNR</div><div className="font-mono text-lg font-black text-[#0b1f3a]">{trip.booking.reference}</div></div>}</Panel>}
-    {leg && <Panel className="p-5"><SectionTitle icon={<Plane className="h-4 w-4 text-[#0b6bcb]" />} title={copy("flight")} sub={trip.departDate} /><div className="mt-3"><FlightRow flight={leg} lang={lang} /></div></Panel>}
+    {leg && <Panel className="p-5"><SectionTitle icon={<Plane className="h-4 w-4 text-[#0b6bcb]" />} title={copy("flight")} sub={trip.departDate} /><div className="mt-3"><FlightRow flight={leg} lang={lang} travelers={trip.travelers} /></div></Panel>}
     {trip.chosenTransport && <Panel className="p-5"><SectionTitle icon={<Clock className="h-4 w-4 text-[#0b6bcb]" />} title={trip.chosenTransport.operator} sub={`${trip.chosenTransport.route} · ${trip.chosenTransport.depart} · ${trip.chosenTransport.duration}`} right={<span className="font-bold">{money(trip.chosenTransport.price)}</span>} /></Panel>}
     <Panel className="p-5">
       <SectionTitle icon={<MapPin className="h-4 w-4 text-[#0b6bcb]" />} title={trip.package ? tr(trip.package.name) : copy("yourPackage")} sub={`${trip.departDate} → ${trip.returnDate} · ${trip.durationDays} ${copy("days")}`} right={<span className="text-lg font-extrabold">{money(trip.priceBreakdown.packageTotal)}</span>} />

@@ -121,6 +121,18 @@ export default function Home() {
     setScreen("reality");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+  // One-tap demo: Delhi → Thanjavur on 28 Sept with a Tamil guide — Meera Novak is busy that day, Arjun Nair is free.
+  const DEMO = { origin: "DEL", city: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01" };
+  const [demoMode, setDemoMode] = useState(false);
+  function startDemo() {
+    const destination = cities.data?.destinations.find(item => item.city === DEMO.city)?.code;
+    if (!destination) return;
+    setForm(current => ({ ...current, origin: DEMO.origin, destination, departDate: DEMO.departDate, returnDate: DEMO.returnDate, travelers: 1, budgetCap: 60000, language: "ta", interests: "heritage, temples, local food" }));
+    setTripId(null);
+    setDemoMode(true);
+    setScreen("reality");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
   function applyTripRequest(request: any) {
     const durationDays = Math.max(1, Number(request.durationDays || 2));
     const departDate = request.departDate || isoDateFromToday(3);
@@ -182,6 +194,7 @@ export default function Home() {
           <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-[11px] font-bold uppercase tracking-[.16em] ring-1 ring-white/25"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4ade80]" />{copy("live")} · Google Flights · PS-04</div>
           <h1 className="mt-4 max-w-3xl text-4xl font-black leading-[1.05] tracking-tight md:text-6xl">{copy("heroTitle")}</h1>
           <p className="mt-4 max-w-2xl text-sm text-white/80 md:text-base">{copy("heroLead")}</p>
+          <button type="button" onClick={startDemo} className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-extrabold text-[#0b4fb3] shadow-[0_10px_30px_rgba(0,0,0,.25)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_36px_rgba(0,0,0,.3)]">{copy("tryDemo")}</button>
 
           <form onSubmit={event => { event.preventDefault(); setScreen("reality"); }} className="relative mt-8 rounded-2xl bg-white p-2 pb-10 text-[#0b1f3a] shadow-[0_24px_60px_rgba(0,0,0,.3)]">
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-4 pb-2 pt-3 text-xs font-semibold text-[#5f6b7a]"><span className="flex items-center gap-1.5 text-[#0b6bcb]"><Plane className="h-3.5 w-3.5" />{copy("flights")}</span><span className="flex items-center gap-1.5"><BedDouble className="h-3.5 w-3.5" />{copy("stays")}</span><span className="flex items-center gap-1.5"><Ticket className="h-3.5 w-3.5" />{copy("activities")}</span><span className="flex items-center gap-1.5"><Compass className="h-3.5 w-3.5" />{copy("localGuides")}</span><span className="ml-auto hidden text-[11px] md:inline">{copy("everything")}</span></div>
@@ -280,6 +293,7 @@ export default function Home() {
     {screen !== "intake" && <main className="mx-auto grid max-w-[1240px] gap-6 px-4 pb-24 pt-6 md:px-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <section className="min-w-0">
         <div className="mb-4 lg:hidden"><Stepper steps={steps} current={stepIndex} /></div>
+        {demoMode && destinationCity === DEMO.city && trip?.status !== "confirmed" && <div className="mb-4 flex items-start gap-3 rounded-xl border border-[#b9d7fb] bg-[#eef6ff] px-4 py-3 text-xs leading-5 text-[#0b1f3a]"><Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#0b6bcb]" /><span className="flex-1">{copy("demoHint")}</span><button onClick={() => setDemoMode(false)} className="text-[#5f6b7a] hover:text-[#0b1f3a]"><X className="h-4 w-4" /></button></div>}
         {screen === "reality" && <>
           <ScreenHeader title={`${tr(cities.data?.origins.find(item => item.code === form.origin)?.city) || form.origin} → ${tr(destinationCity)}`} sub={`${form.departDate} → ${form.returnDate} · ${form.travelers} ${copy("travelers").toLowerCase()} · ${copy("guideLanguage")}: ${GUIDE_LANGS.find(lang => lang.value === form.language)?.native}`} onBack={back} backLabel={copy("back")} />
           <EstimateView estimate={estimate.data} loading={estimate.isLoading} lang={uiLang} continuing={createTrip.isPending} onContinue={() => createTrip.mutate({ ...form, budgetCap: form.budgetCap || 1 })} />
@@ -290,7 +304,7 @@ export default function Home() {
           {trip.status === "select_flight" && <>
             <ScreenHeader title={copy("chooseFlight")} sub={`${trip.origin} → ${tr(trip.destination)} · ${trip.departDate} · ${trip.flightNote ? tr(trip.flightNote) : trip.flightSource === "serpapi" ? copy("srcGoogle") : trip.flightSource}`} onBack={back} backLabel={copy("back")} />
             {trip.flightInsights?.typicalRange && <div className="mb-3 flex items-center gap-2 rounded-xl bg-[#eef6ff] px-4 py-2.5 text-xs text-[#0b1f3a]"><Sparkles className="h-4 w-4 text-[#0b6bcb]" />{copy("typicalFare")}: <strong>{money(trip.flightInsights.typicalRange[0])}–{money(trip.flightInsights.typicalRange[1])}</strong> · {copy("priceLevel")}: <strong className="uppercase">{trip.flightInsights.priceLevel}</strong></div>}
-            <div className="space-y-3">{[...trip.flightOptions].sort((a, b) => a.price - b.price).map((flight, index) => <FlightRow key={flight.id} flight={flight} lang={uiLang} cheapest={index === 0} disabled={busy} onSelect={() => selectFlight.mutate({ tripId: trip.tripId, flightId: flight.id })} />)}</div>
+            <div className="space-y-3">{[...trip.flightOptions].sort((a, b) => a.price - b.price).map((flight, index) => <FlightRow key={flight.id} flight={flight} lang={uiLang} cheapest={index === 0} travelers={trip.travelers} disabled={busy} onSelect={() => selectFlight.mutate({ tripId: trip.tripId, flightId: flight.id })} />)}</div>
           </>}
           {trip.status === "select_package" && trip.package && <>
             <ScreenHeader title={copy("customise")} sub={copy("packageSub")} onBack={back} backLabel={copy("back")} />

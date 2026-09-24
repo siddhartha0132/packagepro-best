@@ -234,4 +234,35 @@ describe("telegram bot", () => {
     }
     expect(buttonData().length).toBeGreaterThan(50);
   });
+
+  it("runs the one-tap demo and shows each guide's date strip on refusal", async () => {
+    await say(9200, "/start");
+    await tap(9200, "L:en-IN");
+    await tap(9200, "M:demo");
+    expect(allText()).toContain("Demo trip");
+    expect(allText()).toMatch(/Low ₹[\d,]+/);
+    await tap(9200, "E:go");
+    await tap(9200, "F:0");
+    await tap(9200, "GD");
+    const meera = trips.listGuides(tripOf(9200)!).findIndex(guide => guide.name === "Meera Novak");
+    await tap(9200, `GS:${meera}`);
+    expect(last().text).toMatch(/Meera Novak\s*<\/code> 28 ❌ · 29 ✅ · 30 ✅/);
+    expect(last().text).toMatch(/Arjun Nair\s*<\/code> 28 ✅ · 29 ✅ · 30 ✅/);
+  });
+
+  it("prices a party: flight buttons show the party total and hotel deltas are per room", async () => {
+    await say(9201, "/start");
+    await tap(9201, "L:en-IN");
+    await tap(9201, `B:${thanjavur.id}`);
+    for (const data of ["O:DEL", "D:2026-09-28", "N:3", "V:3", "G:150000", "GL:ta", "E:go"]) await tap(9201, data);
+    expect(last().buttons[0].text).toMatch(/₹[\d,]+ \(3×₹[\d,]+\)/);
+    await tap(9201, "F:0");
+    const trip = trips.getTrip(tripOf(9201)!);
+    expect(trip.priceBreakdown.party).toEqual({ pax: 3, rooms: 2, vehicles: 1 });
+    await tap(9201, "H:list");
+    const current = trip.packageComponents.find(item => item.type === "hotel")!;
+    const first = PACKAGES.find(pkg => pkg.id === trip.package!.id)!.components.filter(item => item.swapGroup === current.swapGroup && item.id !== current.id)[0];
+    const delta = Math.round((first.price - current.price) * 2);
+    expect(last().buttons[1].text).toContain(`₹${Math.abs(delta).toLocaleString("en-IN")}`);
+  });
 });

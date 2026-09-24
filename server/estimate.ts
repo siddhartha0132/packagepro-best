@@ -1,4 +1,5 @@
 import { all, rupees } from "./catalogue";
+import { partyUnits, unitsFor } from "./trips";
 import { completeGrounded, languageName } from "./aiChat";
 import { getDestinationInsight } from "./insights";
 import { DESTINATIONS, searchFlightsLive } from "./integrations";
@@ -94,18 +95,20 @@ export async function estimateTrip(input: { origin: string; destination: string;
     searchFlightsLive(input.origin.toUpperCase(), place.airport || place.code, input.departDate),
     getDestinationInsight(place.city),
   ]);
-  const fares = flightSearch.flights.map(flight => flight.price).filter(price => price > 0);
+  const party = partyUnits(input.travelers);
+  // Fares and the package are per person; hotel upgrades per room; add-ons per their unit; guides per group.
+  const fares = flightSearch.flights.map(flight => flight.price * party.pax).filter(price => price > 0);
   const cheapestFlight = [...flightSearch.flights].sort((a, b) => a.price - b.price)[0] ?? null;
   const flightLow = fares.length ? Math.min(...fares) : 0;
-  const flightTypical = flightSearch.insights?.typicalRange ? Math.round((flightSearch.insights.typicalRange[0] + flightSearch.insights.typicalRange[1]) / 2) : median(fares);
-  const flightHigh = flightSearch.insights?.typicalRange?.[1] ?? (fares.length ? Math.max(...fares) : 0);
+  const flightTypical = flightSearch.insights?.typicalRange ? Math.round((flightSearch.insights.typicalRange[0] + flightSearch.insights.typicalRange[1]) / 2) * party.pax : median(fares);
+  const flightHigh = flightSearch.insights?.typicalRange?.[1] ? flightSearch.insights.typicalRange[1] * party.pax : (fares.length ? Math.max(...fares) : 0);
 
-  const packageBase = Math.round(pkg.basePrice * days / Math.max(1, pkg.duration) * 100) / 100;
+  const packageBase = Math.round(pkg.basePrice * days / Math.max(1, pkg.duration) * 100) * party.pax / 100;
   const defaultHotel = pkg.components.find(item => item.type === "hotel" && item.isDefault);
-  const hotelOptions = pkg.components.filter(item => item.type === "hotel").map(item => ({ id: item.id, name: item.label, detail: item.detail, delta: Math.round((item.price - (defaultHotel?.price ?? item.price)) * 100) / 100, isDefault: !!item.isDefault }));
+  const hotelOptions = pkg.components.filter(item => item.type === "hotel").map(item => ({ id: item.id, name: item.label, detail: item.detail, delta: Math.round((item.price - (defaultHotel?.price ?? item.price)) * party.rooms * 100) / 100, isDefault: !!item.isDefault }));
   const hotelUpgrade = Math.max(0, ...hotelOptions.map(item => item.delta));
   const addOns = pkg.components.filter(item => item.optional && item.isDefault);
-  const addOnTotal = addOns.reduce((sum, item) => sum + item.price, 0);
+  const addOnTotal = addOns.reduce((sum, item) => sum + item.price * unitsFor(item.type, party), 0);
 
   const guides = GUIDES.filter(guide => guide.cityId === pkg.cityId && guide.languages.includes(input.language)).map(guide => ({
     id: guide.id, name: guide.name, specialisation: guide.specialisation, rating: guide.rating, languages: guide.languages,
@@ -123,7 +126,7 @@ export async function estimateTrip(input: { origin: string; destination: string;
   const grounded = {
     destination: place.city, days, departDate: input.departDate, travellers: input.travelers, budgetInr: input.budget, guideLanguage: input.language, interests: input.interests || "",
     package: { name: pkg.name, theme: pkg.theme, tier: pkg.tier, basePriceForTrip: packageBase, inclusions: pkg.inclusions },
-    flights: { source: flightSearch.source, cheapest: cheapestFlight && { airline: cheapestFlight.airline, depart: cheapestFlight.depart, price: cheapestFlight.price }, typicalRange: flightSearch.insights?.typicalRange, priceLevel: flightSearch.insights?.priceLevel },
+    flights: { source: flightSearch.source, cheapest: cheapestFlight && { airline: cheapestFlight.airline, depart: cheapestFlight.depart, pricePerPerson: cheapestFlight.price }, typicalRangePerPerson: flightSearch.insights?.typicalRange, priceLevel: flightSearch.insights?.priceLevel },
     hotelUpgradeMax: hotelUpgrade, guides: guides.slice(0, 3).map(guide => ({ name: guide.name, specialisation: guide.specialisation, tripCost: guide.tripCost, available: guide.available })),
     estimate: { low, typical, high }, pastTravellers: popularity,
   };
@@ -143,7 +146,8 @@ export async function estimateTrip(input: { origin: string; destination: string;
     package: { id: pkg.id, name: pkg.name, theme: pkg.theme, tier: pkg.tier, duration: pkg.duration, basePrice: pkg.basePrice, forTrip: packageBase, image: pkg.image, inclusions: pkg.inclusions, languagesOffered: pkg.languagesOffered },
     flights: { source: flightSearch.source, note: flightSearch.note, insights: flightSearch.insights, options: flightSearch.flights.slice(0, 5), low: flightLow, typical: flightTypical, high: flightHigh },
     hotels: { options: hotelOptions, upgradeMax: hotelUpgrade },
-    addOns: addOns.map(item => ({ id: item.id, label: item.label, price: item.price })),
+    addOns: addOns.map(item => ({ id: item.id, label: item.label, price: item.price * unitsFor(item.type, party) })),
+    party,
     guides: guides.slice(0, 4),
     popularity,
     insight,

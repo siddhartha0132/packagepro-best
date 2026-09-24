@@ -189,3 +189,34 @@ describe("master trip flow", () => {
     expect(trip.chosenHotel?.rating).toBe(Math.max(...hotels.map(item => Number(item.detail.match(/(\d)★/)?.[1] || 0))));
   });
 });
+
+describe("party pricing", () => {
+  it("prices flights and the package per person, hotel swaps per room and the guide per group", async () => {
+    const plan = async (travelers: number) => {
+      const created = await caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers, budgetCap: 500000, language: "ta" });
+      return caller().trip.selectFlight({ tripId: created.tripId, flightId: created.flightOptions[0].id });
+    };
+    const solo = await plan(1);
+    const trio = await plan(3);
+    expect(trio.priceBreakdown.party).toEqual({ pax: 3, rooms: 2, vehicles: 1 });
+    expect(trio.priceBreakdown.transport).toBeCloseTo(solo.priceBreakdown.transport * 3, 2);
+    expect(trio.priceBreakdown.packageBase).toBeCloseTo(solo.priceBreakdown.packageBase * 3, 2);
+
+    const hotel = trio.packageComponents.find(item => item.type === "hotel")!;
+    const upgrade = (await caller().packagepro.alternatives({ packageId: trio.package!.id, componentId: hotel.id }))[0];
+    const swapped = await caller().trip.swap({ tripId: trio.tripId, fromId: hotel.id, toId: upgrade.id });
+    expect(swapped.priceBreakdown.swapAdjustments).toBeCloseTo((upgrade.price - hotel.price) * 2, 2);
+
+    const guided = await caller().trip.selectGuide({ tripId: trio.tripId, guideId: ARJUN, days: 3 });
+    const soloGuided = await caller().trip.selectGuide({ tripId: solo.tripId, guideId: ARJUN, days: 3 });
+    expect(guided.priceBreakdown.guide).toBeCloseTo(soloGuided.priceBreakdown.guide, 2);
+  });
+
+  it("scales the live estimate with the party", async () => {
+    const base = { origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", budget: 100000, language: "ta" };
+    const one = await caller().packagepro.estimate({ ...base, travelers: 1 });
+    const two = await caller().packagepro.estimate({ ...base, travelers: 2 });
+    expect(two.package.forTrip).toBeCloseTo(one.package.forTrip * 2, 2);
+    expect(two.low).toBeGreaterThan(one.low * 1.9);
+  });
+});

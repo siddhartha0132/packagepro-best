@@ -45,6 +45,9 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
     return current?.swapGroup ? pkg.components.filter(item => item.swapGroup === current.swapGroup && item.id !== componentId) : [];
   };
   const addOns = trip.packageComponents.filter(item => item.optional);
+  // Unit prices scale with the party: per room for hotels (2 per room), per vehicle for transfers (4 each), per person otherwise; guides per group.
+  const party = trip.priceBreakdown.party;
+  const unitsOf = (type?: string) => (type === "hotel" ? party.rooms : type === "transfer" ? party.vehicles : type === "guide" ? 1 : party.pax);
   const specialisations = Array.from(new Set((guides.data || []).map(guide => guide.specialisation)));
   const visibleGuides = (guides.data || []).filter(guide => !specFilter || guide.specialisation === specFilter);
 
@@ -88,7 +91,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
                     <div className="min-w-0"><div className="text-sm font-medium">{tr(item.label)}</div><div className="mt-0.5 text-xs text-[#5f6b7a]">{tr(item.detail)}</div></div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {item.price != null && <span className="text-sm">{money(item.price)}</span>}
+                    {item.price != null && <span className="text-sm">{money(item.price * unitsOf(item.kind))}{unitsOf(item.kind) > 1 && <span className="ml-1 text-[10px] text-[#5f6b7a]">×{unitsOf(item.kind)}</span>}</span>}
                     {swappable.length > 0 && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-[#0b6bcb]" onClick={() => setOpenSwap(openSwap === key ? null : key)}><ArrowLeftRight className="mr-1 h-3 w-3" />{copy("swap")}</Button>}
                     {item.kind === "guide" && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-[#ad4738]" disabled={loading} onClick={() => removeGuide.mutate({ tripId: trip.tripId })}><X className="mr-1 h-3 w-3" />{copy("remove")}</Button>}
                   </div>
@@ -96,7 +99,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
                 {openSwap === key && current && <div className="mt-3 space-y-1 rounded-md bg-[#f6f8fb] p-2">
                   {swappable.map(option => <button key={option.id} disabled={loading} onClick={() => swap.mutate({ tripId: trip.tripId, fromId: current.id, toId: option.id })} className="flex w-full items-center justify-between gap-3 rounded px-2 py-2 text-left text-sm hover:bg-white disabled:opacity-50">
                     <span className="min-w-0"><span className="block">{tr(option.label)}</span><span className="block text-xs text-[#5f6b7a]">{tr(option.detail)}</span></span>
-                    <span className="shrink-0 text-right"><span className="block">{money(option.price)}</span><span className={`block text-xs ${option.price - current.price > 0 ? "text-[#ad4738]" : "text-[#0b6bcb]"}`}>{signed(option.price - current.price)}</span></span>
+                    <span className="shrink-0 text-right"><span className="block">{money(option.price * unitsOf(option.type))}</span><span className={`block text-xs ${option.price - current.price > 0 ? "text-[#ad4738]" : "text-[#0b6bcb]"}`}>{signed((option.price - current.price) * unitsOf(option.type))}</span></span>
                   </button>)}
                 </div>}
               </div>;
@@ -113,7 +116,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {addOns.map(item => <div key={item.id} className={`flex items-center justify-between gap-3 rounded-md border p-3 ${item.included ? "border-[#0b6bcb] bg-[#e8f1fd]/50" : "border-[#e6ebf2] bg-white/60"}`}>
           <div className="min-w-0"><div className="text-sm font-medium">{tr(item.label)}</div><div className="text-xs text-[#5f6b7a]">{copy("day")} {Math.min(item.dayIndex ?? 1, trip.durationDays)} · {slotLabel(lang, item.slot)}</div></div>
-          <Button size="sm" variant={item.included ? "outline" : "default"} disabled={loading} className={item.included ? "" : "bg-[#0b1f3a] text-[#ffffff]"} onClick={() => toggleAddOn.mutate({ tripId: trip.tripId, componentId: item.id, include: !item.included })}>{item.included ? copy("remove") : `${copy("add")} +${money(item.price)}`}</Button>
+          <Button size="sm" variant={item.included ? "outline" : "default"} disabled={loading} className={item.included ? "" : "bg-[#0b1f3a] text-[#ffffff]"} onClick={() => toggleAddOn.mutate({ tripId: trip.tripId, componentId: item.id, include: !item.included })}>{item.included ? copy("remove") : `${copy("add")} +${money(item.price * unitsOf(item.type))}`}</Button>
         </div>)}
       </div>
     </div>}
@@ -131,10 +134,11 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
       {issue && <div className="mt-3 rounded-md border border-[#ad4738] bg-[#f5e3df] p-4">
         <div className="flex items-start gap-2 text-sm font-semibold text-[#ad4738]"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>{copy("guideRefused")}: {issue.guide.name} {copy("unavailable")} {issue.conflictingDates.join(", ")}</span></div>
         <div className="mt-1 pl-6 text-xs text-[#7a3b2e]">{copy("strictAvailability")}: {issue.requestedDates.join(", ")}</div>
+        <div className="mt-2 pl-6"><div className="text-[10px] font-bold uppercase tracking-[.14em] text-[#7a3b2e]">{issue.guide.name} · {copy("guideCalendar")}</div><DateStrip availability={issue.guide.availability} dates={issue.requestedDates} lang={lang} /></div>
         {issue.replacementOptions.length > 0 ? <div className="mt-3 space-y-2">
           <div className="text-[10px] font-bold uppercase tracking-[.16em] text-[#7a3b2e]">{copy("substitute")} · {specLabel(lang, issue.guide.specialisation)} · {langName(trip.language)}</div>
           {issue.replacementOptions.slice(0, 3).map((option, index) => <button key={option.guide.id} disabled={loading} onClick={() => selectGuide.mutate({ tripId: trip.tripId, guideId: option.guide.id, days })} className={`flex w-full items-center justify-between gap-3 rounded-md border p-3 text-left disabled:opacity-50 ${index === 0 ? "border-[#0b1f3a] bg-white" : "border-[#e6ebf2] bg-white/70"}`}>
-            <span className="min-w-0"><span className="block text-sm font-semibold">{copy("use")} {option.guide.name}</span><span className="block text-xs text-[#5f6b7a]">{tr(option.guide.city)}{option.distanceKm ? ` · ${option.distanceKm} km` : ""} · ★ {option.guide.rating} · {option.guide.languages.map(langName).join(", ")}</span></span>
+            <span className="min-w-0"><span className="block text-sm font-semibold">{copy("use")} {option.guide.name}</span><span className="block text-xs text-[#5f6b7a]">{tr(option.guide.city)}{option.distanceKm ? ` · ${option.distanceKm} km` : ""} · ★ {option.guide.rating} · {option.guide.languages.map(langName).join(", ")}</span><DateStrip availability={option.guide.availability} dates={issue.requestedDates} lang={lang} /></span>
             <span className="shrink-0 text-right text-xs"><span className="block font-semibold">{signed(option.priceDelta)} <span className="font-normal text-[#5f6b7a]">{copy("vs")} {issue.guide.name}</span></span><span className="block text-[#5f6b7a]">{copy("total")} {money(issue.currentTotal)} → <strong className="text-[#0b1f3a]">{money(option.newTotal)}</strong></span></span>
           </button>)}
         </div> : <div className="mt-2 pl-6 text-xs text-[#7a3b2e]">{copy("noGuides")}</div>}
@@ -149,7 +153,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
         {visibleGuides.map(guide => <button key={guide.id} disabled={loading || trip.chosenGuide?.id === guide.id} onClick={() => selectGuide.mutate({ tripId: trip.tripId, guideId: guide.id, days })} className="flex w-full items-center justify-between gap-3 rounded-md border border-[#e6ebf2] bg-white/70 p-3 text-left transition hover:border-[#0b6bcb] disabled:opacity-50">
           <span className="min-w-0"><span className="flex items-center gap-2 text-sm font-medium">{guide.name}{guide.matchesPackage && <Badge variant="outline" className="border-[#0b6bcb]/40 text-[9px] text-[#0b6bcb]">{tr(pkg.theme)}</Badge>}{guide.certified && <Badge variant="outline" className="text-[9px]">{copy("certified")}</Badge>}</span>
             <span className="block text-xs text-[#5f6b7a]">{specLabel(lang, guide.specialisation)} · {guide.languages.map(langName).join(", ")} · ★ {guide.rating} · {guide.yearsExperience}y</span>
-            <span className={`block text-[11px] ${guide.isAvailableForTrip ? "text-[#0b6bcb]" : "text-[#ad4738]"}`}>{guide.isAvailableForTrip ? copy("availableAllDates") : `${copy("blockedDates")} ${guide.unavailableDates.join(", ")}`}</span></span>
+            <span className={`block text-[11px] ${guide.isAvailableForTrip ? "text-[#0b6bcb]" : "text-[#ad4738]"}`}>{guide.isAvailableForTrip ? copy("availableAllDates") : `${copy("blockedDates")} ${guide.unavailableDates.join(", ")}`}</span><DateStrip availability={guide.availability} dates={guide.requestedDates} lang={lang} /></span>
           <span className="shrink-0 text-right"><span className="block font-extrabold text-lg">{money(guide.tripCost)}</span><span className="block text-[11px] text-[#5f6b7a]">{money(guide.dayRate)}/{copy("day").toLowerCase()}</span></span>
         </button>)}
       </div>
@@ -160,6 +164,19 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
 }
 
 /** Live price breakdown for the side rail. */
+/** Trip dates as chips: green ✓ when the guide is available, red ✕ when not — makes the availability rule visible at a glance. */
+function DateStrip({ availability, dates, lang }: { availability: Record<string, boolean>; dates: string[]; lang: Lang }) {
+  const locale = lang === "en-IN" ? "en-IN" : `${lang}-IN`;
+  return <span className="mt-1.5 flex flex-wrap gap-1">{dates.map(date => {
+    const ok = availability[date] === true;
+    const when = new Date(`${date}T00:00:00Z`);
+    return <span key={date} className={`inline-flex min-w-[46px] flex-col items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-tight ring-1 ${ok ? "bg-[#e7f8f0] text-[#0e8a5f] ring-[#b7ebd3]" : "bg-[#fdecea] text-[#c0392b] ring-[#f3c1b8]"}`}>
+      <span className="font-medium opacity-80">{new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" }).format(when)}</span>
+      <span>{new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", timeZone: "UTC" }).format(when)} {ok ? "✓" : "✕"}</span>
+    </span>;
+  })}</span>;
+}
+
 export function PriceBreakdown({ trip, lang }: { trip: TripView; lang: Lang }) {
   const copy = (key: CopyKey) => t(lang, key);
   const b = trip.priceBreakdown;
@@ -172,8 +189,9 @@ export function PriceBreakdown({ trip, lang }: { trip: TripView; lang: Lang }) {
     <div className="mt-2 flex justify-between text-xs text-[#5f6b7a]"><span>{trip.remaining >= 0 ? `${money(trip.remaining)} ${copy("remaining")}` : `${money(Math.abs(trip.remaining))} ${copy("over")}`}</span><span>{Math.round(pct)}%</span></div>
     {trip.package && <div className="mt-4 border-t border-[#e6ebf2] pt-3">
       <div className="mb-1 text-[10px] uppercase tracking-[.16em] text-[#5f6b7a]">{copy("breakdown")}</div>
-      {line(copy("transport"), b.transport)}
-      {line(`${copy("packageBase")} (${trip.durationDays}/${trip.package.duration} ${copy("days").toLowerCase()})`, b.packageBase)}
+      {b.party.pax > 1 && <div className="flex justify-between py-1 text-xs text-[#5f6b7a]"><span>👥 {b.party.pax} {copy("travelers").toLowerCase()}</span><span>{b.party.rooms} {copy("roomsLabel")}</span></div>}
+      {line(`${copy("transport")}${b.party.pax > 1 ? ` × ${b.party.pax}` : ""}`, b.transport)}
+      {line(`${copy("packageBase")} (${trip.durationDays}/${trip.package.duration} ${copy("days").toLowerCase()})${b.party.pax > 1 ? ` × ${b.party.pax}` : ""}`, b.packageBase)}
       {b.swapAdjustments !== 0 && line(copy("swaps"), b.swapAdjustments, true)}
       {b.addOns !== 0 && line(copy("addOnsLine"), b.addOns)}
       {b.guide !== 0 && line(copy("guide"), b.guide)}

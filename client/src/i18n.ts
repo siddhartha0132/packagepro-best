@@ -276,6 +276,11 @@ const copy = {
     downloadQuote: "Download quotation PDF",
     downloadEstimate: "Download estimate PDF",
     preparingPdf: "Preparing PDF…",
+    tryDemo: "▶ Try the live demo",
+    demoHint: "Demo: Delhi → Thanjavur, 28 Sept, Tamil guide. Pick any flight, then under Guides choose Meera Novak — she is busy on 28 Sept, so you will see the refusal and a same-language substitute, repriced.",
+    perPerson: "per person",
+    roomsLabel: "rooms",
+    guideCalendar: "Availability on your dates",
   },
   ta: {
     brand: "பேக்கேஜ் புரோ",
@@ -545,6 +550,11 @@ const copy = {
     downloadQuote: "விலைப்பட்டியல் PDF பதிவிறக்கு",
     downloadEstimate: "மதிப்பீடு PDF பதிவிறக்கு",
     preparingPdf: "PDF தயாராகிறது…",
+    tryDemo: "▶ நேரடி டெமோவை முயற்சிக்கவும்",
+    demoHint: "டெமோ: டெல்லி → தஞ்சாவூர், 28 செப்டம்பர், தமிழ் வழிகாட்டி. ஏதேனும் ஒரு விமானத்தைத் தேர்ந்தெடுத்து, வழிகாட்டிகளில் மீரா நோவாக்கைத் தேர்ந்தெடுங்கள் — அவர் 28 செப்டம்பர் அன்று கிடைக்கமாட்டார்; மறுப்பையும் புதிய விலையுடன் அதே மொழி மாற்று வழிகாட்டியையும் காண்பீர்கள்.",
+    perPerson: "ஒருவருக்கு",
+    roomsLabel: "அறைகள்",
+    guideCalendar: "உங்கள் தேதிகளில் இருப்பு",
   },
   hi: {
     brand: "पैकेजप्रो",
@@ -814,6 +824,11 @@ const copy = {
     downloadQuote: "कोटेशन PDF डाउनलोड करें",
     downloadEstimate: "अनुमान PDF डाउनलोड करें",
     preparingPdf: "PDF तैयार हो रहा है…",
+    tryDemo: "▶ लाइव डेमो आज़माएँ",
+    demoHint: "डेमो: दिल्ली → तंजावुर, 28 सितंबर, तमिल गाइड। कोई भी उड़ान चुनें, फिर गाइड में मीरा नोवाक चुनें — वे 28 सितंबर को व्यस्त हैं, इसलिए आप इनकार और उसी भाषा का दूसरा गाइड नई कीमत के साथ देखेंगे।",
+    perPerson: "प्रति व्यक्ति",
+    roomsLabel: "कमरे",
+    guideCalendar: "आपकी तारीखों पर उपलब्धता",
   },
   te: {
     brand: "ప్యాకేజ్ ప్రో",
@@ -1083,6 +1098,11 @@ const copy = {
     downloadQuote: "కొటేషన్ PDF డౌన్‌లోడ్",
     downloadEstimate: "అంచనా PDF డౌన్‌లోడ్",
     preparingPdf: "PDF సిద్ధమవుతోంది…",
+    tryDemo: "▶ లైవ్ డెమో ప్రయత్నించండి",
+    demoHint: "డెమో: ఢిల్లీ → తంజావూరు, 28 సెప్టెంబర్, తమిళ గైడ్. ఏదైనా విమానాన్ని ఎంచుకుని, గైడ్లలో మీరా నోవాక్‌ను ఎంచుకోండి — ఆమె 28 సెప్టెంబర్‌న అందుబాటులో లేరు; తిరస్కరణను, కొత్త ధరతో అదే భాష ప్రత్యామ్నాయ గైడ్‌ను చూస్తారు.",
+    perPerson: "ఒక్కరికి",
+    roomsLabel: "గదులు",
+    guideCalendar: "మీ తేదీల్లో లభ్యత",
   },
 } as const;
 

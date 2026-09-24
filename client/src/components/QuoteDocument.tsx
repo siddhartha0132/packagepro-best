@@ -98,7 +98,7 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
   const flight = trip.chosenFlight;
   const hotel = trip.chosenHotel;
   const rows: [string, number][] = [
-    [flight ? `${tr("Flight")} · ${flight.airline} ${flight.id}` : trip.chosenTransport ? `${tr("Transport")} · ${trip.chosenTransport.operator}` : tr("Transport"), b.transport],
+    [flight ? `${tr("Flight")} · ${flight.airline} ${flight.id}${trip.travelers > 1 ? ` × ${trip.travelers}` : ""}` : trip.chosenTransport ? `${tr("Transport")} · ${trip.chosenTransport.operator}` : tr("Transport"), b.transport],
     [`${tr("Package")} · ${tr(trip.package?.name ?? "")} (${trip.durationDays} ${tr("days")})`, b.packageBase],
     ...(b.swapAdjustments ? [[tr("Your swaps"), b.swapAdjustments] as [string, number]] : []),
     ...(b.addOns ? [[tr("Add-ons"), b.addOns] as [string, number]] : []),
