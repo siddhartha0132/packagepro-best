@@ -44,4 +44,12 @@ describe("AI transparent explanation endpoint", () => {
     expect(reply.tripRequest?.origin?.code).toBe("DEL");
     expect(reply.tripRequest?.durationDays).toBe(2);
   });
+
+  it("turns conversational itinerary edits into commands", async () => {
+    const caller = appRouter.createCaller({ req: {} as any, res: {} as any, user: null });
+    const swap = await caller.packagepro.explain({ messages: [{ role: "user", content: "swap hotel to the heritage haveli" }], context: { tripId: "trp_demo" } });
+    expect(swap.command).toEqual({ type: "swap_hotel", target: "the heritage haveli" });
+    const remove = await caller.packagepro.explain({ messages: [{ role: "user", content: "please remove the guide" }], context: { tripId: "trp_demo" } });
+    expect(remove.command?.type).toBe("remove_guide");
+  });
 });

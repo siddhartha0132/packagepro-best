@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { GUIDES, PACKAGES, datesBetween, getAlternatives, guideCheck, realityCheck, type FlightRecord, type GuideRecord, type HotelRecord, type PackageComponent, type PackageRecord } from "./packagepro";
+import { GUIDES, HOTELS, PACKAGES, TRANSPORTS, datesBetween, getAlternatives, guideCheck, realityCheck, type FlightRecord, type GuideRecord, type HotelRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
 import { DESTINATIONS, searchFlightsLive, searchHotelsLive, sendConfirmation } from "./integrations";
 
 export type TripStatus = "select_flight" | "select_hotel" | "select_package" | "select_guide" | "negotiate" | "review" | "confirmed";
@@ -21,6 +21,7 @@ export type Trip = {
   flightOptions: FlightRecord[];
   hotelOptions: HotelRecord[];
   chosenFlight: FlightRecord | null;
+  chosenTransport: TransportRecord | null;
   chosenHotel: HotelRecord | null;
   package: PackageRecord | null;
   packagePrice: number;
@@ -115,7 +116,7 @@ export async function createTrip(input: { origin: string; destination: string; d
     status: "select_flight",
     flightOptions: liveFlights.flights,
     hotelOptions: [], chosenFlight: null, chosenHotel: null,
-    package: null, packagePrice: 0, packageComponents: [], chosenGuide: null, guideAvailabilityIssue: null,
+    package: null, packagePrice: 0, packageComponents: [], chosenGuide: null, guideAvailabilityIssue: null, chosenTransport: null,
     flightSource: liveFlights.source, hotelSource: "catalogue",
     negotiationOptions: [], pending: null, trace: [],
   };
@@ -125,7 +126,7 @@ export async function createTrip(input: { origin: string; destination: string; d
   return snapshot(trip);
 }
 
-export async function autoBuildTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap?: number; language: string; interests?: string }) {
+export async function autoBuildTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap?: number; language: string; interests?: string; hotelTier?: "budget" | "boutique" | "luxury"; transportMode?: "flight" | "train" | "cab" }) {
   const durationDays = Math.max(1, Math.round((Date.parse(`${input.returnDate}T00:00:00Z`) - Date.parse(`${input.departDate}T00:00:00Z`)) / 86400000));
   const destination = CITY_BY_CODE[input.destination.trim().toUpperCase()] ?? "Thanjavur";
   const pkg = packageFor(destination);
@@ -138,11 +139,24 @@ export async function autoBuildTrip(input: { origin: string; destination: string
   const guideEstimate = (guideRates.length ? Math.min(...guideRates) : 0) * durationDays;
   const suggestedCap = Math.ceil((cheapestFlightEstimate + cheapestHotelEstimate + packageEstimate + guideEstimate) * 1.12 / 500) * 500;
   const trip = await createTrip({ ...input, budgetCap: input.budgetCap && input.budgetCap > 0 ? input.budgetCap : suggestedCap });
-  const cheapestFlight = [...trip.flightOptions].sort((a, b) => a.price - b.price)[0];
-  if (!cheapestFlight) throw new Error("No flight option was found for this trip");
-  let built = await selectFlight(trip.tripId, cheapestFlight.id);
+  const state = trips.get(trip.tripId)!;
+  const requestedTransport = input.transportMode && input.transportMode !== "flight" ? TRANSPORTS.find(item => item.mode === input.transportMode && item.route.toLowerCase().includes(destination.toLowerCase())) : undefined;
+  let built;
+  if (requestedTransport) {
+    state.chosenTransport = requestedTransport;
+    if (!tryAdd(state, requestedTransport.price, `${requestedTransport.operator} transport`, "select_hotel")) throw new Error("The requested transport needs a larger budget");
+    const liveHotels = await searchHotelsLive(trip.destination, trip.departDate, trip.returnDate, trip.travelers);
+    state.hotelOptions = liveHotels.hotels;
+    state.hotelSource = liveHotels.source;
+    built = getTrip(trip.tripId);
+  } else {
+    const cheapestFlight = [...trip.flightOptions].sort((a, b) => a.price - b.price)[0];
+    if (!cheapestFlight) throw new Error("No flight option was found for this trip");
+    built = await selectFlight(trip.tripId, cheapestFlight.id);
+  }
   if (built.status === "negotiate") throw new Error("The requested trip needs a larger budget before it can be auto-built");
-  const cheapestHotel = [...built.hotelOptions].sort((a, b) => a.total - b.total)[0];
+  const hotelCandidates = [...built.hotelOptions].sort((a, b) => a.total - b.total);
+  const cheapestHotel = input.hotelTier === "luxury" ? hotelCandidates.sort((a, b) => b.rating - a.rating || a.total - b.total)[0] : input.hotelTier === "budget" ? hotelCandidates[0] : hotelCandidates.sort((a, b) => Math.abs(b.rating - 4.7) - Math.abs(a.rating - 4.7) || a.total - b.total)[0];
   if (!cheapestHotel) throw new Error("No hotel option was found for this trip");
   built = selectHotel(trip.tripId, cheapestHotel.id);
   if (built.status === "negotiate") throw new Error("The requested trip needs a larger budget before it can be auto-built");
@@ -159,6 +173,32 @@ export async function autoBuildTrip(input: { origin: string; destination: string
   const final = getTrip(trip.tripId);
   log(trips.get(trip.tripId)!, "reasoning", `Auto-built the lowest-priced complete ${durationDays}-day ${destination} package from the chat request`);
   return final;
+}
+
+export function swapHotel(tripId: string, target: string) {
+  const trip = trips.get(tripId);
+  if (!trip || !trip.chosenHotel) throw new Error("There is no selected hotel to swap yet");
+  const needle = target.toLowerCase();
+  const terms = needle.split(/[^a-z]+/).filter(term => term.length > 3 && !["the", "with", "from", "stay"].includes(term));
+  const matches = (hotel: HotelRecord) => hotel.name.toLowerCase().includes(needle) || hotel.detail.toLowerCase().includes(needle) || terms.some(term => `${hotel.name} ${hotel.detail}`.toLowerCase().includes(term));
+  const candidate = trip.hotelOptions.find(matches) || HOTELS.find(hotel => hotel.city === trip.destination && matches(hotel));
+  if (!candidate) throw new Error(`I couldn't find a ${target} hotel in the current catalogue`);
+  const delta = candidate.total - trip.chosenHotel.total;
+  if (trip.runningTotal + delta > trip.budgetCap) throw new Error(`That hotel would exceed your cap by ₹${Math.round(trip.runningTotal + delta - trip.budgetCap).toLocaleString("en-IN")}`);
+  trip.runningTotal += delta;
+  trip.chosenHotel = candidate;
+  log(trip, "decision", `Swapped hotel to ${candidate.name}; hotel delta ${delta >= 0 ? "+" : "-"}₹${Math.abs(delta).toLocaleString("en-IN")}`);
+  return snapshot(trip);
+}
+
+export function removeGuide(tripId: string) {
+  const trip = trips.get(tripId);
+  if (!trip) throw new Error("Trip not found");
+  if (!trip.chosenGuide) throw new Error("No guide is currently added to this itinerary");
+  trip.runningTotal = Math.max(0, trip.runningTotal - trip.chosenGuide.totalCost);
+  log(trip, "decision", `Removed guide ${trip.chosenGuide.name}; reduced total by ₹${trip.chosenGuide.totalCost.toLocaleString("en-IN")}`);
+  trip.chosenGuide = null;
+  return snapshot(trip);
 }
 
 export function getTrip(tripId: string) {

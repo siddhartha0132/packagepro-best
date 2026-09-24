@@ -18,6 +18,8 @@ describe("packagepro catalogue", () => {
     expect(result.packages[0]?.city).toBe("Thanjavur");
     expect(result.packages[0]?.matchReasons).toContain("your destination");
     expect(result.guides.every(guide => guide.city === "Thanjavur" && guide.languages.includes("ta"))).toBe(true);
+    expect(result.destinationInsight?.city).toBe("Thanjavur");
+    expect(result.destinationInsight?.summary).toContain("Chola");
   });
 });
 
@@ -37,6 +39,14 @@ describe("master trip flow", () => {
     expect(trip.chosenHotel).toBeTruthy();
     expect(trip.package?.city).toBe("Jaipur");
     expect(trip.runningTotal).toBeGreaterThan(0);
+  });
+
+  it("supports a train fallback and hotel preference in auto-build", async () => {
+    const trip = await caller().trip.autoBuild({ origin: "DEL", destination: "JAI", departDate: "2026-09-25", returnDate: "2026-09-27", travelers: 1, language: "en-IN", hotelTier: "luxury", transportMode: "train" });
+    expect(trip.status).toBe("review");
+    expect(trip.chosenTransport?.mode).toBe("train");
+    expect(trip.chosenTransport?.operator).toContain("Vande Bharat");
+    expect(trip.chosenHotel?.rating).toBeGreaterThanOrEqual(4.8);
   });
 
   it("rejects the same origin and destination", async () => {

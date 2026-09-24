@@ -13,7 +13,10 @@ type ParsedTripRequest = {
   durationDays?: number;
   departDate?: string;
   returnDate?: string;
+  hotelTier?: "budget" | "boutique" | "luxury";
+  transportMode?: "flight" | "train" | "cab";
 };
+type TripCommand = { type: "swap_hotel" | "remove_guide"; target?: string };
 
 type ChatItem = {
   role: "user" | "assistant";
@@ -29,6 +32,7 @@ export default function AgentTransparencyChat({
   plannerContext,
   onApplyTrip,
   onBuildPackage,
+  onCommand,
 }: {
   trip: any;
   lang: Lang;
@@ -36,6 +40,7 @@ export default function AgentTransparencyChat({
   plannerContext: Record<string, unknown>;
   onApplyTrip: (request: ParsedTripRequest) => void;
   onBuildPackage: (request: ParsedTripRequest) => void;
+  onCommand: (command: TripCommand) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -52,6 +57,7 @@ export default function AgentTransparencyChat({
       const parsedRequest = data.tripRequest as ParsedTripRequest | undefined;
       setMessages((prev) => [...prev, { role: "assistant", content: data.text, modelUsed: data.modelUsed, tripRequest: parsedRequest }]);
       if (parsedRequest) onBuildPackage(parsedRequest);
+      if (data.command) onCommand(data.command as TripCommand);
     },
     onError: (error) => setMessages((prev) => [...prev, { role: "assistant", content: `I couldn't process that request yet: ${error.message}`, modelUsed: "request-error" }]),
   });
@@ -78,9 +84,13 @@ export default function AgentTransparencyChat({
           chosenFlight: trip?.chosenFlight,
           chosenHotel: trip?.chosenHotel,
           chosenGuide: trip?.chosenGuide,
+          chosenTransport: trip?.chosenTransport,
+          package: trip?.package,
+          packagePrice: trip?.packagePrice,
         },
         guideAvailabilityIssue: trip?.guideAvailabilityIssue,
         destination: trip?.destination || destination,
+        tripId: trip?.tripId,
         budgetCap: trip?.budgetCap,
         runningTotal: trip?.runningTotal,
       },

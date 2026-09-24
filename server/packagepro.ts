@@ -34,6 +34,7 @@ export type GuideRecord = {
 
 export type FlightRecord = { id: string; airline: string; route: string; depart: string; duration: string; price: number; confidence: number };
 export type HotelRecord = { id: string; name: string; city: string; rating: number; detail: string; total: number };
+export type TransportRecord = { id: string; mode: "train" | "cab"; operator: string; route: string; depart: string; duration: string; price: number; confidence: number };
 
 export const FLIGHTS: FlightRecord[] = [
   { id: "AI-203", airline: "Air India", route: "DEL → MAA", depart: "06:20", duration: "2h 45m", price: 6800, confidence: 0.94 },
@@ -47,6 +48,12 @@ export const HOTELS: HotelRecord[] = [
   { id: "hotel-haveli", name: "Pink haveli", city: "Jaipur", rating: 4.8, detail: "Boutique · breakfast included · old city", total: 9200 },
   { id: "hotel-goa", name: "Garden boutique", city: "Goa", rating: 4.6, detail: "Boutique · breakfast included · quiet lane", total: 7600 },
   { id: "hotel-vns", name: "Riverfront guesthouse", city: "Varanasi", rating: 4.5, detail: "Boutique · breakfast included · ghat-side", total: 6100 },
+];
+
+export const TRANSPORTS: TransportRecord[] = [
+  { id: "vande-bharat-del-jai", mode: "train", operator: "Vande Bharat Express", route: "New Delhi → Jaipur", depart: "06:10", duration: "4h 25m", price: 1850, confidence: 0.93 },
+  { id: "cab-del-jai", mode: "cab", operator: "Private sedan", route: "New Delhi → Jaipur", depart: "Flexible", duration: "5h 15m", price: 6200, confidence: 0.89 },
+  { id: "vande-bharat-del-agra", mode: "train", operator: "Intercity Express", route: "New Delhi → Agra", depart: "07:00", duration: "2h 10m", price: 950, confidence: 0.91 },
 ];
 
 export const PACKAGES: PackageRecord[] = [

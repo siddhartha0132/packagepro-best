@@ -10,7 +10,10 @@ export type TripRequest = {
   durationDays?: number;
   departDate?: string;
   returnDate?: string;
+  hotelTier?: "budget" | "boutique" | "luxury";
+  transportMode?: "flight" | "train" | "cab";
 };
+export type TripCommand = { type: "swap_hotel" | "remove_guide"; target?: string };
 
 const DEFAULT_FREE_MODELS = [
   "google/gemini-2.0-flash-thinking-exp:free",
@@ -81,6 +84,12 @@ export function parseTripRequest(text: string, context?: Record<string, unknown>
   if (!isPlanningRequest) return null;
 
   const request: TripRequest = { origin, destination, durationDays };
+  if (/(?:5[- ]star|luxury|palace|grand hotel)/.test(lower)) request.hotelTier = "luxury";
+  else if (/(?:boutique|heritage stay|haveli)/.test(lower)) request.hotelTier = "boutique";
+  else if (/(?:budget|cheap|lowest price)/.test(lower)) request.hotelTier = "budget";
+  if (/(?:vande bharat|train|rail)/.test(lower)) request.transportMode = "train";
+  else if (/(?:private cab|taxi|drive|road trip)/.test(lower)) request.transportMode = "cab";
+  else request.transportMode = "flight";
   if (/next weekend|this weekend|coming weekend/.test(lower)) {
     const start = nextWeekendStart();
     request.departDate = dateOnly(start);
@@ -96,7 +105,18 @@ function requestText(request: TripRequest) {
   const from = request.origin?.city || "your chosen origin";
   const to = request.destination?.city || "your chosen destination";
   const dates = request.departDate && request.returnDate ? ` from ${request.departDate} to ${request.returnDate}` : " for the dates you choose";
-  return `I understood this as a ${request.durationDays || 2}-day trip from ${from} to ${to}${dates}. I found that destination in the live PackagePro catalogue. Press “Use this setup” and I’ll load it into the planner; you can still adjust dates, budget, language, and interests before booking.`;
+  const style = request.hotelTier ? ` with a ${request.hotelTier} hotel preference` : "";
+  const transport = request.transportMode && request.transportMode !== "flight" ? ` using ${request.transportMode === "train" ? "train" : "a private cab"} fallback` : " using the best available flight";
+  return `I understood this as a ${request.durationDays || 2}-day trip from ${from} to ${to}${dates}${style}${transport}. I found that destination in the live PackagePro catalogue and will assemble the package components for review.`;
+}
+
+function parseTripCommand(text: string, context?: Record<string, unknown>): TripCommand | null {
+  if (!context?.tripId) return null;
+  const lower = text.toLowerCase();
+  if (/(?:remove|drop|skip|without)\s+(?:the\s+)?(?:local\s+)?guide/.test(lower)) return { type: "remove_guide" };
+  const match = lower.match(/(?:swap|change|switch)\s+(?:the\s+)?hotel\s+(?:to|for)\s+(.+)/i);
+  if (match?.[1]) return { type: "swap_hotel", target: match[1].replace(/[.!?].*$/, "").trim() };
+  return null;
 }
 
 async function parseTripRequestWithModel(text: string, context: Record<string, unknown>, key: string): Promise<TripRequest | null> {
@@ -114,7 +134,7 @@ async function parseTripRequestWithModel(text: string, context: Record<string, u
           temperature: 0,
           max_tokens: 180,
           messages: [
-            { role: "system", content: `Extract a travel request into JSON. Only return JSON, no markdown. Match origin and destination to these exact catalogue records. If this is not a request to plan or change a trip, set isTripRequest false. Resolve next weekend relative to today ${dateOnly(new Date())}. Origins: ${origins}. Destinations: ${destinations}.` },
+            { role: "system", content: `Extract a travel request into JSON. Only return JSON, no markdown. Match origin and destination to these exact catalogue records. If this is not a request to plan or change a trip, set isTripRequest false. Resolve next weekend relative to today ${dateOnly(new Date())}. Extract durationDays, hotelTier (budget, boutique, luxury), and transportMode (flight, train, cab) when stated. Origins: ${origins}. Destinations: ${destinations}.` },
             { role: "user", content: text },
           ],
           response_format: { type: "json_object" },
@@ -125,12 +145,12 @@ async function parseTripRequestWithModel(text: string, context: Record<string, u
       const body = await res.json() as { choices?: { message?: { content?: string } }[] };
       const raw = body.choices?.[0]?.message?.content?.trim();
       if (!raw) continue;
-      const parsed = JSON.parse(raw.replace(/^```json\s*|\s*```$/g, "")) as { isTripRequest?: boolean; originCode?: string; destinationCode?: string; durationDays?: number; departDate?: string; returnDate?: string };
+      const parsed = JSON.parse(raw.replace(/^```json\s*|\s*```$/g, "")) as { isTripRequest?: boolean; originCode?: string; destinationCode?: string; durationDays?: number; departDate?: string; returnDate?: string; hotelTier?: "budget" | "boutique" | "luxury"; transportMode?: "flight" | "train" | "cab" };
       if (!parsed.isTripRequest || !parsed.destinationCode) continue;
       const destination = (context.availableDestinations as CataloguePlace[]).find(place => place.code === parsed.destinationCode);
       const origin = (context.availableOrigins as CataloguePlace[]).find(place => place.code === parsed.originCode);
       if (!destination) continue;
-      return { origin, destination, durationDays: parsed.durationDays, departDate: parsed.departDate, returnDate: parsed.returnDate };
+      return { origin, destination, durationDays: parsed.durationDays, departDate: parsed.departDate, returnDate: parsed.returnDate, hotelTier: parsed.hotelTier, transportMode: parsed.transportMode || "flight" };
     } catch { /* deterministic parser and next model remain available */ }
   }
   return null;
@@ -138,6 +158,10 @@ async function parseTripRequestWithModel(text: string, context: Record<string, u
 
 export async function explainWithFreeOpenRouter(messages: ChatMessage[], context?: Record<string, unknown>) {
   const latest = messages[messages.length - 1]?.content || "";
+  const command = parseTripCommand(latest, context);
+  if (command) {
+    return { text: command.type === "remove_guide" ? "I’ll remove the guide from your current itinerary and reprice the running total." : `I’ll look for a ${command.target} hotel in the current destination and reprice the live total.`, modelUsed: "planner-command-parser", fallbackChain: ["catalogue-command-parser"], command };
+  }
   const tripRequest = parseTripRequest(latest, context) || await parseTripRequestWithModel(latest, context || {}, env("OPENROUTER_API_KEY"));
   if (tripRequest) {
     return { text: requestText(tripRequest), modelUsed: "planner-intent-parser", fallbackChain: ["catalogue-intent-parser"], tripRequest };
@@ -179,12 +203,19 @@ function fallbackExplanation(userQuery: string, context?: Record<string, unknown
   const city = planner?.destinationCity || (context?.destination as string) || "the selected destination";
   const budget = planner?.budgetCap ? `₹${Number(planner.budgetCap).toLocaleString("en-IN")}` : "the current budget cap";
   const interests = planner?.interests || "the traveller's selected interests";
-  const current = context?.currentItinerary as { chosenFlight?: { airline?: string; price?: number }; chosenHotel?: { name?: string; total?: number }; chosenGuide?: { name?: string; totalCost?: number } } | undefined;
+  const current = context?.currentItinerary as { chosenFlight?: { airline?: string; id?: string; price?: number }; chosenHotel?: { name?: string; total?: number; rating?: number }; chosenGuide?: { name?: string; totalCost?: number }; package?: { name?: string }; packagePrice?: number; chosenTransport?: { operator?: string; price?: number } } | undefined;
   const guideIssue = context?.guideAvailabilityIssue as { guide?: { name?: string }; conflictingDates?: string[]; replacement?: { name?: string } } | undefined;
 
   if (guideIssue) return `We refused ${guideIssue.guide?.name || "the selected guide"} because the live availability record clashes on ${guideIssue.conflictingDates?.join(", ") || "one or more trip dates"}. The replacement ${guideIssue.replacement?.name || "guide"} matches the required language and specialisation, and the rate difference is applied to the running total.`;
   if (q.includes("why") && (q.includes("guide") || q.includes("substitute"))) return `Guide selection is checked against the actual package dates. PackagePro first preserves the selected language and specialisation, then chooses the nearest available local guide and reprices only the day-rate difference.`;
   if (q.includes("why") && (q.includes("hotel") || q.includes("flight"))) return `For ${city}, the current planner is balancing ${interests} against ${budget}. The selected components are ${current?.chosenFlight?.airline ? `${current.chosenFlight.airline} at ₹${current.chosenFlight.price?.toLocaleString("en-IN")}` : "the lowest-confidence-ranked flight option"} and ${current?.chosenHotel?.name ? `${current.chosenHotel.name} at ₹${current.chosenHotel.total?.toLocaleString("en-IN")}` : "the available hotel options"}; every later swap updates the live ledger.`;
-  if (q.includes("why") || q.includes("explain")) return `The live planner is using ${city}, ${interests}, a cap of ${budget}, and the selected language ${planner?.language || "preference"}. PackagePro ranks matching catalogue data first, then checks dates, availability, and total cost before showing the option.`;
+  if (q.includes("why") || q.includes("explain") || q.includes("itinerary")) {
+    const flight = current?.chosenFlight ? `${current.chosenFlight.airline || "Flight"} ${current.chosenFlight.id || ""} ₹${Number(current.chosenFlight.price || 0).toLocaleString("en-IN")}` : "not selected";
+    const hotel = current?.chosenHotel ? `${current.chosenHotel.name} ₹${Number(current.chosenHotel.total || 0).toLocaleString("en-IN")} (${current.chosenHotel.rating || "catalogue"}★)` : "not selected";
+    const packageLine = current?.package?.name ? `${current.package.name} ₹${Number(current.packagePrice || 0).toLocaleString("en-IN")}` : "not loaded";
+    const guide = current?.chosenGuide ? `${current.chosenGuide.name} ₹${Number(current.chosenGuide.totalCost || 0).toLocaleString("en-IN")}` : "no guide charge";
+    const transport = current?.chosenTransport ? `${current.chosenTransport.operator} ₹${Number(current.chosenTransport.price || 0).toLocaleString("en-IN")}` : "flight route selected";
+    return `Here is the exact live itinerary math for ${city}: ${flight}; ${hotel}; ${packageLine}; ${guide}; ${transport}. The planner is matching ${interests} in ${planner?.language || "your selected language"}, checking guide dates and hotel/transport availability, then comparing the component sum with your ₹${Number(planner?.budgetCap || 0).toLocaleString("en-IN")} cap. Swaps re-run this calculation immediately; this is a recommendation, not a booking yet.`;
+  }
   return `I can explain this live plan using its actual city, interests, budget, selected components, and guide availability. Ask “Why this package?”, “Why this hotel?”, or “Why was this guide replaced?” and I’ll show the relevant trade-off.`;
 }
