@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Lang } from "@/i18n";
 import { useTr } from "@/lib/translate";
+import { QUOTE_COPY, QUOTE_EN } from "@/lib/quoteCopy";
 import type { TripView } from "./PackageCustomiser";
 import { type Estimate, money, specLabel } from "./TripScreens";
 
@@ -24,43 +25,25 @@ function longDate(iso: string, lang: Lang) {
   };
 }
 
-// Contractual lines are hand-translated: machine translation must never alter a percentage or a promise.
-const FIXED: Partial<Record<Lang, Record<string, string>>> = {
-  hi: {
-    "Fine print": "ज़रूरी जानकारी",
-    "Terms & conditions": "नियम और शर्तें",
-    "Flight fares are live at the time of this quotation and are confirmed only when ticketed.": "उड़ान किराए इस कोटेशन के समय के लाइव किराए हैं और टिकट जारी होने पर ही पक्के होते हैं।",
-    "This is an indicative estimate. Flight fares are live and change until booked.": "यह एक अनुमानित राशि है। उड़ान किराए लाइव हैं और बुकिंग तक बदल सकते हैं।",
-    "Guides are checked date by date against their calendar; an unavailable guide is never booked, and a same-language substitute is offered instead.": "हर तारीख के लिए गाइड का कैलेंडर जाँचा जाता है; अनुपलब्ध गाइड कभी बुक नहीं होता, उसकी जगह उसी भाषा का दूसरा गाइड सुझाया जाता है।",
-    "Hotels, activities and transfers are subject to availability at confirmation.": "होटल, गतिविधियाँ और ट्रांसफ़र पुष्टि के समय उपलब्धता पर निर्भर हैं।",
-    "Payment: 30% to confirm, balance 20 days before departure. Amendments are repriced live.": "भुगतान: पुष्टि के लिए 30%, बाकी राशि प्रस्थान से 20 दिन पहले। बदलावों की कीमत लाइव दोबारा तय होती है।",
-    "Cancellation: free within 24 hours of booking; after that, supplier charges apply.": "रद्दीकरण: बुकिंग के 24 घंटे के भीतर मुफ़्त; उसके बाद सप्लायर शुल्क लागू होंगे।",
-  },
-  ta: {
-    "Fine print": "முக்கிய குறிப்புகள்",
-    "Terms & conditions": "விதிமுறைகள் மற்றும் நிபந்தனைகள்",
-    "Flight fares are live at the time of this quotation and are confirmed only when ticketed.": "விமானக் கட்டணங்கள் இந்த விலைப்பட்டியல் உருவான நேரத்தின் நேரடி கட்டணங்கள்; டிக்கெட் வழங்கப்பட்ட பின்னரே உறுதியாகும்.",
-    "This is an indicative estimate. Flight fares are live and change until booked.": "இது ஒரு தோராயமான மதிப்பீடு. விமானக் கட்டணங்கள் நேரடியானவை; முன்பதிவு செய்யும் வரை மாறக்கூடும்.",
-    "Guides are checked date by date against their calendar; an unavailable guide is never booked, and a same-language substitute is offered instead.": "ஒவ்வொரு தேதிக்கும் வழிகாட்டியின் அட்டவணை சரிபார்க்கப்படுகிறது; கிடைக்காத வழிகாட்டி ஒருபோதும் முன்பதிவு செய்யப்படமாட்டார், அதற்குப் பதிலாக அதே மொழி பேசும் மாற்று வழிகாட்டி பரிந்துரைக்கப்படுவார்.",
-    "Hotels, activities and transfers are subject to availability at confirmation.": "ஹோட்டல்கள், செயல்பாடுகள் மற்றும் போக்குவரத்து உறுதிப்படுத்தும் நேரத்தில் உள்ள இருப்பைப் பொறுத்தது.",
-    "Payment: 30% to confirm, balance 20 days before departure. Amendments are repriced live.": "கட்டணம்: உறுதிப்படுத்த 30%, மீதித் தொகை புறப்படுவதற்கு 20 நாட்களுக்கு முன். மாற்றங்களுக்கு நேரடியாக மீண்டும் விலை கணக்கிடப்படும்.",
-    "Cancellation: free within 24 hours of booking; after that, supplier charges apply.": "ரத்து: முன்பதிவு செய்த 24 மணி நேரத்திற்குள் இலவசம்; அதன் பிறகு சப்ளையர் கட்டணங்கள் பொருந்தும்.",
-  },
-  te: {
-    "Fine print": "ముఖ్య గమనికలు",
-    "Terms & conditions": "నిబంధనలు మరియు షరతులు",
-    "Flight fares are live at the time of this quotation and are confirmed only when ticketed.": "విమాన ఛార్జీలు ఈ కొటేషన్ సమయంలోని లైవ్ ధరలు; టికెట్ జారీ అయిన తర్వాతే ఖరారవుతాయి.",
-    "This is an indicative estimate. Flight fares are live and change until booked.": "ఇది సూచనాత్మక అంచనా మాత్రమే. విమాన ఛార్జీలు లైవ్ ధరలు; బుకింగ్ వరకు మారవచ్చు.",
-    "Guides are checked date by date against their calendar; an unavailable guide is never booked, and a same-language substitute is offered instead.": "ప్రతి తేదీకి గైడ్ క్యాలెండర్ తనిఖీ చేయబడుతుంది; అందుబాటులో లేని గైడ్‌ను ఎప్పుడూ బుక్ చేయము, బదులుగా అదే భాష మాట్లాడే మరో గైడ్‌ను సూచిస్తాము.",
-    "Hotels, activities and transfers are subject to availability at confirmation.": "హోటళ్లు, కార్యకలాపాలు మరియు ట్రాన్స్‌ఫర్‌లు నిర్ధారణ సమయంలో లభ్యతకు లోబడి ఉంటాయి.",
-    "Payment: 30% to confirm, balance 20 days before departure. Amendments are repriced live.": "చెల్లింపు: నిర్ధారణకు 30%, మిగిలిన మొత్తం బయలుదేరడానికి 20 రోజుల ముందు. మార్పులకు ధర లైవ్‌గా మళ్లీ లెక్కించబడుతుంది.",
-    "Cancellation: free within 24 hours of booking; after that, supplier charges apply.": "రద్దు: బుకింగ్ చేసిన 24 గంటలలోపు ఉచితం; ఆ తర్వాత సరఫరాదారు ఛార్జీలు వర్తిస్తాయి.",
-  },
-};
-
+/** Fixed wording comes from hand-written copy; only dataset content (package names, activities) uses live translation. */
 function useQuoteTr(lang: Lang) {
   const tr = useTr(lang);
-  return (text: string) => FIXED[lang]?.[text] ?? tr(text);
+  return (text: string) => QUOTE_COPY[lang]?.[text] ?? (QUOTE_EN[text] ? tr(QUOTE_EN[text]) : tr(text));
+}
+
+/** Itinerary lines keep proper nouns (hotel, guide, flight) intact and translate only the words around them. */
+function itemLabel(label: string, tr: (text: string) => string) {
+  const named = label.match(/^(Guide:|Check in:|Stay:) (.+)$/);
+  if (named) return `${tr(named[1])} ${named[2]}`;
+  const arrival = label.match(/^Arrive on (.+)$/);
+  if (arrival) return `${tr("Arrive on")} ${arrival[1]}`;
+  return tr(label);
+}
+
+function itemDetail(item: { kind: string; detail: string }, lang: Lang, tr: (text: string) => string) {
+  if (item.kind === "arrival") return item.detail;
+  if (item.kind === "guide") { const [spec, ...rest] = item.detail.split(" · "); return [specLabel(lang, spec), ...rest].join(" · "); }
+  return tr(cleanDetail(item.detail));
 }
 
 function Sheet({ reference, tr, lang, children }: { reference: string; tr: (text: string) => string; lang: Lang; children: ReactNode }) {
@@ -131,7 +114,7 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
 
     <section className="q-letter">
       <h3>{tr("Dear traveller,")}</h3>
-      <p>{tr(`Thank you for planning with PackagePro. Here is your ${trip.destination} holiday, customised by you and priced live, with every guide date checked.`)}</p>
+      <p>{tr("LETTER_TRIP").replace("{city}", tr(trip.destination))}</p>
       {trip.status === "confirmed" ? <span className="q-pill q-pill-ok">✓ {tr("Confirmed")}</span> : <span className="q-pill">{tr("Ready to confirm")}</span>}
     </section>
 
@@ -176,7 +159,7 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
         return <div key={day.date} className="q-day q-avoid">
           <div className="q-day-badge"><span>{tr("Day")}</span><strong>{String(day.day).padStart(2, "0")}</strong><em>{date.weekday}</em><small>{date.label}</small></div>
           <div className="q-day-items">{day.items.map((item, index) => <div key={index} className="q-item">
-            <div><div className="q-item-title">{tr(item.label)}</div>{item.detail && <div className="q-muted">• {tr(item.detail)}</div>}</div>
+            <div><div className="q-item-title">{itemLabel(item.label, tr)}</div>{item.detail && <div className="q-muted">• {itemDetail(item, lang, tr)}</div>}</div>
             <span className="q-tag">{tr(KIND_TAG[item.kind] ?? item.kind)}</span>
           </div>)}</div>
         </div>;
@@ -199,9 +182,9 @@ export function EstimateQuote({ estimate: e, lang, travelers, origin, image }: {
   const upgrade = [...e.hotels.options].sort((a, b) => b.delta - a.delta)[0];
   const guide = e.guides.find(item => item.available);
   const options = [
-    { name: tr("Value"), note: `${tr("Lowest live fare")} + ${tr(defaultHotel?.name ?? "")}`, total: e.low },
+    { name: tr("Value"), note: `${tr("Lowest live fare")} + ${defaultHotel?.name ?? ""}`, total: e.low },
     { name: tr("Recommended"), note: `${tr("Typical fare")} + ${tr("package")}${guide ? ` + ${tr("guide")} ${guide.name}` : ""}`, total: e.typical },
-    { name: tr("Premium"), note: `${upgrade && upgrade.delta > 0 ? tr(upgrade.name) : tr("Upgraded stay")} + ${tr("all add-ons")} + ${tr("guide")}`, total: e.high },
+    { name: tr("Premium"), note: `${upgrade && upgrade.delta > 0 ? upgrade.name : tr("Upgraded stay")} + ${tr("all add-ons")} + ${tr("guide")}`, total: e.high },
   ];
   const reference = `#EST-${e.cityId.replace(/^\w+_/, "").slice(0, 6).toUpperCase()}`;
   return <Sheet reference={reference} tr={tr} lang={lang}>
@@ -214,7 +197,7 @@ export function EstimateQuote({ estimate: e, lang, travelers, origin, image }: {
 
     <section className="q-letter">
       <h3>{tr("Dear traveller,")}</h3>
-      <p>{tr(`Here is our first estimate for ${e.destination}, built from live fares, the real package catalogue and what past travellers chose. Pick an option and we will customise it with you.`)}</p>
+      <p>{tr("LETTER_EST").replace("{city}", tr(e.destination))}</p>
       <span className={`q-pill ${e.verdict === "comfortable" ? "q-pill-ok" : e.verdict === "tight" ? "q-pill-warn" : "q-pill-bad"}`}>{tr(`Your budget is ${e.verdict}`)}</span>
     </section>
 
