@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { LANGS, type CopyKey, type Lang, t } from "@/i18n";
+import AgentTransparencyChat from "@/components/AgentTransparencyChat";
 
 const money = (value: number) => `₹${Math.round(value || 0).toLocaleString("en-IN")}`;
 const heroImage = "/manus-storage/travel-hero_878cc2d0.jpg";
@@ -93,7 +94,7 @@ export default function Home() {
 
     <main className="mx-auto grid max-w-[1320px] gap-8 px-5 pb-24 pt-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:px-10">
       <section className="min-w-0">
-        {screen === "intake" && <div className="landing-page"><div className="hero-spotlight"><img src={heroImage} alt="Curated India travel landscape" /><div className="hero-spotlight-shade" /><div className="hero-spotlight-meta"><span>{copy("curated")}</span><span><i />{copy("live")}</span></div><div className="hero-spotlight-caption">{copy("heroSub")}</div></div><div className="text-[11px] font-bold uppercase tracking-[.18em] text-[#286c62]">{copy("kicker")}</div><h1 className="mt-3 max-w-4xl font-serif text-5xl font-medium leading-[.95] tracking-[-.05em] md:text-7xl">{copy("hero")}</h1><p className="mt-5 max-w-2xl text-base leading-7 text-[#68736c]">{copy("heroSub")}</p><Card className="mt-8 border-[#d8d7cd] bg-white/70 shadow-none"><CardContent className="p-6"><div className="mb-5 flex justify-between text-[10px] uppercase tracking-[.16em] text-[#68736c]"><span>{copy("brief")}</span><span className="text-[#286c62]">{copy("adjustable")}</span></div><form id="trip-brief" className="grid gap-4 sm:grid-cols-2" onSubmit={event => { event.preventDefault(); setScreen("reality"); }}><Field label={copy("from")} hint={copy("airport")}><select value={form.origin} onChange={event => update("origin", event.target.value)} className="w-full rounded-md border border-[#d8d7cd] bg-[#fbfaf6] px-3 py-2">{(cities.data?.origins || []).map(item => <option key={item.code} value={item.code}>{item.city} ({item.code})</option>)}</select></Field><Field label={copy("to")} hint={copy("destination")}><select value={form.destination} onChange={event => update("destination", event.target.value)} className="w-full rounded-md border border-[#d8d7cd] bg-[#fbfaf6] px-3 py-2">{(cities.data?.destinations || []).map(item => <option key={`${item.code}-${item.city}`} value={item.code}>{item.label}</option>)}</select></Field><Field label={copy("depart")}><Input type="date" value={form.departDate} onChange={event => update("departDate", event.target.value)} required /></Field><Field label={copy("return")}><Input type="date" value={form.returnDate} onChange={event => update("returnDate", event.target.value)} required /></Field><Field label={copy("travelers")}><Input type="number" min={1} max={20} value={form.travelers} onChange={event => update("travelers", Number(event.target.value))} required /></Field><Field label={copy("language")}><select value={form.language} onChange={event => changeLanguage(event.target.value as Lang)} className="w-full rounded-md border border-[#d8d7cd] bg-[#fbfaf6] px-3 py-2">{LANGS.map(lang => <option key={lang.value} value={lang.value}>{lang.native}</option>)}</select></Field><div className="sm:col-span-2"><Field label={copy("feel")} hint={copy("feelHint")}><Textarea value={form.interests} onChange={event => update("interests", event.target.value)} className="min-h-20 bg-[#fbfaf6]" /></Field></div><div className="sm:col-span-2"><Field label={copy("budget")} hint={copy("budgetHint")}><Input type="number" min={1000} step={500} value={form.budgetCap} onChange={event => update("budgetCap", Number(event.target.value))} required /></Field></div><div className="sm:col-span-2"><Button type="submit" className="w-full bg-[#17231f] text-[#f7f5ef] hover:bg-[#2b3933]">{copy("checkBudget")} <ArrowRight className="ml-2 h-4 w-4" /></Button></div></form></CardContent></Card><CuratedPackages packages={packages.data || []} recommendations={recommendations.data?.packages || []} recommendedGuides={recommendations.data?.guides || []} selectedPackageId={selectedPackageId} onSelectPackage={setSelectedPackageId} lang={form.language} onChoose={(city, id) => { setSelectedPackageId(id); const match = cities.data?.destinations.find(item => item.city === city); if (match) update("destination", match.code); document.getElementById("trip-brief")?.scrollIntoView({ behavior: "smooth" }); }} /></div>}
+        {screen === "intake" && <div className="landing-page"><div className="hero-spotlight"><img src={heroImage} alt="Curated India travel landscape" /><div className="hero-spotlight-shade" /><div className="hero-spotlight-meta"><span>{copy("curated")}</span><span><i />{copy("live")}</span></div><div className="hero-spotlight-caption">{copy("heroSub")}</div></div><div className="text-[11px] font-bold uppercase tracking-[.18em] text-[#286c62]">{copy("kicker")}</div><h1 className="mt-3 max-w-4xl font-serif text-5xl font-medium leading-[.95] tracking-[-.05em] md:text-7xl">{copy("hero")}</h1><p className="mt-5 max-w-2xl text-base leading-7 text-[#68736c]">{copy("heroSub")}</p><Card className="mt-8 border-[#d8d7cd] bg-white/70 shadow-none"><CardContent className="p-6"><div className="mb-5 flex justify-between text-[10px] uppercase tracking-[.16em] text-[#68736c]"><span>{copy("brief")}</span><span className="text-[#286c62]">{copy("adjustable")}</span></div><form id="trip-brief" className="grid gap-4 sm:grid-cols-2" onSubmit={event => { event.preventDefault(); setScreen("reality"); }}><Field label={copy("from")} hint={copy("airport")}><select value={form.origin} onChange={event => update("origin", event.target.value)} className="w-full rounded-md border border-[#d8d7cd] bg-[#fbfaf6] px-3 py-2">{(cities.data?.origins || []).map(item => <option key={item.code} value={item.code}>{item.city} ({item.code})</option>)}</select></Field><Field label={copy("to")} hint={copy("destination")}><select value={form.destination} onChange={event => update("destination", event.target.value)} className="w-full rounded-md border border-[#d8d7cd] bg-[#fbfaf6] px-3 py-2">{(cities.data?.destinations || []).map(item => <option key={`${item.code}-${item.city}`} value={item.code}>{item.label}</option>)}</select></Field><Field label={copy("depart")}><Input type="date" value={form.departDate} onChange={event => update("departDate", event.target.value)} required /></Field><Field label={copy("return")}><Input type="date" value={form.returnDate} onChange={event => update("returnDate", event.target.value)} required /></Field><Field label={copy("travelers")}><Input type="number" min={1} max={20} value={form.travelers} onChange={event => update("travelers", Number(event.target.value))} required /></Field><Field label={copy("language")}><select value={form.language} onChange={event => changeLanguage(event.target.value as Lang)} className="w-full rounded-md border border-[#d8d7cd] bg-[#fbfaf6] px-3 py-2">{LANGS.map(lang => <option key={lang.value} value={lang.value}>{lang.native}</option>)}</select></Field><div className="sm:col-span-2"><Field label={copy("feel")} hint={copy("feelHint")}><div className="mb-2 flex flex-wrap gap-1.5">{["Heritage & living temples", "Coastal & slow seafood", "Pilgrimage & dawn ghats", "Culinary trails & street food", "Boutique havelis & craft"].map(mood => <button key={mood} type="button" onClick={() => update("interests", mood)} className={`rounded-full px-2.5 py-1 text-[11px] transition ${form.interests === mood ? "bg-[#17231f] text-[#f7f5ef]" : "bg-[#ece8dc] text-[#17231f] hover:bg-[#ded9cb]"}`}>+ {mood}</button>)}</div><Textarea value={form.interests} onChange={event => update("interests", event.target.value)} className="min-h-20 bg-[#fbfaf6]" /></Field></div><div className="sm:col-span-2"><Field label={copy("budget")} hint={copy("budgetHint")}><Input type="number" min={1000} step={500} value={form.budgetCap} onChange={event => update("budgetCap", Number(event.target.value))} required /></Field></div><div className="sm:col-span-2"><Button type="submit" className="w-full bg-[#17231f] text-[#f7f5ef] hover:bg-[#2b3933]">{copy("checkBudget")} <ArrowRight className="ml-2 h-4 w-4" /></Button></div></form></CardContent></Card><CuratedPackages packages={packages.data || []} recommendations={recommendations.data?.packages || []} recommendedGuides={recommendations.data?.guides || []} selectedPackageId={selectedPackageId} onSelectPackage={setSelectedPackageId} lang={form.language} onChoose={(city, id) => { setSelectedPackageId(id); const match = cities.data?.destinations.find(item => item.city === city); if (match) update("destination", match.code); document.getElementById("trip-brief")?.scrollIntoView({ behavior: "smooth" }); }} /></div>}
 
         {screen === "reality" && <Stage title={copy("reality")} subtitle={copy("realistic")} onBack={back} backLabel={copy("back")}><h2 className="font-serif text-3xl">{money(form.budgetCap)}</h2>{reality.data && <div className="mt-6"><Badge className={`${reality.data.verdict === "comfortable" ? "bg-[#e1efea] text-[#286c62]" : reality.data.verdict === "tight" ? "bg-[#fbf3e4] text-[#b6762a]" : "bg-[#f5e3df] text-[#ad4738]"}`}>{copy(reality.data.verdict as CopyKey)}</Badge><p className="mt-4 text-sm text-[#68736c]">{copy("typical")} {reality.data.destination}: <strong className="text-[#17231f]">{money(reality.data.typical)}</strong>. {copy("closest")}: {reality.data.closestPackage}.</p></div>}<div className="mt-8 flex gap-3"><Button variant="outline" onClick={back}><ArrowLeft className="mr-2 h-4 w-4" />{copy("adjust")}</Button><Button className="bg-[#17231f] text-[#f7f5ef] hover:bg-[#2b3933]" disabled={createTrip.isPending} onClick={() => createTrip.mutate({ ...form, destination: form.destination })}>{createTrip.isPending ? copy("starting") : copy("continueBudget")} <ChevronRight className="ml-2 h-4 w-4" /></Button></div></Stage>}
 
@@ -106,7 +107,7 @@ export default function Home() {
         </>}
       </section>
 
-      <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">{(trip || screen !== "intake") && <PlanActions saved={draftSaved} onSave={saveDraft} onShare={sharePlan} saveLabel={copy("saveDraft")} savedLabel={copy("saved")} shareLabel={copy("share")} />}{trip ? <><Card className="border-[#d8d7cd] border-t-[3px] border-t-[#286c62] bg-white/70 shadow-none"><CardContent className="p-5"><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">{copy("liveBudget")}</div><div className="mt-3 font-serif text-3xl">{money(trip.runningTotal)} <span className="text-sm text-[#68736c]">{copy("of")} {money(trip.budgetCap)}</span></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-[#ece9df]"><div className="h-full rounded-full bg-[#286c62]" style={{ width: `${pct}%` }} /></div><div className="mt-2 flex justify-between text-xs text-[#68736c]"><span>{trip.remaining >= 0 ? `${money(trip.remaining)} ${copy("remaining")}` : `${money(Math.abs(trip.remaining))} ${copy("over")}`}</span><span>{Math.round(pct)}%</span></div></CardContent></Card><Card className="border-[#d8d7cd] bg-white/50 shadow-none"><CardContent className="p-5"><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">{copy("tripBrief")}</div><RailRow label={copy("dates")} value={`${form.departDate}\n${form.returnDate}`} /><RailRow label={copy("party")} value={`${trip.travelers}`} /><RailRow label={copy("language")} value={LANGS.find(item => item.value === form.language)?.native || form.language} /><RailRow label={copy("pieces")} value={String(trip.packageComponents.length || "—")} /></CardContent></Card><div className="flex items-start gap-2 text-xs text-[#68736c]"><Sparkles className="mt-0.5 h-4 w-4 text-[#b6762a]" />{copy("promiseNote")}</div></> : <><Card className="border-[#d8d7cd] border-t-[3px] border-t-[#17231f] bg-white/50 shadow-none"><CardContent className="p-5"><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">{copy("promise")}</div><h3 className="mt-3 font-serif text-2xl">{copy("promiseTitle")}</h3><p className="mt-3 text-sm text-[#68736c]">{copy("promiseBody")}</p></CardContent></Card><RailStep n="01" title={copy("build")} detail={copy("buildSub")} /><RailStep n="02" title={copy("shape")} detail={copy("shapeSub")} /><RailStep n="03" title={copy("confirm")} detail={copy("confirmSub")} /></>}</aside>
+      <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start"><AgentTransparencyChat trip={trip} lang={form.language} destination={destinationCity} />{(trip || screen !== "intake") && <PlanActions saved={draftSaved} onSave={saveDraft} onShare={sharePlan} saveLabel={copy("saveDraft")} savedLabel={copy("saved")} shareLabel={copy("share")} />}{trip ? <><Card className="border-[#d8d7cd] border-t-[3px] border-t-[#286c62] bg-white/70 shadow-none"><CardContent className="p-5"><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">{copy("liveBudget")}</div><div className="mt-3 font-serif text-3xl">{money(trip.runningTotal)} <span className="text-sm text-[#68736c]">{copy("of")} {money(trip.budgetCap)}</span></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-[#ece9df]"><div className="h-full rounded-full bg-[#286c62]" style={{ width: `${pct}%` }} /></div><div className="mt-2 flex justify-between text-xs text-[#68736c]"><span>{trip.remaining >= 0 ? `${money(trip.remaining)} ${copy("remaining")}` : `${money(Math.abs(trip.remaining))} ${copy("over")}`}</span><span>{Math.round(pct)}%</span></div></CardContent></Card><Card className="border-[#d8d7cd] bg-white/50 shadow-none"><CardContent className="p-5"><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">{copy("tripBrief")}</div><RailRow label={copy("dates")} value={`${form.departDate}\n${form.returnDate}`} /><RailRow label={copy("party")} value={`${trip.travelers}`} /><RailRow label={copy("language")} value={LANGS.find(item => item.value === form.language)?.native || form.language} /><RailRow label={copy("pieces")} value={String(trip.packageComponents.length || "—")} /></CardContent></Card><div className="flex items-start gap-2 text-xs text-[#68736c]"><Sparkles className="mt-0.5 h-4 w-4 text-[#b6762a]" />{copy("promiseNote")}</div></> : <><Card className="border-[#d8d7cd] border-t-[3px] border-t-[#17231f] bg-white/50 shadow-none"><CardContent className="p-5"><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">{copy("promise")}</div><h3 className="mt-3 font-serif text-2xl">{copy("promiseTitle")}</h3><p className="mt-3 text-sm text-[#68736c]">{copy("promiseBody")}</p></CardContent></Card><RailStep n="01" title={copy("build")} detail={copy("buildSub")} /><RailStep n="02" title={copy("shape")} detail={copy("shapeSub")} /><RailStep n="03" title={copy("confirm")} detail={copy("confirmSub")} /></>}</aside>
     </main>
   </div>;
 }
@@ -115,7 +116,125 @@ export default function Home() {
 function CuratedPackages({ packages, recommendations, recommendedGuides, selectedPackageId, onSelectPackage, lang, onChoose }: { packages: any[]; recommendations: any[]; recommendedGuides: any[]; selectedPackageId: string | null; onSelectPackage: (id: string | null) => void; lang: Lang; onChoose: (city: string, id: string) => void }) {
   const packageCards = packages.slice(0, 6);
   const selected = packages.find(pkg => pkg.id === selectedPackageId);
-  return <div className="mt-10 border-t border-[#d8d7cd] pt-8"><div className="flex items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">{t(lang, "curated")}</div><h2 className="mt-2 font-serif text-3xl">{t(lang, "curatedSub")}</h2></div><Badge variant="outline" className="border-[#d8d7cd]">{packageCards.length} {t(lang, "routes")}</Badge></div><div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{packageCards.map(pkg => <button key={pkg.id} onClick={() => { onSelectPackage(selectedPackageId === pkg.id ? null : pkg.id); onChoose(pkg.city, pkg.id); }} className={`rounded-md border p-4 text-left transition hover:-translate-y-0.5 hover:border-[#286c62] ${selectedPackageId === pkg.id ? "border-[#286c62] bg-[#e1efea]/60" : "border-[#d8d7cd] bg-white/60"}`}><div className="package-card-media"><img src={pkg.image} alt={`${pkg.city} travel`} loading="lazy" /></div><div className="flex items-center justify-between"><Badge variant="outline" className="text-[10px] uppercase tracking-wider">{pkg.theme}</Badge><span className="font-serif text-lg">{money(pkg.basePrice)}</span></div><h3 className="mt-3 font-serif text-xl">{pkg.name}</h3><p className="mt-2 line-clamp-2 text-xs leading-5 text-[#68736c]">{pkg.description}</p><div className="mt-3 flex items-center justify-between text-[11px] text-[#68736c]"><span><MapPin className="mr-1 inline h-3 w-3" />{pkg.city}</span><span>{pkg.duration} days · {pkg.components.length} components</span></div></button>)}</div>{selected && <div className="mt-4 rounded-md border border-[#b8d8cf] bg-white/70 p-5"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><img className="package-detail-image" src={selected.image} alt={`${selected.city} travel`} /><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">{t(lang, "detail")}</div><h3 className="mt-2 font-serif text-2xl">{selected.name}</h3><p className="mt-2 text-sm leading-6 text-[#68736c]">{selected.description}</p></div><Button variant="ghost" onClick={() => onSelectPackage(null)}>×</Button></div><div className="mt-4 grid gap-2 sm:grid-cols-2">{selected.components.map((component: any) => <div key={component.id} className="rounded border border-[#d8d7cd] p-3"><div className="text-sm font-medium">{component.label}</div><div className="mt-1 text-xs text-[#68736c]">{component.detail}</div><div className="mt-2 text-sm">{money(component.price)}</div></div>)}</div></div>}{recommendations.length > 0 && <div className="mt-8 rounded-md bg-[#e1efea]/60 p-5"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]"><Sparkles className="h-3.5 w-3.5" />{t(lang, "recommendations")}</div><p className="mt-2 text-xs text-[#68736c]">{t(lang, "grounded")}</p><div className="mt-4 grid gap-2 md:grid-cols-3">{recommendations.slice(0, 3).map(pkg => <button key={pkg.id} onClick={() => onChoose(pkg.city, pkg.id)} className="rounded border border-[#b8d8cf] bg-white/60 p-3 text-left"><div className="text-sm font-medium">{pkg.name}</div><div className="mt-1 text-xs text-[#68736c]">{pkg.city} · {money(pkg.basePrice)}</div></button>)}</div>{recommendedGuides.length > 0 && <div className="mt-4 border-t border-[#b8d8cf] pt-4"><div className="text-[10px] font-bold uppercase tracking-wider text-[#286c62]">{t(lang, "guideAddons")}</div><div className="mt-2 flex flex-wrap gap-2">{recommendedGuides.map(guide => <Badge key={guide.id} variant="outline" className="border-[#b8d8cf] bg-white/60">{guide.name} · {guide.specialisation} · {money(guide.dayRate)}/day</Badge>)}</div></div>}</div>}</div>;
+  return <div className="mt-10 border-t border-[#d8d7cd] pt-8">
+    <div className="flex items-end justify-between gap-4">
+      <div>
+        <div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">{t(lang, "curated")}</div>
+        <h2 className="mt-2 font-serif text-3xl">{t(lang, "curatedSub")}</h2>
+      </div>
+      <Badge variant="outline" className="border-[#d8d7cd]">{packageCards.length} {t(lang, "routes")}</Badge>
+    </div>
+
+    {recommendations.length > 1 && (
+      <div className="mt-6 rounded-xl border border-[#b8d8cf] bg-gradient-to-r from-[#e1efea]/80 via-white/80 to-[#fbf3e4]/70 p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#286c62]">
+            <Sparkles className="h-4 w-4" /> {t(lang, "compareRoutes")}
+          </div>
+          <span className="text-[11px] text-[#68736c]">{t(lang, "comparing")}</span>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {recommendations.slice(0, 2).map((pkg, idx) => (
+            <div key={pkg.id} className="rounded-lg border border-[#d8d7cd] bg-white/90 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-[#286c62]">Option {idx + 1}: {pkg.city}</span>
+                <span className="font-serif text-base">{money(pkg.basePrice)}</span>
+              </div>
+              <h4 className="mt-1 font-serif text-lg">{pkg.name}</h4>
+              <p className="mt-1 text-xs text-[#68736c] line-clamp-2">{pkg.description}</p>
+              <div className="mt-3 flex flex-wrap gap-1">
+                {(pkg.matchReasons || []).map((reason: string) => (
+                  <Badge key={reason} variant="outline" className="text-[10px] border-[#286c62]/30 bg-[#e1efea]/50 text-[#286c62]">
+                    ✓ {reason}
+                  </Badge>
+                ))}
+              </div>
+              <Button size="sm" variant="outline" onClick={() => onChoose(pkg.city, pkg.id)} className="mt-3 w-full text-xs hover:bg-[#e1efea]">
+                Choose this route
+              </Button>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {packageCards.map(pkg => (
+        <button key={pkg.id} onClick={() => { onSelectPackage(selectedPackageId === pkg.id ? null : pkg.id); onChoose(pkg.city, pkg.id); }} className={`rounded-md border p-4 text-left transition hover:-translate-y-0.5 hover:border-[#286c62] ${selectedPackageId === pkg.id ? "border-[#286c62] bg-[#e1efea]/60" : "border-[#d8d7cd] bg-white/60"}`}>
+          <div className="package-card-media"><img src={pkg.image} alt={`${pkg.city} travel`} loading="lazy" /></div>
+          <div className="flex items-center justify-between">
+            <Badge variant="outline" className="text-[10px] uppercase tracking-wider">{pkg.theme}</Badge>
+            <span className="font-serif text-lg">{money(pkg.basePrice)}</span>
+          </div>
+          <h3 className="mt-3 font-serif text-xl">{pkg.name}</h3>
+          <p className="mt-2 line-clamp-2 text-xs leading-5 text-[#68736c]">{pkg.description}</p>
+          <div className="mt-3 flex items-center justify-between text-[11px] text-[#68736c]">
+            <span><MapPin className="mr-1 inline h-3 w-3" />{pkg.city}</span>
+            <span>{pkg.duration} days · {pkg.components.length} components</span>
+          </div>
+        </button>
+      ))}
+    </div>
+
+    {selected && (
+      <div className="mt-4 rounded-md border border-[#b8d8cf] bg-white/70 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <img className="package-detail-image" src={selected.image} alt={`${selected.city} travel`} />
+            <div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">{t(lang, "detail")}</div>
+            <h3 className="mt-2 font-serif text-2xl">{selected.name}</h3>
+            <p className="mt-2 text-sm leading-6 text-[#68736c]">{selected.description}</p>
+          </div>
+          <Button variant="ghost" onClick={() => onSelectPackage(null)}>×</Button>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {selected.components.map((component: any) => (
+            <div key={component.id} className="rounded border border-[#d8d7cd] p-3">
+              <div className="text-sm font-medium">{component.label}</div>
+              <div className="mt-1 text-xs text-[#68736c]">{component.detail}</div>
+              <div className="mt-2 text-sm">{money(component.price)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {recommendations.length > 0 && (
+      <div className="mt-8 rounded-md bg-[#e1efea]/60 p-5">
+        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#286c62]">
+          <Sparkles className="h-3.5 w-3.5" />{t(lang, "recommendations")}
+        </div>
+        <p className="mt-2 text-xs text-[#68736c]">{t(lang, "grounded")}</p>
+        <div className="mt-4 grid gap-2 md:grid-cols-3">
+          {recommendations.slice(0, 3).map(pkg => (
+            <button key={pkg.id} onClick={() => onChoose(pkg.city, pkg.id)} className="rounded border border-[#b8d8cf] bg-white/60 p-3 text-left">
+              <div className="text-sm font-medium">{pkg.name}</div>
+              <div className="mt-1 text-xs text-[#68736c]">{pkg.city} · {money(pkg.basePrice)}</div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {(pkg.matchReasons || []).slice(0, 2).map((reason: string) => (
+                  <span key={reason} className="rounded bg-[#286c62]/10 px-1.5 py-0.5 text-[9px] font-semibold text-[#286c62]">
+                    {reason}
+                  </span>
+                ))}
+              </div>
+            </button>
+          ))}
+        </div>
+        {recommendedGuides.length > 0 && (
+          <div className="mt-4 border-t border-[#b8d8cf] pt-4">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[#286c62]">{t(lang, "guideAddons")}</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {recommendedGuides.map(guide => (
+                <Badge key={guide.id} variant="outline" className="border-[#b8d8cf] bg-white/60">
+                  {guide.name} · {guide.specialisation} · {money(guide.dayRate)}/day
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+  </div>;
 }
 function PlanActions({ saved, onSave, onShare, saveLabel, savedLabel, shareLabel }: { saved: boolean; onSave: () => void; onShare: () => void; saveLabel: string; savedLabel: string; shareLabel: string }) {
   return <div className="flex gap-2"><Button variant="outline" className="flex-1 border-[#d8d7cd] bg-white/60 text-xs" onClick={onSave}><Check className="mr-1 h-3.5 w-3.5" />{saved ? savedLabel : saveLabel}</Button><Button variant="outline" className="flex-1 border-[#d8d7cd] bg-white/60 text-xs" onClick={onShare}>{shareLabel} <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></div>;

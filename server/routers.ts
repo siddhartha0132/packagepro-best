@@ -5,6 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { GUIDES, PACKAGES, datesBetween, getAlternatives, guideCheck, realityCheck, recommendPackages } from "./packagepro";
 import { DESTINATIONS, ORIGINS, translateMany } from "./integrations";
+import { explainWithFreeOpenRouter } from "./aiChat";
 import * as trips from "./trips";
 
 const languageSchema = z.string().min(2).max(20).default("en-IN");
@@ -47,6 +48,10 @@ export const appRouter = router({
     }),
     recommend: publicProcedure.input(z.object({ query: z.string().default(""), language: languageSchema, destination: z.string().optional(), budget: z.number().positive().optional() })).query(({ input }) => ({ ...recommendPackages(input.query, input.language, input.destination, input.budget), groundedIn: ["PackagePro package catalogue", "guide availability records", "language preferences"] })),
     translate: publicProcedure.input(z.object({ texts: z.array(z.string()).max(40), language: languageSchema })).mutation(({ input }) => translateMany(input.texts, input.language)),
+    explain: publicProcedure.input(z.object({
+      messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().min(1).max(2000) })),
+      context: z.record(z.string(), z.unknown()).optional(),
+    })).mutation(({ input }) => explainWithFreeOpenRouter(input.messages, input.context)),
   }),
   trip: router({
     create: publicProcedure.input(z.object({
