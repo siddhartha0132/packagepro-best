@@ -115,3 +115,6 @@ client/public/__manus__/version.json
 
 # PackagePro runtime app database (trips, bookings) — recreated on start
 data/packagepro-app.db*
+
+# The PS-04 dataset is required to run the app and is safe to commit (fully synthetic, per the organisers).
+!data-model/seed/PS-04.db

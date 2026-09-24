@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const DATASET = "data/PS-04.db";
+const DATASET = "data-model/seed/PS-04.db";
 const APP = process.env.PACKAGEPRO_APP_DB || "data/packagepro-app.db";
 const TABLES = ["trips", "itineraries", "itinerary_items", "bookings"];
 

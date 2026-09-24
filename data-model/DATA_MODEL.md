@@ -1,7 +1,7 @@
 # PackagePro — data model
 
-PackagePro is built on the **PS-04 shared travel data model v1.1.0-rc1** (`data/PS-04.db`, DDL in `data/schema.sqlite.sql`,
-legal enum values in `data/enums.json`). The dataset is opened **read-only**; everything PackagePro writes goes to a separate
+PackagePro is built on the **PS-04 shared travel data model v1.1.0-rc1** (`data-model/seed/PS-04.db`, DDL in `data-model/seed/schema.sqlite.sql`,
+legal enum values in `data-model/seed/enums.json`). The dataset is opened **read-only**; everything PackagePro writes goes to a separate
 app database (`data/packagepro-app.db`, or `PACKAGEPRO_APP_DB`) whose schema is in [`schema.sql`](schema.sql) — generated from the
 code by `pnpm db:schema`, so the file cannot drift from what runs.
 
@@ -10,7 +10,7 @@ three added columns (rule R1).
 
 ## Canonical tables we read (read-only dataset)
 
-Loaded once at start-up by `server/catalogue.ts → loadCatalogue()`.
+Loaded once at start-up by `backend/src/catalogue.ts → loadCatalogue()`.
 
 | Canonical table | Columns used | What PackagePro does with it |
 |---|---|---|
@@ -31,12 +31,12 @@ INR foreign key).
 
 ## Canonical tables we write (app database)
 
-Created **verbatim** from the `CREATE TABLE` statements in `data/schema.sqlite.sql` (`server/appStore.ts → canonicalDDL()`), so
+Created **verbatim** from the `CREATE TABLE` statements in `data-model/seed/schema.sqlite.sql` (`backend/src/appStore.ts → canonicalDDL()`), so
 their columns are exactly the shared model's.
 
 | Canonical table | When a row is written | Notes |
 |---|---|---|
-| `trips` (`trp_…`) | On every change to a trip (`server/trips.ts → canonicalTrip()`) | `owner_user_id` = the traveller's `users.user_id`; `origin_city_id` / `destination_city_id` from `cities`; `trip_type` ∈ `traveller_type`; `status` ∈ `trip_status` (`draft` → `planning` → `confirmed`); `home_currency = 'INR'` |
+| `trips` (`trp_…`) | On every change to a trip (`backend/src/trips.ts → canonicalTrip()`) | `owner_user_id` = the traveller's `users.user_id`; `origin_city_id` / `destination_city_id` from `cities`; `trip_type` ∈ `traveller_type`; `status` ∈ `trip_status` (`draft` → `planning` → `confirmed`); `home_currency = 'INR'` |
 | `itineraries` (`itn_…`) | At confirmation | `version = 1`, `is_active = 1`, `generated_by = 'user'` (item_source), `total_cost` 2-place string + `INR`, `status = 'active'` |
 | `itinerary_items` (`itm_…`) | At confirmation, one per itinerary line | `item_type` ∈ {flight, poi, hotel, transfer, meal, guide}; `entity_type`/`entity_id` point back at dataset rows (`package_component` → `pcm_…`, `hotel` → `htl_…`, `guide` → `gid_…`, `transfer` → `trf_…`); `source = 'user'`, `status = 'confirmed'` |
 | `bookings` (`bkg_…`) | At confirmation | `user_id`, `trip_id`, `itinerary_id`, `booking_reference`, `channel` (`web`, or `mobile_app` for the Telegram bot), `total_amount` + `INR`, `tax_amount = '0.00'` (GST not modelled), **`idempotency_key` (mandatory, unique)**, `status = 'confirmed'`, `confirmed_at` with offset |
@@ -59,11 +59,11 @@ foreign-key enforcement off and the code only ever writes dataset IDs; `pnpm con
 | Rule | Enforcement |
 |---|---|
 | R1 additive only | Canonical DDL copied verbatim at start-up; additions are `app_*` tables and `ALTER TABLE … ADD COLUMN` |
-| R2 prefixed opaque IDs | `trp_`, `itn_`, `itm_`, `bkg_`, `gbk_` generated in `server/appStore.ts` / `server/trips.ts`; dataset IDs are never parsed |
-| R3 money is a 2-place decimal + ISO-4217 | All arithmetic in integer paise (`server/catalogue.ts → toPaise/fromPaise`); stored as `"12345.67"` strings with `INR` |
+| R2 prefixed opaque IDs | `trp_`, `itn_`, `itm_`, `bkg_`, `gbk_` generated in `backend/src/appStore.ts` / `backend/src/trips.ts`; dataset IDs are never parsed |
+| R3 money is a 2-place decimal + ISO-4217 | All arithmetic in integer paise (`backend/src/catalogue.ts → toPaise/fromPaise`); stored as `"12345.67"` strings with `INR` |
 | R4 ISO-8601 with offset | `_at` values written as `…+05:30`; `_date` values are zoneless `YYYY-MM-DD` |
 | R5 enums from enums.json | `trip_status`, `traveller_type`, `item_type`, `entity_type`, `item_source`, `item_status`, `channel`, `booking_status`, `record_status` values only |
-| R6 BCP-47 languages | `server/trips.ts → assertTripRules()` rejects any language not in the `languages` table |
+| R6 BCP-47 languages | `backend/src/trips.ts → assertTripRules()` rejects any language not in the `languages` table |
 | R7 WGS-84 | City `lat`/`lng` read as given; used for substitute distance |
 | R8 nothing hard-deleted | Rows carry `status` + `updated_at`; no `DELETE` in application code (test helper excepted) |
 
@@ -71,18 +71,18 @@ foreign-key enforcement off and the code only ever writes dataset IDs; `pnpm con
 
 | Rule | Code | Test |
 |---|---|---|
-| Guide refused on any unavailable date, clash named, same-language + same-specialisation substitute offered, total repriced | `server/packagepro.ts → guideCheck()`, `server/trips.ts → selectGuide()` | `server/hardProof.guideAvailability.test.ts` (the hard proof) |
-| Guide capacity: `slots_available` minus confirmed bookings; no double booking, re-checked at confirmation in one transaction | `server/packagepro.ts → isGuideFree()`, `server/appStore.ts → recordBooking()` | `server/packagepro.test.ts → "guide bookings hold real slots"` |
-| Party size within `min_group_size … max_group_size` | `server/trips.ts → assertTripRules()` | `server/packagepro.test.ts → "PS-04 boundary rules…"` |
-| Price = base + kept `price_delta`s, in paise (never a float) | `server/trips.ts → priceBreakdown()` | `server/packagepro.test.ts → "prices the package as base + every kept component"` |
+| Guide refused on any unavailable date, clash named, same-language + same-specialisation substitute offered, total repriced | `backend/src/packagepro.ts → guideCheck()`, `backend/src/trips.ts → selectGuide()` | `tests/hardProof.guideAvailability.test.ts` (the hard proof) |
+| Guide capacity: `slots_available` minus confirmed bookings; no double booking, re-checked at confirmation in one transaction | `backend/src/packagepro.ts → isGuideFree()`, `backend/src/appStore.ts → recordBooking()` | `tests/packagepro.test.ts → "guide bookings hold real slots"` |
+| Party size within `min_group_size … max_group_size` | `backend/src/trips.ts → assertTripRules()` | `tests/packagepro.test.ts → "PS-04 boundary rules…"` |
+| Price = base + kept `price_delta`s, in paise (never a float) | `backend/src/trips.ts → priceBreakdown()` | `tests/packagepro.test.ts → "prices the package as base + every kept component"` |
 | INR only | catalogue filters `currency = 'INR'`; `assertTripRules()` | catalogue listing test |
 | BCP-47 languages only | `assertTripRules()` | boundary-rules test |
-| Idempotent booking | `recordBooking()` looks up `idempotency_key` first | `server/conformance.test.ts → "is idempotent"` |
-| Everything written conforms to the shared model | canonical DDL + enum/prefix/money choices above | `server/conformance.test.ts` runs `tools/validate_conformance.py` → **PASS**; `pnpm conformance` does the same on the live app database |
+| Idempotent booking | `recordBooking()` looks up `idempotency_key` first | `tests/conformance.test.ts → "is idempotent"` |
+| Everything written conforms to the shared model | canonical DDL + enum/prefix/money choices above | `tests/conformance.test.ts` runs `tools/validate_conformance.py` → **PASS**; `pnpm conformance` does the same on the live app database |
 
 ## Seed / fixtures for the demo
 
-- **Seed data:** `data/PS-04.db` — the organisers' dataset, used as-is (28,103 rows). No generated fixtures are needed.
+- **Seed data:** `data-model/seed/PS-04.db` — the organisers' dataset, used as-is (28,103 rows). No generated fixtures are needed.
 - **Demo scenario** (all dataset facts): package *Thanjavur Honeymoon* (`pkg_f2d745d6`, groups of 4–8); guides Meera Novak
   (`gid_dbf7be53`, ta, heritage — unavailable 2026-09-28) and Arjun Nair (`gid_ad5b7c5f`, ta, heritage — available 28–30 Sept,
   1 slot on 29 and 30); demo traveller Anita Bhat (`usr_6c3fae7b`, `preferred_languages = ta`, 15 bookings in the dataset, 13 linked to a trip).

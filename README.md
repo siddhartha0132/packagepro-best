@@ -17,18 +17,18 @@
 
 | PS-04 "What you need to build" | Where it is |
 |---|---|
-| Browse curated packages by theme, detail pages (itinerary, inclusions, transparent pricing) | Home listing + detail dialog (`client/src/pages/Home.tsx`), `packagepro.list/detail` |
-| Customise hotel tier, activities, transfers, duration with live repricing | `client/src/components/PackageCustomiser.tsx`, `trip.swap/toggleAddOn/setDuration`, `server/trips.ts → priceBreakdown()` |
-| AI package-builder from interests, budget and booking history | `server/aiChat.ts → matchPackagesFromInterests()` + `server/travellers.ts` |
+| Browse curated packages by theme, detail pages (itinerary, inclusions, transparent pricing) | Home listing + detail dialog (`frontend/src/pages/Home.tsx`), `packagepro.list/detail` |
+| Customise hotel tier, activities, transfers, duration with live repricing | `frontend/src/components/PackageCustomiser.tsx`, `trip.swap/toggleAddOn/setDuration`, `backend/src/trips.ts → priceBreakdown()` |
+| AI package-builder from interests, budget and booking history | `ai/pipeline.ts → matchPackagesFromInterests()` + `backend/src/travellers.ts` |
 | Add-on recommendations for the chosen package | `package_components.is_optional` rows → "Recommended add-ons" |
-| Tour-guide selection by language, specialisation, availability and price | `trip.guides/selectGuide`, `server/packagepro.ts → guideCheck()/isGuideFree()` |
+| Tour-guide selection by language, specialisation, availability and price | `trip.guides/selectGuide`, `backend/src/packagepro.ts → guideCheck()/isGuideFree()` |
 | Language preferences for app and guide/tour delivery | "Travelling as" profile (`user_preferences`), app-language and guide-language pickers |
 | Save, share and book | Draft + `#trip=` share links, `trip.confirm` (idempotent), PDF quotation |
 | **Mandatory: Guide Availability Check** | `trip.selectGuide` refusal → named dates, substitutes, repriced totals · hard-proof test below |
 
 ## Architecture
 
-**Web app** (React 19, Vite, Tailwind, `client/`) and **Telegram bot** (`server/telegramBot.ts`) → **tRPC API** (`server/routers.ts`) → **trip engine** (`server/trips.ts`: pricing, swaps, negotiation, booking) → **catalogue and guide rules** (`server/packagepro.ts`) over the read-only **PS-04 dataset** (`data/PS-04.db`), plus a read-write **app database** (canonical tables + additions). **AI** (`server/aiChat.ts`, Sarvam) and **integrations** (`server/integrations.ts`: SerpAPI Google Flights, Sarvam translation, Wikipedia photos) sit beside the engine. Diagram and flows: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · API: [docs/API.md](docs/API.md).
+**Web app** (React 19, Vite, Tailwind, `frontend/`) and **Telegram bot** (`backend/src/telegramBot.ts`) → **tRPC API** (`backend/src/routers.ts`) → **trip engine** (`backend/src/trips.ts`: pricing, swaps, negotiation, booking) → **catalogue and guide rules** (`backend/src/packagepro.ts`) over the read-only **PS-04 dataset** (`data-model/seed/PS-04.db`), plus a read-write **app database** (canonical tables + additions). **AI** (`ai/pipeline.ts`, Sarvam) and **integrations** (`backend/src/integrations.ts`: SerpAPI Google Flights, Sarvam translation, Wikipedia photos) sit beside the engine. Diagram and flows: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · API: [docs/API.md](docs/API.md).
 
 ## Data model
 
@@ -71,7 +71,7 @@ pnpm dev                      # web + API (+ Telegram bot if TELEGRAM_BOT_TOKEN 
 ```
 
 Open **http://localhost:3000**.
-- **Data:** the PS-04 dataset ships in `data/PS-04.db`. No migration step: the app database and its canonical tables are created on first start.
+- **Data:** the PS-04 dataset ships in `data-model/seed/PS-04.db`. No migration step: the app database and its canonical tables are created on first start.
 - **Without API keys** the app runs on catalogue fares and rule-based text.
 - **Production:** `pnpm build && pnpm start`.
 
@@ -92,17 +92,17 @@ The terminal outcome: **a customised package, booked, with the guide rule shown*
 
 ```bash
 pnpm verify                                                   # type check + all offline tests + production build (also runs before every push)
-npx vitest run server/hardProof.guideAvailability.test.ts     # the PS-04 hard proof
+npx vitest run tests/hardProof.guideAvailability.test.ts     # the PS-04 hard proof
 pnpm conformance                                              # organisers' validator on dataset + our rows → PASS
 ```
 
-- **Hard proof** (`server/hardProof.guideAvailability.test.ts`): a guide is added on clashing dates → refused → the refusal names 2026-09-28 → the substitute has the same language and specialisation → the offered total equals the booked total.
-- **Data model** (`server/conformance.test.ts`): canonical rows for a confirmed trip; idempotent re-confirm; `validate_conformance.py` **PASS**.
-- **Engine** (`server/packagepro.test.ts`):
+- **Hard proof** (`tests/hardProof.guideAvailability.test.ts`): a guide is added on clashing dates → refused → the refusal names 2026-09-28 → the substitute has the same language and specialisation → the offered total equals the booked total.
+- **Data model** (`tests/conformance.test.ts`): canonical rows for a confirmed trip; idempotent re-confirm; `validate_conformance.py` **PASS**.
+- **Engine** (`tests/packagepro.test.ts`):
   - pricing identity (base + itinerary lines = total), swaps and add-ons per person / room / vehicle
   - duration changes, negotiation, group-size and BCP-47 rules
   - guide slots (a second traveller is refused; a late confirm is refused, not double-booked), traveller profiles
-- **AI** (`server/aiChat.test.ts`) and **Telegram** (`server/telegramBot.test.ts`): every flow with a fake Telegram API, messages within Telegram limits, all 4 languages.
+- **AI** (`tests/aiChat.test.ts`) and **Telegram** (`tests/telegramBot.test.ts`): every flow with a fake Telegram API, messages within Telegram limits, all 4 languages.
 
 The tests run offline: the LLM and live fares are off under test, so every fallback path is covered.
 
@@ -112,7 +112,7 @@ The tests run offline: the LLM and live fares are off under test, so every fallb
 
 `railway.json` builds with `pnpm build` and starts with `pnpm start`.
 1. **Variables:** set those from `.env.example`, plus `PACKAGEPRO_APP_DB=/data/packagepro-app.db`.
-2. **Volume:** add one at `/data`. Don't mount it over `/app/data`, which holds the dataset.
+2. **Volume:** add one at `/data`. The dataset ships in the repo under `data-model/seed/`.
 3. **Domain:** generate one.
 
 Only one running instance may poll a Telegram token: set `TELEGRAM_BOT_DISABLED=true` locally once Railway runs the bot. Keep a single instance, because active trips are cached in memory in front of SQLite.
@@ -123,16 +123,20 @@ Only one running instance may poll a Telegram token: set `TELEGRAM_BOT_DISABLED=
 
 ### Repository layout
 
+Monorepo with one `package.json` at the root (pnpm).
+
 | Path | What |
 |---|---|
-| `client/` | Frontend (React + Vite): `src/pages`, `src/components`, `src/i18n.ts`, `src/lib` |
-| `server/` | Backend (Node + tRPC): engine, catalogue, AI, integrations, Telegram bot, and the `*.test.ts` suites |
-| `data/` | PS-04 dataset (`PS-04.db`, `schema.sqlite.sql`, `enums.json`, starter queries) + runtime caches; app DB (git-ignored) |
-| `data-model/` | `DATA_MODEL.md` (tables used, additions, rules) + generated `schema.sql` |
-| `ai/` | AI features, prompts and grounding (code in `server/aiChat.ts`, `server/estimate.ts`) |
-| `docs/` | `ARCHITECTURE.md`, `API.md` |
+| `frontend/` | UI app (React 19 + Vite + Tailwind): `src/pages`, `src/components`, `src/i18n.ts`, `src/lib`, `index.html` |
+| `backend/src/` | API and services (Node + Express + tRPC): trip engine `trips.ts`, catalogue and guide rules `packagepro.ts`, `travellers.ts`, `estimate.ts`, `integrations.ts`, `appStore.ts`, Telegram bot, `routers.ts`, `_core/` server bootstrap |
+| `backend/shared/`, `backend/drizzle/` | Template auth/session helpers (not used by PackagePro's flows) |
+| `data-model/` | `DATA_MODEL.md` (tables used, additions, rules), generated `schema.sql`, `seed/` (PS-04 dataset + DDL + enums + starter queries + demo caches) |
+| `ai/` | AI pipeline (`pipeline.ts`: model calls, trip parser, package builder, agent) and `prompts/` (every system prompt) |
+| `docs/` | `ARCHITECTURE.md`, `API.md`, `DEMO_SCRIPT.md` |
+| `tests/` | Automated tests, including the hard-proof `hardProof.guideAvailability.test.ts` and `conformance.test.ts` |
 | `tools/` | Organisers' `validate_conformance.py` |
 | `scripts/` | `conformance.mjs`, `show-bookings.mjs`, `dump-schema.mjs` |
+| `data/` | Runtime only: the local app database (git-ignored) |
 
 ### Security
 

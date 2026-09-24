@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 const appPath = process.env.PACKAGEPRO_APP_DB || "data/packagepro-app.db";
 if (!existsSync(appPath)) { console.log(`No app database yet at ${appPath} — nothing booked.`); process.exit(0); }
 const app = new DatabaseSync(appPath, { readOnly: true });
-const ps04 = new DatabaseSync("data/PS-04.db", { readOnly: true });
+const ps04 = new DatabaseSync("data-model/seed/PS-04.db", { readOnly: true });
 const guideName = new Map(ps04.prepare("SELECT guide_id, display_name FROM tour_guides").all().map(row => [row.guide_id, row.display_name]));
 const slots = ps04.prepare("SELECT slots_available FROM guide_availability WHERE guide_id = ? AND for_date = ? AND is_available = 1");
 const has = name => app.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);

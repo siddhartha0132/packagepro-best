@@ -6,20 +6,20 @@ pricing, guide availability and bookings behave identically on web and chat.
 ```mermaid
 flowchart LR
   subgraph Channels
-    WEB["Web app (React 19 + Vite + Tailwind)<br/>client/src"]
-    TG["Telegram bot @wayypoint_Bot<br/>server/telegramBot.ts"]
+    WEB["Web app (React 19 + Vite + Tailwind)<br/>frontend/src"]
+    TG["Telegram bot @wayypoint_Bot<br/>backend/src/telegramBot.ts"]
   end
-  subgraph Server["Node 22 service (Express + tRPC) — server/"]
-    API["tRPC router<br/>server/routers.ts"]
-    ENGINE["Trip engine<br/>server/trips.ts<br/>pricing · swaps · negotiation · booking"]
-    CAT["Catalogue + guide rules<br/>server/packagepro.ts · catalogue.ts"]
-    TRAV["Traveller profiles<br/>server/travellers.ts"]
-    EST["Live estimate<br/>server/estimate.ts"]
-    AI["AI agent + builder<br/>server/aiChat.ts"]
-    INT["Integrations<br/>server/integrations.ts"]
+  subgraph Server["Node 22 service (Express + tRPC) — backend/src/"]
+    API["tRPC router<br/>backend/src/routers.ts"]
+    ENGINE["Trip engine<br/>backend/src/trips.ts<br/>pricing · swaps · negotiation · booking"]
+    CAT["Catalogue + guide rules<br/>backend/src/packagepro.ts · catalogue.ts"]
+    TRAV["Traveller profiles<br/>backend/src/travellers.ts"]
+    EST["Live estimate<br/>backend/src/estimate.ts"]
+    AI["AI agent + builder<br/>ai/pipeline.ts"]
+    INT["Integrations<br/>backend/src/integrations.ts"]
   end
   subgraph Data
-    DS[("PS-04 dataset (read-only)<br/>data/PS-04.db")]
+    DS[("PS-04 dataset (read-only)<br/>data-model/seed/PS-04.db")]
     APP[("App DB (read-write)<br/>canonical trips · itineraries ·<br/>itinerary_items · bookings + app_*")]
   end
   subgraph External
@@ -44,16 +44,16 @@ flowchart LR
 
 | Component | File(s) | Responsibility |
 |---|---|---|
-| Web app | `client/src/pages/Home.tsx`, `client/src/components/*` | Package listing by theme, detail pages, live estimate, flight picker, the customiser (swaps, add-ons, duration, guide), review/booking, PDF quotation, AI chat. 4 UI languages (`client/src/i18n.ts`) + live translation of dataset content (`client/src/lib/translate.ts`) |
-| API | `server/routers.ts` | tRPC procedures: `packagepro.*` (list, detail, alternatives, estimate, recommend, travellers, translate, chat) and `trip.*` (create, selectFlight, swap, toggleAddOn, setDuration, guides, selectGuide, removeGuide, negotiate, continuePackage, goBack, confirm, bookings) |
-| Trip engine | `server/trips.ts` | State machine `select_flight → select_package ⇄ negotiate → review → confirmed`. Every change re-runs `priceBreakdown()` (never accumulates). Enforces boundary rules (`assertTripRules`), budget negotiation, idempotent confirmation, canonical rows |
-| Catalogue & guide rules | `server/catalogue.ts`, `server/packagepro.ts` | Loads the dataset once; builds swappable packages; `isGuideFree()` (availability − confirmed slots), `guideCheck()` (clashes + nearest same-language/same-specialisation substitutes) |
-| Traveller profiles | `server/travellers.ts` | `users` + `user_preferences` + booking history → language preference and AI-builder grounding |
-| Live estimate | `server/estimate.ts` | Low / typical / high from live fares + base + default components + guides, a budget verdict, what past travellers booked, and a grounded AI insight |
-| AI | `server/aiChat.ts` | Trip-request parser, interest-based package builder, transparent explainer; grounded in catalogue + live trip context (see `ai/README.md`) |
-| Integrations | `server/integrations.ts`, `server/insights.ts` | SerpAPI flights (cached, with fallbacks), Sarvam translation (disk cache), Wikipedia photos, Resend/Twilio confirmations |
-| Storage | `server/appStore.ts` | App database: canonical tables from the dataset DDL + `app_*` additions; one transaction per booking |
-| Telegram bot | `server/telegramBot.ts`, `server/botCopy.ts` | Same engine over inline buttons + free text, hand-written copy in 4 languages |
+| Web app | `frontend/src/pages/Home.tsx`, `frontend/src/components/*` | Package listing by theme, detail pages, live estimate, flight picker, the customiser (swaps, add-ons, duration, guide), review/booking, PDF quotation, AI chat. 4 UI languages (`frontend/src/i18n.ts`) + live translation of dataset content (`frontend/src/lib/translate.ts`) |
+| API | `backend/src/routers.ts` | tRPC procedures: `packagepro.*` (list, detail, alternatives, estimate, recommend, travellers, translate, chat) and `trip.*` (create, selectFlight, swap, toggleAddOn, setDuration, guides, selectGuide, removeGuide, negotiate, continuePackage, goBack, confirm, bookings) |
+| Trip engine | `backend/src/trips.ts` | State machine `select_flight → select_package ⇄ negotiate → review → confirmed`. Every change re-runs `priceBreakdown()` (never accumulates). Enforces boundary rules (`assertTripRules`), budget negotiation, idempotent confirmation, canonical rows |
+| Catalogue & guide rules | `backend/src/catalogue.ts`, `backend/src/packagepro.ts` | Loads the dataset once; builds swappable packages; `isGuideFree()` (availability − confirmed slots), `guideCheck()` (clashes + nearest same-language/same-specialisation substitutes) |
+| Traveller profiles | `backend/src/travellers.ts` | `users` + `user_preferences` + booking history → language preference and AI-builder grounding |
+| Live estimate | `backend/src/estimate.ts` | Low / typical / high from live fares + base + default components + guides, a budget verdict, what past travellers booked, and a grounded AI insight |
+| AI | `ai/pipeline.ts` | Trip-request parser, interest-based package builder, transparent explainer; grounded in catalogue + live trip context (see `ai/README.md`) |
+| Integrations | `backend/src/integrations.ts`, `backend/src/insights.ts` | SerpAPI flights (cached, with fallbacks), Sarvam translation (disk cache), Wikipedia photos, Resend/Twilio confirmations |
+| Storage | `backend/src/appStore.ts` | App database: canonical tables from the dataset DDL + `app_*` additions; one transaction per booking |
+| Telegram bot | `backend/src/telegramBot.ts`, `backend/src/botCopy.ts` | Same engine over inline buttons + free text, hand-written copy in 4 languages |
 
 ## Key flows
 
