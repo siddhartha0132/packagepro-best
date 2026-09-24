@@ -165,6 +165,9 @@ describe("master trip flow", () => {
     trip = await api.trip.continuePackage({ tripId: trip.tripId });
     trip = await api.trip.confirm({ tripId: trip.tripId });
     expect(trip.status).toBe("confirmed");
+    expect(trip.booking?.bookingId).toMatch(/^bkg_/);
+    const bookings = await api.trip.bookings();
+    expect(bookings.some(row => (row as { trip_id: string }).trip_id === trip.tripId)).toBe(true);
     await expect(api.trip.swap({ tripId: trip.tripId, fromId: "x", toId: "y" })).rejects.toThrow(/confirmed/);
   });
 

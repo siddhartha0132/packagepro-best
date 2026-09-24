@@ -48,6 +48,8 @@ export default function Home() {
       const saved = localStorage.getItem("packagepro-draft");
       if (saved) { const draft = JSON.parse(saved); if (draft.form) setForm(draft.form); if (draft.uiLang) setUiLang(draft.uiLang); if (draft.screen) setScreen(draft.screen); if (draft.tripId) setTripId(draft.tripId); }
     } catch { /* ignore a malformed or blocked local draft */ }
+    const sharedTrip = window.location.hash.match(/^#trip=(trp_[\w-]+)/)?.[1];
+    if (sharedTrip) { setTripId(sharedTrip); setScreen("trip"); toast.success(t("en-IN", "sharedLoaded")); return; }
     const encoded = window.location.hash.startsWith("#plan=") ? window.location.hash.slice(6) : "";
     if (encoded) { try { const shared = JSON.parse(decodeURIComponent(encoded)); if (shared.origin) setForm(current => ({ ...current, ...shared })); toast.success(t("en-IN", "sharedLoaded")); } catch { /* ignore a malformed shared plan */ } }
   }, []);
@@ -117,7 +119,13 @@ export default function Home() {
   }
   function startOver() { setTripId(null); setScreen("intake"); }
   function saveDraft() { try { localStorage.setItem("packagepro-draft", JSON.stringify({ form, uiLang, tripId, screen })); } catch { /* storage unavailable */ } setDraftSaved(true); toast.success(copy("saved")); }
-  async function sharePlan() { const encoded = encodeURIComponent(JSON.stringify(form)); const url = `${window.location.origin}${window.location.pathname}#plan=${encoded}`; window.history.replaceState(null, "", `#plan=${encoded}`); await navigator.clipboard?.writeText(url).catch(() => undefined); toast.success(copy("copied")); }
+  /** A saved trip shares by ID (the exact customised package, from the app database); before that, the search brief is shared. */
+  async function sharePlan() {
+    const hash = tripId ? `#trip=${tripId}` : `#plan=${encodeURIComponent(JSON.stringify(form))}`;
+    window.history.replaceState(null, "", hash);
+    await navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}${hash}`).catch(() => undefined);
+    toast.success(copy("copied"));
+  }
   function exportWhatsApp() { if (!trip) return; window.open(buildWhatsAppUrl(trip), "_blank", "noopener,noreferrer"); toast.success(copy("whatsappReady")); }
   function back() {
     if (screen === "reality") setScreen("intake");

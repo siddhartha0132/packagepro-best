@@ -10,7 +10,8 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "db:reset": "node -e \"for (const f of ['data/packagepro-app.db','data/packagepro-app.db-wal','data/packagepro-app.db-shm']) require('fs').rmSync(f,{force:true}); console.log('PackagePro app database cleared (trips + bookings). PS-04 dataset untouched.')\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

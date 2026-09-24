@@ -164,7 +164,7 @@ export function ReviewPanel({ trip, lang, busy, email, phone, setEmail, setPhone
   const confirmed = trip.status === "confirmed";
   const leg = trip.chosenFlight;
   return <div className="space-y-4">
-    {confirmed && <Panel className="flex items-center gap-3 border border-[#b7ebd3] bg-[#e7f8f0] p-5 text-[#0e8a5f]"><Check className="h-6 w-6" /><div><div className="font-extrabold">{copy("confirmed")}</div><div className="text-xs">{copy("final")} {money(trip.runningTotal)} {copy("of")} {money(trip.budgetCap)}</div></div></Panel>}
+    {confirmed && <Panel className="flex items-center gap-3 border border-[#b7ebd3] bg-[#e7f8f0] p-5 text-[#0e8a5f]"><Check className="h-6 w-6" /><div className="flex-1"><div className="font-extrabold">{copy("confirmed")}</div><div className="text-xs">{copy("final")} {money(trip.runningTotal)} {copy("of")} {money(trip.budgetCap)}</div></div>{trip.booking && <div className="rounded-xl bg-white px-4 py-2 text-right"><div className="text-[10px] font-bold uppercase tracking-wider text-[#5f6b7a]">PNR</div><div className="font-mono text-lg font-black text-[#0b1f3a]">{trip.booking.reference}</div></div>}</Panel>}
     {leg && <Panel className="p-5"><SectionTitle icon={<Plane className="h-4 w-4 text-[#0b6bcb]" />} title={copy("flight")} sub={trip.departDate} /><div className="mt-3"><FlightRow flight={leg} lang={lang} /></div></Panel>}
     {trip.chosenTransport && <Panel className="p-5"><SectionTitle icon={<Clock className="h-4 w-4 text-[#0b6bcb]" />} title={trip.chosenTransport.operator} sub={`${trip.chosenTransport.route} · ${trip.chosenTransport.depart} · ${trip.chosenTransport.duration}`} right={<span className="font-bold">{money(trip.chosenTransport.price)}</span>} /></Panel>}
     <Panel className="p-5">

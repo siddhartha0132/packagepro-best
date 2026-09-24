@@ -9,6 +9,7 @@ import { explainWithFreeOpenRouter } from "./aiChat";
 import { cityImage, getDestinationInsight, warmCityImages } from "./insights";
 import { PACKAGE_POPULARITY, estimateTrip } from "./estimate";
 import * as trips from "./trips";
+import { listBookings } from "./appStore";
 
 const languageSchema = z.string().min(2).max(20).default("en-IN");
 
@@ -95,6 +96,7 @@ export const appRouter = router({
     negotiate: publicProcedure.input(z.object({ tripId: z.string(), choice: z.enum(["approve_overage", "swap_cheaper", "remove_item", "raise_cap"]), newCap: z.number().optional() })).mutation(({ input }) => trips.negotiate(input.tripId, input.choice, input.newCap)),
     goBack: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.goBack(input.tripId)),
     setLanguage: publicProcedure.input(z.object({ tripId: z.string(), language: languageSchema })).mutation(({ input }) => trips.setLanguage(input.tripId, input.language)),
+    bookings: publicProcedure.query(() => listBookings()),
     confirm: publicProcedure.input(z.object({ tripId: z.string(), email: z.string().email().optional(), phone: z.string().optional() })).mutation(({ input }) => trips.confirmTrip(input.tripId, { email: input.email, phone: input.phone })),
   }),
 });

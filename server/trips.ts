@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import { fromPaise, toPaise } from "./catalogue";
 import { GUIDES, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, packageForCity, realityCheck, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
 import { DESTINATIONS, searchFlightsLive, sendConfirmation } from "./integrations";
+import { loadTrip, recordBooking, saveTrip } from "./appStore";
 
 // Flow: select_flight → select_package (customise: itinerary, swaps, add-ons, guide, duration) → review → confirmed.
 // The total is never accumulated: it is recomputed from the current selection after every change.
@@ -48,6 +49,7 @@ export type Trip = {
   flightInsights?: { lowestPrice?: number; typicalRange?: [number, number]; priceLevel?: string };
   negotiationOptions: { choice: string; amount?: number; item_label: string; label: string }[];
   pending: { amount: number; label: string; retryStatus: TripStatus; advanceStatus: TripStatus; patch: Partial<Trip> } | null;
+  booking?: { bookingId: string; reference: string } | null;
   trace: { kind: string; text: string }[];
 };
 
@@ -72,8 +74,13 @@ function addDays(start: string, days: number) {
   return datesBetween(start, days + 1)[days];
 }
 
+/** In-memory working copy, backed by the app database so trips survive restarts and share links resolve. */
 function need(tripId: string) {
-  const trip = trips.get(tripId);
+  let trip = trips.get(tripId);
+  if (!trip) {
+    trip = loadTrip<Trip>(tripId) ?? undefined;
+    if (trip) trips.set(tripId, trip);
+  }
   if (!trip) throw new Error("Trip not found");
   return trip;
 }
@@ -142,6 +149,7 @@ function itinerary(trip: Trip) {
 }
 
 function snapshot(trip: Trip) {
+  saveTrip(trip);
   const breakdown = priceBreakdown(trip);
   const hotel = trip.packageComponents.find(component => component.type === "hotel" && component.included);
   return {
@@ -445,8 +453,9 @@ export async function confirmTrip(tripId: string, contact?: { email?: string; ph
   const trip = need(tripId);
   if (trip.status !== "review" && trip.status !== "select_package") throw new Error(trip.status === "negotiate" ? "Resolve the pending budget negotiation first" : `Can't confirm from '${trip.status}'`);
   trip.status = "confirmed";
-  const summary = `PackagePro confirmed: ${trip.origin} → ${trip.destination} ${trip.departDate} to ${trip.returnDate}. Total ${inr(trip.runningTotal)} of ${inr(trip.budgetCap)}.`;
-  log(trip, "decision", `Trip confirmed — final total ${inr(trip.runningTotal)} of ${inr(trip.budgetCap)} cap`);
+  trip.booking = recordBooking({ tripId: trip.tripId, total: trip.runningTotal, guideId: trip.chosenGuide?.id, email: contact?.email, phone: contact?.phone });
+  const summary = `PackagePro booking ${trip.booking.reference} confirmed: ${trip.origin} → ${trip.destination} ${trip.departDate} to ${trip.returnDate}. Total ${inr(trip.runningTotal)} of ${inr(trip.budgetCap)}.`;
+  log(trip, "decision", `Booking ${trip.booking.reference} (${trip.booking.bookingId}) confirmed — final total ${inr(trip.runningTotal)} of ${inr(trip.budgetCap)} cap`);
   if (contact?.email || contact?.phone) {
     const sent = await sendConfirmation({ email: contact.email, phone: contact.phone, summary });
     log(trip, "tool_result", `Notifications: email ${sent.email ? "sent" : "skipped"}, sms ${sent.sms ? "sent" : "skipped"}`);
