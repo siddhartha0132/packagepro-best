@@ -102,7 +102,7 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
     [`${tr("Package")} · ${tr(trip.package?.name ?? "")} (${trip.durationDays} ${tr("days")})`, b.packageBase],
     ...(b.components ? [[tr("Hotel, activities & transfers"), b.components] as [string, number]] : []),
     ...(b.addOns ? [[tr("Add-ons"), b.addOns] as [string, number]] : []),
-    ...(trip.chosenGuide ? [[`${tr("Guide")} · ${trip.chosenGuide.name}`, b.guide] as [string, number]] : []),
+    ...(trip.chosenGuide ? [[`${tr("Guide")} · ${[trip.chosenGuide, ...(trip.extraGuides ?? [])].map(guide => guide.name).join(" + ")}`, b.guide] as [string, number]] : []),
   ];
   return <Sheet reference={reference} tr={tr} lang={lang}>
     <Cover image={image} title={tr(trip.destination)} subtitle={tr(trip.package?.name ?? "")} meta={[
@@ -143,12 +143,12 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
           {hotel.rating > 0 && <div className="q-stars">{"★".repeat(hotel.rating)} <span>{hotel.rating} {tr("Star")}</span></div>}
           <div className="q-muted">{tr(cleanDetail(hotel.detail))}</div>
         </div>}
-        {trip.chosenGuide && <div className="q-card q-avoid">
+        {[trip.chosenGuide, ...(trip.extraGuides ?? [])].filter(Boolean).map(guide => <div key={guide!.id} className="q-card q-avoid">
           <div className="q-card-kicker">{tr("Local guide")} · {tr("available on every date")}</div>
-          <div className="q-card-title">{trip.chosenGuide.name} <span className="q-muted">★ {trip.chosenGuide.rating}</span></div>
-          <div className="q-muted">{specLabel(lang, trip.chosenGuide.specialisation)} · {trip.chosenGuide.languages.join(", ")}</div>
-          <div className="q-muted">{trip.chosenGuide.bookedDates.map(date => longDate(date, lang).label).join(" · ")}</div>
-        </div>}
+          <div className="q-card-title">{guide!.name} <span className="q-muted">★ {guide!.rating}</span></div>
+          <div className="q-muted">{specLabel(lang, guide!.specialisation)} · {guide!.languages.join(", ")} · {money(guide!.totalCost)}</div>
+          <div className="q-muted">{guide!.bookedDates.map(date => longDate(date, lang).label).join(" · ")}</div>
+        </div>)}
       </div>
     </section>
 

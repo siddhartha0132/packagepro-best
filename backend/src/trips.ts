@@ -12,7 +12,22 @@ export type TripStatus = "select_flight" | "select_package" | "negotiate" | "rev
 /** A line of the customised package: the component currently filling a slot, plus the default it replaced. */
 export type TripComponent = PackageComponent & { included: boolean; defaultId: string; defaultPrice: number };
 
-export type ChosenGuide = GuideRecord & { daysBooked: number; totalCost: number; bookedDates: string[] };
+/** A guide on the plan. `wholeTrip` guides were checked on every trip date (the mandatory rule); day-by-day guides only on their own dates. */
+export type ChosenGuide = GuideRecord & { daysBooked: number; totalCost: number; bookedDates: string[]; wholeTrip?: boolean };
+
+/** Every guide on the plan: the primary one plus day-by-day extras (each date belongs to at most one guide). */
+export const allGuides = (trip: Pick<Trip, "chosenGuide" | "extraGuides">) => [trip.chosenGuide, ...(trip.extraGuides ?? [])].filter((guide): guide is ChosenGuide => Boolean(guide));
+
+function assignGuide(guide: GuideRecord, dates: string[], wholeTrip: boolean): ChosenGuide {
+  const bookedDates = [...dates].sort();
+  return { ...guide, daysBooked: bookedDates.length, bookedDates, totalCost: guideCost(guide, bookedDates), wholeTrip };
+}
+
+/** Split a guide list back into the primary guide (most days first kept) and extras. */
+function guideFields(guides: ChosenGuide[]): Pick<Trip, "chosenGuide" | "extraGuides"> {
+  const kept = guides.filter(guide => guide.bookedDates.length > 0);
+  return { chosenGuide: kept[0] ?? null, extraGuides: kept.slice(1) };
+}
 
 export type Trip = {
   tripId: string;
@@ -35,6 +50,8 @@ export type Trip = {
   package: PackageRecord | null;
   packageComponents: TripComponent[];
   chosenGuide: ChosenGuide | null;
+  /** Day-by-day guides beyond the primary one (disjoint dates). */
+  extraGuides?: ChosenGuide[];
   guideAvailabilityIssue: {
     guide: GuideRecord;
     conflictingDates: string[];
@@ -129,7 +146,7 @@ export function componentCharge(trip: Pick<Trip, "travelers" | "durationDays" | 
  * PS-04 pricing: package base + the price_delta of every component you keep (never a float: all sums in integer paise).
  * The base is per person and prorated by days; components scale per person / room / vehicle; the guide is per group.
  */
-function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "durationDays" | "chosenFlight" | "chosenTransport" | "chosenGuide" | "travelers">) {
+function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "durationDays" | "chosenFlight" | "chosenTransport" | "chosenGuide" | "extraGuides" | "travelers">) {
   const party = partyUnits(trip.travelers);
   const transport = paise(trip.chosenTransport?.price ?? trip.chosenFlight?.price ?? 0) * party.pax;
   const base = trip.package ? Math.round(paise(trip.package.basePrice) * Math.max(1, trip.durationDays) / Math.max(1, trip.package.duration)) * party.pax : 0;
@@ -145,7 +162,7 @@ function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "dura
       swaps += charge - Math.round(paise(component.defaultPrice) * chargeFactor(trip, component));
     }
   }
-  const guide = paise(trip.chosenGuide?.totalCost ?? 0);
+  const guide = allGuides(trip).reduce((sum, item) => sum + paise(item.totalCost), 0);
   const packageTotal = base + components + addOns;
   return {
     transport: fromPaise(transport),
@@ -176,7 +193,7 @@ function itinerary(trip: Trip) {
   const hotel = lines.find(component => component.type === "hotel");
   return dates.map((date, index) => {
     const day = index + 1;
-    const items: { kind: string; slot: string; label: string; detail: string; price?: number; componentId?: string }[] = [];
+    const items: { kind: string; slot: string; label: string; detail: string; price?: number; componentId?: string; guideId?: string }[] = [];
     if (day === 1) {
       const leg = trip.chosenTransport ?? trip.chosenFlight;
       if (leg) items.push({ kind: "arrival", slot: "morning", label: trip.chosenTransport ? `Arrive by ${trip.chosenTransport.operator}` : `Arrive on ${trip.chosenFlight!.airline} ${trip.chosenFlight!.id}`, detail: leg.route });
@@ -186,8 +203,9 @@ function itinerary(trip: Trip) {
       if ((component.dayIndex ?? 1) !== day) continue;
       items.push({ kind: component.type, slot: component.slot ?? "morning", label: component.label, detail: component.detail, price: componentCharge(trip, component), componentId: component.id });
     }
-    if (trip.chosenGuide?.bookedDates.includes(date)) {
-      items.push({ kind: "guide", slot: "morning", label: `Guide: ${trip.chosenGuide.name}`, detail: `${trip.chosenGuide.specialisation} · ${trip.chosenGuide.languages.join(", ")}`, price: guideCost(trip.chosenGuide, [date]) });
+    const dayGuide = allGuides(trip).find(guide => guide.bookedDates.includes(date));
+    if (dayGuide) {
+      items.push({ kind: "guide", slot: "morning", label: `Guide: ${dayGuide.name}`, detail: `${dayGuide.specialisation} · ${dayGuide.languages.join(", ")}`, price: guideCost(dayGuide, [date]), guideId: dayGuide.id });
     }
     if (hotel) items.push({ kind: "hotel", slot: "overnight", label: day === 1 ? `Check in: ${hotel.label}` : `Stay: ${hotel.label}`, detail: hotel.detail.replace(/^Day \d+ · \w+ · /, ""), price: day === 1 ? componentCharge(trip, hotel) : undefined, componentId: hotel.id });
     items.sort((a, b) => (SLOT_ORDER[a.slot] ?? 9) - (SLOT_ORDER[b.slot] ?? 9));
@@ -205,6 +223,12 @@ function snapshot(trip: Trip) {
     packagePrice: breakdown.packageTotal,
     chosenHotel: hotel ? { id: hotel.id, name: hotel.label, rating: Number(hotel.detail.match(/(\d)★/)?.[1] || 0), detail: hotel.detail, total: hotel.price } : null,
     itinerary: trip.package ? itinerary(trip) : [],
+    /** Day-by-day guide plan: which guide (if any) covers each trip date, and that day's cost. */
+    guidePlan: datesBetween(trip.departDate, trip.durationDays).map(date => {
+      const guide = allGuides(trip).find(item => item.bookedDates.includes(date));
+      return { date, guideId: guide?.id ?? null, guideName: guide?.name ?? null, cost: guide ? guideCost(guide, [date]) : 0 };
+    }),
+    extraGuides: trip.extraGuides ?? [],
     remaining: trip.budgetCap - trip.runningTotal,
     reality: realityCheck(trip.destination, trip.budgetCap, trip.durationDays),
     canGoBack: trip.status !== "confirmed" && trip.status !== "select_flight",
@@ -358,7 +382,13 @@ export function setDuration(tripId: string, days: number) {
   const returnDate = addDays(trip.departDate, days);
   const patch: Partial<Trip> = { durationDays: days, returnDate, guideAvailabilityIssue: null };
   const guide = trip.chosenGuide;
-  if (guide) {
+  const inRange = new Set(datesBetween(trip.departDate, days));
+  // Day-by-day guides keep only their dates inside the new range that are still free.
+  patch.extraGuides = (trip.extraGuides ?? []).map(extra => assignGuide(extra, extra.bookedDates.filter(date => inRange.has(date) && isGuideFree(extra, date)), false)).filter(extra => extra.bookedDates.length);
+  if (guide && guide.wholeTrip === false) {
+    const kept = guide.bookedDates.filter(date => inRange.has(date) && isGuideFree(guide, date));
+    Object.assign(patch, guideFields([assignGuide(guide, kept, false), ...(patch.extraGuides ?? [])]));
+  } else if (guide) {
     const dates = datesBetween(trip.departDate, days);
     const bookedDates = dates.slice(0, Math.min(guide.daysBooked, days));
     const check = guideCheck(guide, dates, { language: trip.language, specialisation: guide.specialisation, chargeDates: bookedDates });
@@ -366,7 +396,7 @@ export function setDuration(tripId: string, days: number) {
       patch.chosenGuide = null;
       patch.guideAvailabilityIssue = availabilityIssue(trip, guide, check, dates, { ...trip, ...patch, chosenGuide: null });
     } else {
-      patch.chosenGuide = { ...guide, daysBooked: bookedDates.length, bookedDates, totalCost: guideCost(guide, bookedDates) };
+      patch.chosenGuide = { ...guide, daysBooked: bookedDates.length, bookedDates, totalCost: guideCost(guide, bookedDates), wholeTrip: true };
     }
   }
   commit(trip, `${days}-day duration`, patch);
@@ -418,6 +448,8 @@ export function listGuides(tripId: string, specialisation?: string) {
     tripCost: guideCost(guide, requestedDates),
     matchesPackage: guide.specialisation === trip.guideSpecialisation,
     availability: liveAvailability(guide),
+    /** Per-date cost (day_rate × that date's price_multiplier), for day-by-day planning. */
+    dayCosts: Object.fromEntries(requestedDates.map(date => [date, guideCost(guide, [date])])),
     unavailableDates: requestedDates.filter(date => !isGuideFree(guide, date)),
     isAvailableForTrip: requestedDates.every(date => isGuideFree(guide, date)),
   })).sort((a, b) => Number(b.matchesPackage) - Number(a.matchesPackage) || Number(b.isAvailableForTrip) - Number(a.isAvailableForTrip) || b.rating - a.rating);
@@ -425,7 +457,7 @@ export function listGuides(tripId: string, specialisation?: string) {
 
 function availabilityIssue(trip: Trip, guide: GuideRecord, check: ReturnType<typeof guideCheck>, dates: string[], base: Trip): NonNullable<Trip["guideAvailabilityIssue"]> {
   const currentTotal = priceBreakdown(base).total;
-  const replacementOptions = check.replacementOptions.map(option => ({ ...option, newTotal: priceBreakdown({ ...base, chosenGuide: { ...option.guide, daysBooked: 0, bookedDates: [], totalCost: option.totalCost } }).total }));
+  const replacementOptions = check.replacementOptions.map(option => ({ ...option, newTotal: priceBreakdown({ ...base, extraGuides: [...(base.extraGuides ?? []), { ...option.guide, daysBooked: 0, bookedDates: [], totalCost: option.totalCost }] }).total }));
   return {
     guide: withLiveAvailability(guide), conflictingDates: check.conflicts, requestedDates: dates, replacement: check.replacement, replacementOptions,
     replacementTotalCost: replacementOptions[0]?.totalCost ?? null, priceDelta: check.priceDelta, currentTotal,
@@ -447,20 +479,58 @@ export function selectGuide(tripId: string, guideId: string, days: number) {
   const check = guideCheck(guide, packageDates, { language: trip.language, specialisation: guide.specialisation, chargeDates: bookedDates });
   if (check.conflicts.length) {
     // Refused: the current guide (if any) stays; substitutes are priced against the plan without this guide.
-    trip.guideAvailabilityIssue = availabilityIssue(trip, guide, check, packageDates, { ...trip, chosenGuide: null });
+    trip.guideAvailabilityIssue = availabilityIssue(trip, guide, check, packageDates, { ...trip, chosenGuide: null, extraGuides: [] });
     log(trip, "decision", `Guide ${guide.name} unavailable on ${check.conflicts.join(", ")}; checked all ${packageDates.length} package date(s) for ${trip.language}/${guide.specialisation}${check.replacement ? `; offered ${check.replacement.name} (${check.priceDelta! >= 0 ? "+" : "−"}${inr(Math.abs(check.priceDelta!))})` : "; no compliant substitute available"}`);
     return snapshot(trip);
   }
-  const chosen: ChosenGuide = { ...guide, daysBooked: bookedDays, totalCost: guideCost(guide, bookedDates), bookedDates };
-  commit(trip, `guide ${guide.name} (${bookedDays}d)`, { chosenGuide: chosen, guideAvailabilityIssue: null });
+  const chosen: ChosenGuide = { ...guide, daysBooked: bookedDays, totalCost: guideCost(guide, bookedDates), bookedDates, wholeTrip: true };
+  commit(trip, `guide ${guide.name} (${bookedDays}d)`, { chosenGuide: chosen, extraGuides: [], guideAvailabilityIssue: null });
   return snapshot(trip);
 }
 
-export function removeGuide(tripId: string) {
+/**
+ * Day-by-day guide planning: book a guide only on the dates the traveller picks (e.g. the one day a favourite guide is free)
+ * and cover other days with other guides. Only the picked dates are checked; any clash is refused with the dates named and
+ * same-language, same-specialisation substitutes free on those dates, repriced — the same rule as a whole-trip booking.
+ */
+export function bookGuideDays(tripId: string, guideId: string, dates: string[]) {
+  const trip = need(tripId);
+  editable(trip, "book a guide");
+  const guide = GUIDES.find(item => item.id === guideId);
+  if (!guide) throw new Error("Guide not found for this destination");
+  const offeredSubstitute = trip.guideAvailabilityIssue?.replacementOptions.some(option => option.guide.id === guide.id);
+  if (guide.city !== trip.destination && !offeredSubstitute) throw new Error(`This guide is not based in ${trip.destination}`);
+  if (!guide.languages.includes(trip.language)) throw new Error(`This guide does not match the requested ${trip.language} language preference`);
+  const packageDates = datesBetween(trip.departDate, trip.durationDays);
+  const picked = Array.from(new Set(dates)).sort();
+  if (!picked.length) throw new Error("Pick at least one date for the guide");
+  const outside = picked.filter(date => !packageDates.includes(date));
+  if (outside.length) throw new Error(`${outside.join(", ")} is outside this trip (${trip.departDate} → ${packageDates[packageDates.length - 1]})`);
+  // Everyone else keeps their other dates; the picked dates are freed for this guide.
+  const others = allGuides(trip).filter(item => item.id !== guide.id).map(item => assignGuide(item, item.bookedDates.filter(date => !picked.includes(date)), item.wholeTrip === true && item.bookedDates.every(date => !picked.includes(date))));
+  const check = guideCheck(guide, picked, { language: trip.language, specialisation: guide.specialisation, chargeDates: picked });
+  if (check.conflicts.length) {
+    const current = allGuides(trip).find(item => item.id === guide.id);
+    trip.guideAvailabilityIssue = availabilityIssue(trip, guide, check, picked, { ...trip, ...guideFields([...(current ? [current] : []), ...others]) });
+    log(trip, "decision", `Guide ${guide.name} refused for ${picked.join(", ")}: unavailable on ${check.conflicts.join(", ")}${check.replacement ? `; offered ${check.replacement.name}` : "; no compliant substitute free on those dates"}`);
+    return snapshot(trip);
+  }
+  const existing = allGuides(trip).find(item => item.id === guide.id);
+  const mine = assignGuide(guide, Array.from(new Set([...(existing?.bookedDates ?? []), ...picked])), false);
+  const primaryFirst = trip.chosenGuide?.id === guide.id ? [mine, ...others] : [...others.filter(item => item.id === trip.chosenGuide?.id), mine, ...others.filter(item => item.id !== trip.chosenGuide?.id)];
+  commit(trip, `guide ${guide.name} on ${picked.join(", ")}`, { ...guideFields(primaryFirst), guideAvailabilityIssue: null });
+  return snapshot(trip);
+}
+
+/** Remove one guide from the plan (or every guide when no id is given). */
+export function removeGuide(tripId: string, guideId?: string) {
   const trip = need(tripId);
   editable(trip, "remove the guide");
-  if (!trip.chosenGuide) throw new Error("No guide is currently added to this itinerary");
-  commit(trip, `removing guide ${trip.chosenGuide.name}`, { chosenGuide: null, guideAvailabilityIssue: null });
+  const guides = allGuides(trip);
+  if (!guides.length) throw new Error("No guide is currently added to this itinerary");
+  const removed = guideId ? guides.filter(item => item.id === guideId) : guides;
+  if (!removed.length) throw new Error("That guide is not on this itinerary");
+  commit(trip, `removing guide ${removed.map(item => item.name).join(" + ")}`, { ...guideFields(guides.filter(item => !removed.includes(item))), guideAvailabilityIssue: null });
   return snapshot(trip);
 }
 
@@ -502,7 +572,7 @@ export function goBack(tripId: string) {
     trip.status = "select_package";
     log(trip, "decision", "Back to package customisation");
   } else if (trip.status === "select_package") {
-    Object.assign(trip, { chosenFlight: null, chosenTransport: null, package: null, packageComponents: [], chosenGuide: null, guideAvailabilityIssue: null });
+    Object.assign(trip, { chosenFlight: null, chosenTransport: null, package: null, packageComponents: [], chosenGuide: null, extraGuides: [], guideAvailabilityIssue: null });
     trip.runningTotal = 0;
     trip.status = "select_flight";
     log(trip, "decision", "Back to flight selection");
@@ -521,10 +591,13 @@ export function setLanguage(tripId: string, language: string) {
 
 /** The chosen guide lost a slot before confirmation: drop them, reprice, and offer same-language substitutes instead of booking. */
 function guideTakenMeanwhile(trip: Trip, guide: GuideRecord) {
-  const packageDates = datesBetween(trip.departDate, trip.durationDays);
-  const check = guideCheck(guide, packageDates, { language: trip.language, specialisation: guide.specialisation, chargeDates: trip.chosenGuide?.bookedDates });
-  trip.guideAvailabilityIssue = availabilityIssue(trip, guide, check, packageDates, { ...trip, chosenGuide: null });
-  trip.chosenGuide = null;
+  const held = allGuides(trip).find(item => item.id === guide.id);
+  const dates = held?.bookedDates ?? [];
+  const checkDates = held?.wholeTrip === false ? dates : datesBetween(trip.departDate, trip.durationDays);
+  const check = guideCheck(guide, checkDates, { language: trip.language, specialisation: guide.specialisation, chargeDates: dates });
+  const remaining = guideFields(allGuides(trip).filter(item => item.id !== guide.id));
+  trip.guideAvailabilityIssue = availabilityIssue(trip, guide, check, checkDates, { ...trip, ...remaining });
+  Object.assign(trip, remaining);
   trip.runningTotal = priceBreakdown(trip).total;
   trip.status = "select_package";
   log(trip, "decision", `Guide ${guide.name} was booked by another traveller on ${check.conflicts.join(", ")} before this booking — removed and repriced${check.replacement ? `; offered ${check.replacement.name}` : "; no compliant substitute free"}`);
@@ -537,18 +610,22 @@ export async function confirmTrip(tripId: string, contact?: { email?: string; ph
   if (trip.status === "confirmed" && trip.booking) return snapshot(trip);
   if (trip.status !== "review" && trip.status !== "select_package") throw new Error(trip.status === "negotiate" ? "Resolve the pending budget negotiation first" : `Can't confirm from '${trip.status}'`);
   // Re-check the guide at the moment of booking: another traveller may have taken the last slot since it was selected.
-  const guide = trip.chosenGuide ? GUIDES.find(item => item.id === trip.chosenGuide!.id) : undefined;
-  if (guide && trip.chosenGuide!.bookedDates.some(date => !isGuideFree(guide, date))) return guideTakenMeanwhile(trip, guide);
+  const onPlan = allGuides(trip).map(item => ({ held: item, record: GUIDES.find(guide => guide.id === item.id)! })).filter(item => item.record);
+  const lost = onPlan.find(item => item.held.bookedDates.some(date => !isGuideFree(item.record, date)));
+  if (lost) return guideTakenMeanwhile(trip, lost.record);
   const items = canonicalItems(trip);
   try {
     trip.booking = recordBooking({
       tripId: trip.tripId, userId: trip.userId ?? DEFAULT_TRAVELLER_ID, total: trip.runningTotal, channel: trip.channel ?? "web",
       idempotencyKey: options.idempotencyKey ?? `idem_${trip.tripId}`, email: contact?.email, phone: contact?.phone,
-      guide: guide ? { guideId: guide.id, dates: trip.chosenGuide!.bookedDates, capacity: guide.slots } : undefined,
+      guides: onPlan.map(item => ({ guideId: item.record.id, dates: item.held.bookedDates, capacity: item.record.slots })),
       itinerary: { name: `${trip.package?.name ?? trip.destination} — ${trip.departDate}`, totalDurationMinutes: items.reduce((sum, item) => sum + item.duration_minutes, 0), items },
     });
   } catch (error) {
-    if (guide && error instanceof GuideSlotTakenError) return guideTakenMeanwhile(trip, guide);
+    if (error instanceof GuideSlotTakenError) {
+      const taken = GUIDES.find(item => item.id === error.guideId);
+      if (taken) return guideTakenMeanwhile(trip, taken);
+    }
     throw error;
   }
   trip.status = "confirmed";
@@ -600,7 +677,7 @@ function canonicalItems(trip: Trip): CanonicalItem[] {
   for (const day of itinerary(trip)) {
     for (const item of day.items) {
       const component = trip.packageComponents.find(entry => entry.id === item.componentId);
-      const entityId = item.kind === "guide" ? trip.chosenGuide?.id ?? null : item.kind === "hotel" ? component?.entityId ?? null : component ? (component.entityId?.startsWith("trf_") ? component.entityId : component.id) : null;
+      const entityId = item.kind === "guide" ? item.guideId ?? null : item.kind === "hotel" ? component?.entityId ?? null : component ? (component.entityId?.startsWith("trf_") ? component.entityId : component.id) : null;
       const entityType = item.kind === "arrival" ? "flight" : item.kind === "guide" ? "guide" : item.kind === "hotel" ? "hotel" : entityId?.startsWith("trf_") ? "transfer" : component ? "package_component" : null;
       const itemType: CanonicalItem["item_type"] = item.kind === "arrival" ? (trip.chosenTransport ? "transfer" : "flight") : item.kind === "experience" || item.kind === "entry_ticket" ? "poi" : item.kind === "hotel" ? "hotel" : item.kind === "guide" ? "guide" : item.kind === "meal" ? "meal" : item.kind === "transfer" ? "transfer" : "free";
       const swapped = component && component.id !== component.defaultId;

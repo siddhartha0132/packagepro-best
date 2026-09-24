@@ -44,7 +44,8 @@ A trip moves `select_flight → select_package ⇄ negotiate → review → conf
 | `trip.setDuration` | mutation | `{ tripId, days }` | Prorates the base; re-checks a booked guide |
 | `trip.guides` | query | `{ tripId, specialisation? }` | Guides in the trip language with a per-date live calendar |
 | `trip.selectGuide` | mutation | `{ tripId, guideId, days }` | **Availability check**: book, or refuse with named dates + same-language/specialisation substitutes and repriced totals |
-| `trip.removeGuide` | mutation | `{ tripId }` | Remove the guide |
+| `trip.bookGuideDays` | mutation | `{ tripId, guideId, dates[] }` | **Day-by-day plan**: book a guide only on the picked dates (checked individually, refused with named dates + substitutes on a clash); other guides keep their other days |
+| `trip.removeGuide` | mutation | `{ tripId, guideId? }` | Remove one guide (or all) |
 | `trip.skipGuide` / `trip.continuePackage` | mutation | `{ tripId }` | Move to review |
 | `trip.negotiate` | mutation | `{ tripId, choice, newCap? }` | `approve_overage` · `swap_cheaper` · `remove_item` · `raise_cap` |
 | `trip.goBack` | mutation | `{ tripId }` | One stage back |

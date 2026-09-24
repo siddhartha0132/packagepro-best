@@ -4,6 +4,9 @@ import type { Lang } from "../../frontend/src/i18n";
 // is reliable in Hindi, Tamil and Telugu from the first message. {name} placeholders are filled by `say()`.
 
 const en = {
+  bookFreeOnly: "📅 Book {guide} only on {dates}",
+  guideBookedDays: "✅ {guide} booked on {dates} — {cost}.",
+  coverRest: "Add a guide for {dates}:",
   componentsLine: "Hotel, activities & transfers",
   btnDemo: "▶ Try the demo",
   demoIntro: "▶ <b>Demo trip:</b> New Delhi → Thanjavur · 28 Sept · 3 days · 4 travellers · Tamil guide.\nAfter the estimate, build the trip, pick a flight, then tap <b>Add a guide → Meera Novak</b> — she is busy on 28 Sept.",
@@ -71,6 +74,9 @@ const en = {
 type Copy = typeof en;
 
 const hi: Copy = {
+  bookFreeOnly: "📅 {guide} को केवल {dates} को बुक करें",
+  guideBookedDays: "✅ {guide} {dates} के लिए बुक — {cost}।",
+  coverRest: "{dates} के लिए गाइड जोड़ें:",
   componentsLine: "होटल, गतिविधियाँ और ट्रांसफ़र",
   btnDemo: "▶ डेमो आज़माएँ",
   demoIntro: "▶ <b>डेमो यात्रा:</b> नई दिल्ली → तंजावुर · 28 सितंबर · 3 दिन · 4 यात्री · तमिल गाइड।\nअनुमान के बाद यात्रा बनाएँ, उड़ान चुनें, फिर <b>गाइड जोड़ें → मीरा नोवाक</b> पर टैप करें — वे 28 सितंबर को व्यस्त हैं।",
@@ -136,6 +142,9 @@ const hi: Copy = {
 };
 
 const ta: Copy = {
+  bookFreeOnly: "📅 {guide} அவர்களை {dates} அன்று மட்டும் முன்பதிவு செய்",
+  guideBookedDays: "✅ {guide} {dates} அன்று முன்பதிவு செய்யப்பட்டார் — {cost}.",
+  coverRest: "{dates} அன்றுக்கு ஒரு வழிகாட்டியைச் சேர்க்கவும்:",
   componentsLine: "ஹோட்டல், செயல்பாடுகள் & போக்குவரத்து",
   btnDemo: "▶ டெமோவை முயற்சிக்கவும்",
   demoIntro: "▶ <b>டெமோ பயணம்:</b> புது தில்லி → தஞ்சாவூர் · 28 செப்டம்பர் · 3 நாட்கள் · 4 பயணிகள் · தமிழ் வழிகாட்டி.\nமதிப்பீட்டுக்குப் பிறகு பயணத்தை உருவாக்கி, விமானத்தைத் தேர்ந்தெடுத்து, <b>வழிகாட்டியைச் சேர் → மீரா நோவாக்</b> என்பதைத் தட்டவும் — அவர் 28 செப்டம்பர் அன்று கிடைக்கமாட்டார்.",
@@ -201,6 +210,9 @@ const ta: Copy = {
 };
 
 const te: Copy = {
+  bookFreeOnly: "📅 {guide} ను {dates} న మాత్రమే బుక్ చేయండి",
+  guideBookedDays: "✅ {guide} {dates} న బుక్ అయ్యారు — {cost}.",
+  coverRest: "{dates} కోసం ఒక గైడ్‌ను జోడించండి:",
   componentsLine: "హోటల్, కార్యకలాపాలు & ట్రాన్స్‌ఫర్లు",
   btnDemo: "▶ డెమో ప్రయత్నించండి",
   demoIntro: "▶ <b>డెమో ప్రయాణం:</b> న్యూ ఢిల్లీ → తంజావూరు · 28 సెప్టెంబర్ · 3 రోజులు · 4 ప్రయాణికులు · తమిళ గైడ్.\nఅంచనా తర్వాత ప్రయాణాన్ని సిద్ధం చేసి, విమానాన్ని ఎంచుకుని, <b>గైడ్‌ను జోడించండి → మీరా నోవాక్</b> పై నొక్కండి — ఆమె 28 సెప్టెంబర్‌న అందుబాటులో లేరు.",

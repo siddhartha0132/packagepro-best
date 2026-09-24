@@ -304,7 +304,7 @@ function packageSummary(s: Session, trip: TripView, tr: (text: string) => string
     `📅 ${shortDate(trip.departDate, s.lang)} → ${shortDate(trip.returnDate, s.lang)} · ${say(s.lang, "daysN", { n: trip.durationDays })} · 👥 ${trip.travelers}`,
     flight ? `✈️ ${esc(flight.airline)} ${esc(flight.id)} ${flight.depart}${flight.arrive ? `→${flight.arrive}` : ""} · ${money(flight.price)}` : "",
     trip.chosenHotel ? `🏨 ${esc(trip.chosenHotel.name)} · ${esc(tr(cleanDetail(trip.chosenHotel.detail)))}` : "",
-    trip.chosenGuide ? `🧭 ${esc(trip.chosenGuide.name)} (${specName(s.lang, trip.chosenGuide.specialisation)}) · ${money(trip.chosenGuide.totalCost)}` : "",
+    ...[trip.chosenGuide, ...(trip.extraGuides ?? [])].filter(Boolean).map(guide => `🧭 ${esc(guide!.name)} (${specName(s.lang, guide!.specialisation)}) · ${guide!.wholeTrip === false ? `${guide!.bookedDates.map(date => shortDate(date, s.lang)).join(", ")} · ` : ""}${money(guide!.totalCost)}`),
     "",
     ...trip.itinerary.map(day => {
       const items = day.items.filter(item => item.kind !== "hotel" && item.kind !== "arrival" && item.kind !== "guide").map(item => tr(item.label));
@@ -380,8 +380,10 @@ async function showGuideRefusal(chatId: string, s: Session, trip: TripView) {
     })),
     options.length ? say(s.lang, "newTotal", { old: money(issue.currentTotal), new: money(options[0].newTotal) }) : say(s.lang, "noSubstitute"),
   ];
+  const freeDays = issue.requestedDates.filter(date => issue.guide.availability[date] === true);
   await send(chatId, lines.join("\n\n"), [
     ...options.map((option, index) => [{ text: `✅ ${say(s.lang, "takeSub", { guide: option.guide.name })} · ${money(option.newTotal)}`, data: `GR:${index}` }]),
+    ...(freeDays.length && freeDays.length < issue.requestedDates.length ? [[{ text: say(s.lang, "bookFreeOnly", { guide: issue.guide.name, dates: freeDays.map(date => shortDate(date, s.lang)).join(", ") }), data: "GF" }]] : []),
     [{ text: say(s.lang, "skipGuide"), data: "M:trip" }],
   ]);
 }
@@ -430,7 +432,7 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
   const value = separator < 0 ? "" : data.slice(separator + 1);
   const trip = () => trips.getTrip(s.tripId!);
   // Buttons from an old message can arrive after the trip is gone (or before one exists): send them to the menu.
-  if (["F", "H", "A", "GD", "GS", "GR", "GX", "ND", "NG", "R", "BK", "K"].includes(kind) && !s.tripId) return showMenu(chatId, s, say(s.lang, "noTrip"));
+  if (["F", "H", "A", "GD", "GS", "GR", "GX", "GF", "GU", "ND", "NG", "R", "BK", "K"].includes(kind) && !s.tripId) return showMenu(chatId, s, say(s.lang, "noTrip"));
   switch (kind) {
     case "x": return;
     case "L": s.lang = (LANGS.find(lang => lang.value === value)?.value ?? "en-IN"); return showMenu(chatId, s, say(s.lang, "langSet"));
@@ -504,6 +506,24 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
       return showPackage(chatId, s, next, say(s.lang, "guideBooked", { guide: esc(guide.name), days: next.chosenGuide?.daysBooked ?? current.durationDays, cost: money(next.chosenGuide?.totalCost ?? 0) }));
     }
     case "GX": return showPackage(chatId, s, trips.removeGuide(s.tripId!));
+    case "GF": case "GU": {
+      const current = trip();
+      const uncovered = current.guidePlan.filter(day => !day.guideId).map(day => day.date);
+      const target = kind === "GF"
+        ? current.guideAvailabilityIssue && { id: current.guideAvailabilityIssue.guide.id, name: current.guideAvailabilityIssue.guide.name, dates: current.guideAvailabilityIssue.requestedDates.filter(date => current.guideAvailabilityIssue!.guide.availability[date] === true) }
+        : (() => { const guide = trips.listGuides(s.tripId!).filter(item => uncovered.every(date => item.availability[date] === true))[Number(value)]; return guide && { id: guide.id, name: guide.name, dates: uncovered }; })();
+      if (!target?.dates.length) return showGuides(chatId, s, current);
+      const next = trips.bookGuideDays(s.tripId!, target.id, target.dates);
+      if (next.status === "negotiate") return showNegotiation(chatId, s, next);
+      if (next.guideAvailabilityIssue) return showGuideRefusal(chatId, s, next);
+      const booked = [next.chosenGuide, ...(next.extraGuides ?? [])].find(guide => guide?.id === target.id);
+      await showPackage(chatId, s, next, say(s.lang, "guideBookedDays", { guide: esc(target.name), dates: target.dates.map(date => shortDate(date, s.lang)).join(", "), cost: money(booked?.totalCost ?? 0) }));
+      // Offer guides who are free on every day still without a guide.
+      const stillOpen = next.guidePlan.filter(day => !day.guideId).map(day => day.date);
+      const helpers = stillOpen.length ? trips.listGuides(s.tripId!).filter(item => stillOpen.every(date => item.availability[date] === true)).slice(0, 4) : [];
+      if (helpers.length) await send(chatId, say(s.lang, "coverRest", { dates: stillOpen.map(date => shortDate(date, s.lang)).join(", ") }), helpers.map((guide, index) => [{ text: `🧭 ${guide.name} · ${stillOpen.map(date => shortDate(date, s.lang)).join(", ")} · ${money(stillOpen.reduce((sum, date) => sum + (guide.dayCosts[date] ?? 0), 0))}`, data: `GU:${index}` }]));
+      return;
+    }
     case "ND":
       if (value === "list") return send(chatId, say(s.lang, "askDays"), [[2, 3, 4, 5], [6, 7, 8, 10]].map(row => row.map(n => ({ text: say(s.lang, "daysN", { n }), data: `ND:${n}` }))));
       {

@@ -163,7 +163,8 @@ export type BookingInput = {
   channel: "web" | "mobile_app" | "partner" | "call_centre" | "agent";
   email?: string;
   phone?: string;
-  guide?: { guideId: string; dates: string[]; capacity: Record<string, number> };
+  /** Every guide on the plan with the dates it holds (day-by-day plans can have several). */
+  guides?: { guideId: string; dates: string[]; capacity: Record<string, number> }[];
   itinerary: { name: string; totalDurationMinutes: number; items: CanonicalItem[] };
 };
 
@@ -182,10 +183,10 @@ export function recordBooking(input: BookingInput) {
       database.exec("COMMIT");
       return { bookingId: existing.booking_id, reference: existing.booking_reference, itineraryId: existing.itinerary_id, replayed: true };
     }
-    if (input.guide) {
-      const count = database.prepare("SELECT COUNT(*) AS n FROM app_guide_bookings WHERE guide_id = ? AND for_date = ? AND status = 'confirmed'");
-      const full = input.guide.dates.filter(date => (count.get(input.guide!.guideId, date) as { n: number }).n >= (input.guide!.capacity[date] ?? 0));
-      if (full.length) throw new GuideSlotTakenError(input.guide.guideId, full);
+    const count = database.prepare("SELECT COUNT(*) AS n FROM app_guide_bookings WHERE guide_id = ? AND for_date = ? AND status = 'confirmed'");
+    for (const guide of input.guides ?? []) {
+      const full = guide.dates.filter(date => (count.get(guide.guideId, date) as { n: number }).n >= (guide.capacity[date] ?? 0));
+      if (full.length) throw new GuideSlotTakenError(guide.guideId, full);
     }
     const bookingId = newId("bkg");
     const itineraryId = newId("itn");
@@ -202,11 +203,9 @@ export function recordBooking(input: BookingInput) {
     database.prepare(`
       INSERT INTO bookings (booking_id, user_id, trip_id, itinerary_id, booking_reference, channel, total_amount, currency, tax_amount, idempotency_key, status, confirmed_at, cancelled_at, cancellation_reason, created_at, updated_at, contact_email, contact_phone, guide_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', '0.00', ?, 'confirmed', ?, NULL, NULL, ?, ?, ?, ?, ?)
-    `).run(bookingId, input.userId, input.tripId, itineraryId, reference, input.channel, money(input.total), input.idempotencyKey, now, now, now, input.email ?? null, input.phone ?? null, input.guide?.guideId ?? null);
-    if (input.guide) {
-      const insert = database.prepare("INSERT INTO app_guide_bookings (guide_booking_id, booking_id, trip_id, guide_id, for_date, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?)");
-      for (const date of input.guide.dates) insert.run(newId("gbk", 10), bookingId, input.tripId, input.guide.guideId, date, now, now);
-    }
+    `).run(bookingId, input.userId, input.tripId, itineraryId, reference, input.channel, money(input.total), input.idempotencyKey, now, now, now, input.email ?? null, input.phone ?? null, input.guides?.[0]?.guideId ?? null);
+    const insertGuide = database.prepare("INSERT INTO app_guide_bookings (guide_booking_id, booking_id, trip_id, guide_id, for_date, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?)");
+    for (const guide of input.guides ?? []) for (const date of guide.dates) insertGuide.run(newId("gbk", 10), bookingId, input.tripId, guide.guideId, date, now, now);
     database.prepare("UPDATE trips SET status = 'confirmed', updated_at = ? WHERE trip_id = ?").run(now, input.tripId);
     database.exec("COMMIT");
     return { bookingId, reference, itineraryId, replayed: false };

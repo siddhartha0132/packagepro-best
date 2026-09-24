@@ -318,3 +318,55 @@ describe("traveller profile (users + user_preferences + booking history)", () =>
     await expect(caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 4, budgetCap: 500000, language: "ta", userId: "usr_nobody00" })).rejects.toThrow(/Unknown traveller/);
   });
 });
+
+describe("day-by-day guide planning", () => {
+  it("books a guide only on the days they are free, covers the rest with another guide, and reserves each guide's own dates", async () => {
+    clearGuideBookingsForTests();
+    const api = caller();
+    const created = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 4, budgetCap: 900000, language: "ta" });
+    let trip = await api.trip.selectFlight({ tripId: created.tripId, flightId: created.flightOptions[0].id });
+
+    // Whole trip: the mandatory rule still refuses Meera (unavailable on 28 Sept).
+    trip = await api.trip.selectGuide({ tripId: trip.tripId, guideId: MEERA, days: 3 });
+    expect(trip.guideAvailabilityIssue?.conflictingDates).toEqual(["2026-09-28"]);
+
+    // Day by day: Meera on the two days she is free, Arjun on the 28th.
+    trip = await api.trip.bookGuideDays({ tripId: trip.tripId, guideId: MEERA, dates: ["2026-09-29", "2026-09-30"] });
+    expect(trip.chosenGuide).toMatchObject({ id: MEERA, bookedDates: ["2026-09-29", "2026-09-30"], wholeTrip: false });
+    trip = await api.trip.bookGuideDays({ tripId: trip.tripId, guideId: ARJUN, dates: ["2026-09-28"] });
+    expect(trip.guidePlan.map(day => day.guideId)).toEqual([ARJUN, MEERA, MEERA]);
+    const costs = Object.fromEntries((await api.trip.guides({ tripId: trip.tripId })).map(guide => [guide.id, guide.dayCosts]));
+    expect(trip.priceBreakdown.guide).toBeCloseTo(costs[ARJUN]["2026-09-28"] + costs[MEERA]["2026-09-29"] + costs[MEERA]["2026-09-30"], 2);
+    expect(trip.itinerary[0].items.find(item => item.kind === "guide")?.label).toBe("Guide: Arjun Nair");
+    expect(trip.itinerary[1].items.find(item => item.kind === "guide")?.label).toBe("Guide: Meera Novak");
+
+    // Reassigning a day moves it; the other guide keeps the rest.
+    trip = await api.trip.bookGuideDays({ tripId: trip.tripId, guideId: ARJUN, dates: ["2026-09-29"] });
+    expect(trip.guidePlan.map(day => day.guideId)).toEqual([ARJUN, ARJUN, MEERA]);
+
+    // A picked date that clashes is refused with that date named, and the plan is unchanged.
+    const refused = await api.trip.bookGuideDays({ tripId: trip.tripId, guideId: MEERA, dates: ["2026-09-28"] });
+    expect(refused.guideAvailabilityIssue?.conflictingDates).toEqual(["2026-09-28"]);
+    expect(refused.guidePlan.map(day => day.guideId)).toEqual([ARJUN, ARJUN, MEERA]);
+
+    // Booking reserves each guide on its own dates only.
+    const booked = await api.trip.confirm({ tripId: (await api.trip.continuePackage({ tripId: trip.tripId })).tripId });
+    expect(booked.status).toBe("confirmed");
+    const afterMeera = (await api.packagepro.guides({ city: "Thanjavur", language: "ta" })).find(guide => guide.id === MEERA)!;
+    expect(afterMeera.availability["2026-09-29"]).toBe(true); // Meera has 2 slots on the 29th and was not booked that day
+    const afterArjun = (await api.packagepro.guides({ city: "Thanjavur", language: "ta" })).find(guide => guide.id === ARJUN)!;
+    expect(afterArjun.availability["2026-09-29"]).toBe(false); // Arjun's single slot on the 29th is now taken
+  });
+
+  it("removes one guide from a day-by-day plan and keeps the other", async () => {
+    clearGuideBookingsForTests();
+    const api = caller();
+    const created = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 4, budgetCap: 900000, language: "ta" });
+    let trip = await api.trip.selectFlight({ tripId: created.tripId, flightId: created.flightOptions[0].id });
+    trip = await api.trip.bookGuideDays({ tripId: trip.tripId, guideId: ARJUN, dates: ["2026-09-28"] });
+    trip = await api.trip.bookGuideDays({ tripId: trip.tripId, guideId: MEERA, dates: ["2026-09-29", "2026-09-30"] });
+    trip = await api.trip.removeGuide({ tripId: trip.tripId, guideId: ARJUN });
+    expect(trip.guidePlan.map(day => day.guideId)).toEqual([null, MEERA, MEERA]);
+    expect(trip.chosenGuide?.id).toBe(MEERA);
+  });
+});

@@ -276,3 +276,26 @@ describe("telegram bot boundary rules", () => {
     expect(last().buttons.map(button => button.data)).toEqual(["V:4", "V:5", "V:6", "V:7", "V:8"]);
   });
 });
+
+describe("telegram bot day-by-day guides", () => {
+  it("books a refused guide on their free days only, then offers a guide for the remaining day", async () => {
+    await say(9400, "/start");
+    await tap(9400, "L:en-IN");
+    await tap(9400, "M:demo");
+    await tap(9400, "E:go");
+    await tap(9400, "F:0");
+    await tap(9400, "GD");
+    const meera = trips.listGuides(tripOf(9400)!).findIndex(guide => guide.name === "Meera Novak");
+    await tap(9400, `GS:${meera}`);
+    const freeOnly = last().buttons.find(button => button.data === "GF");
+    expect(freeOnly?.text).toContain("Book Meera Novak only on 29 Sept, 30 Sept");
+    sent = [];
+    await tap(9400, "GF");
+    expect(allText()).toContain("Meera Novak booked on 29 Sept, 30 Sept");
+    expect(last().text).toContain("Add a guide for 28 Sept");
+    expect(last().buttons[0].text).toContain("Arjun Nair · 28 Sept");
+    await tap(9400, "GU:0");
+    const plan = trips.getTrip(tripOf(9400)!).guidePlan.map(day => day.guideName);
+    expect(plan).toEqual(["Arjun Nair", "Meera Novak", "Meera Novak"]);
+  });
+});
