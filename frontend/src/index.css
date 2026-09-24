@@ -172,3 +172,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .q-break .q-heading { margin-top: 0; }
 }
 .q-indic .q-kicker, .q-indic .q-card-kicker, .q-indic .q-box-title, .q-indic .q-cover-meta span, .q-indic .q-table th, .q-indic .q-strip, .q-indic .q-closing strong, .q-indic .q-tag, .q-indic .q-day-badge span, .q-indic .q-pill { letter-spacing: 0; }
+
+/* ---------- How it works: CSS 3D scenes ---------- */
+.hw-scene { perspective: 1100px; perspective-origin: 50% 40%; }
+.hw-3d { transform-style: preserve-3d; }
+.hw-ring { animation: hw-spin 28s linear infinite; }
+.hw-ring:hover { animation-play-state: paused; }
+.hw-cube { animation: hw-cube 14s cubic-bezier(.65,0,.35,1) infinite; }
+.hw-float { animation: hw-float 4.5s ease-in-out infinite; }
+.hw-orbit { animation: hw-spin 16s linear infinite; }
+.hw-counter { animation: hw-spin 16s linear infinite reverse; }
+.hw-rise { animation: hw-rise 3.2s var(--ease-out) infinite alternate; }
+.hw-sink { animation: hw-sink 3.2s var(--ease-out) infinite alternate; }
+.hw-flip { transition: transform 900ms var(--ease-out); }
+.hw-flip.is-flipped { transform: rotateY(180deg); }
+.hw-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+@keyframes hw-spin { from { transform: rotateX(-8deg) rotateY(0deg); } to { transform: rotateX(-8deg) rotateY(360deg); } }
+@keyframes hw-cube {
+  0%, 18% { transform: rotateX(-14deg) rotateY(0deg); }
+  25%, 43% { transform: rotateX(-14deg) rotateY(-90deg); }
+  50%, 68% { transform: rotateX(-14deg) rotateY(-180deg); }
+  75%, 93% { transform: rotateX(-14deg) rotateY(-270deg); }
+  100% { transform: rotateX(-14deg) rotateY(-360deg); }
+}
+@keyframes hw-float { 0%, 100% { transform: translateY(0) rotateX(52deg) rotateZ(-32deg); } 50% { transform: translateY(-10px) rotateX(52deg) rotateZ(-32deg); } }
+@keyframes hw-rise { from { transform: translateZ(4px); } to { transform: translateZ(38px); } }
+@keyframes hw-sink { from { transform: translateZ(4px); } to { transform: translateZ(-6px); } }

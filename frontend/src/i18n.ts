@@ -288,6 +288,7 @@ const copy = {
     travellingAs: "Travelling as",
     profileNote: "Languages, interests and past trips from this traveller's saved profile",
     firstTrip: "first trip",
+    howItWorks: "How it works",
   },
   ta: {
     brand: "பேக்கேஜ் புரோ",
@@ -569,6 +570,7 @@ const copy = {
     travellingAs: "பயணி",
     profileNote: "இந்தப் பயணியின் சேமிக்கப்பட்ட சுயவிவரத்திலிருந்து மொழிகள், ஆர்வங்கள் மற்றும் முந்தைய பயணங்கள்",
     firstTrip: "முதல் பயணம்",
+    howItWorks: "இது எப்படி வேலை செய்கிறது",
   },
   hi: {
     brand: "पैकेजप्रो",
@@ -850,6 +852,7 @@ const copy = {
     travellingAs: "यात्री",
     profileNote: "इस यात्री की सहेजी गई प्रोफ़ाइल से भाषाएँ, रुचियाँ और पिछली यात्राएँ",
     firstTrip: "पहली यात्रा",
+    howItWorks: "यह कैसे काम करता है",
   },
   te: {
     brand: "ప్యాకేజ్ ప్రో",
@@ -1131,6 +1134,7 @@ const copy = {
     travellingAs: "ప్రయాణికుడు",
     profileNote: "ఈ ప్రయాణికుడి సేవ్ చేసిన ప్రొఫైల్ నుండి భాషలు, ఆసక్తులు మరియు గత ప్రయాణాలు",
     firstTrip: "మొదటి ప్రయాణం",
+    howItWorks: "ఇది ఎలా పనిచేస్తుంది",
   },
 } as const;
 

@@ -145,6 +145,12 @@ export default function Home() {
     setScreen("reality");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+  // /?demo=1 (from the How it works page) starts the one-tap demo once the catalogue has loaded.
+  useEffect(() => {
+    if (!cities.data || new URLSearchParams(window.location.search).get("demo") !== "1") return;
+    window.history.replaceState(null, "", window.location.pathname);
+    startDemo();
+  }, [cities.data]);
   function applyTripRequest(request: any) {
     const durationDays = Math.max(1, Number(request.durationDays || 2));
     const departDate = request.departDate || isoDateFromToday(3);
@@ -191,6 +197,7 @@ export default function Home() {
         </button>
         {screen !== "intake" && <div className="hidden lg:block"><Stepper steps={steps} current={stepIndex} /></div>}
         <div className="flex items-center gap-2">
+        <a href="/how-it-works" className={`hidden rounded-full px-3 py-1.5 text-xs font-bold sm:inline-flex ${screen === "intake" ? "bg-white text-[#0b4fb3]" : "bg-[#0b1f3a] text-white"}`}>{copy("howItWorks")}</a>
         {travellers.data && <label className={`hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold md:flex ${screen === "intake" ? "bg-white/15 ring-1 ring-white/25" : "bg-[#f2f5f9]"}`}>
           <Users className="h-3.5 w-3.5" /><span>{copy("travellingAs")}</span>
           <select value={travellerId ?? ""} onChange={event => chooseTraveller(event.target.value)} className="max-w-36 bg-transparent font-bold outline-none [&>option]:text-[#0b1f3a]"><option value="">—</option>{travellers.data.map(item => <option key={item.userId} value={item.userId}>{item.name} · {item.guideLanguage ?? item.preferredLanguages[0]}</option>)}</select>
