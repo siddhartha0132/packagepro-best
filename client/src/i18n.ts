@@ -122,6 +122,7 @@ const copy = {
     compareRoutes: "Compare destination fit",
     useThisSetup: "Use this setup",
     requestApplied: "Trip details loaded into your planner",
+    packageReady: "Your trip package is ready to review",
   },
   ta: {
     brand: "பேக்கேஜ் புரோ",
@@ -237,6 +238,7 @@ const copy = {
     compareRoutes: "சேருமிட பொருத்தத்தை ஒப்பிடுங்கள்",
     useThisSetup: "இந்த அமைப்பைப் பயன்படுத்துங்கள்",
     requestApplied: "பயண விவரங்கள் உங்கள் திட்டத்தில் ஏற்றப்பட்டன",
+    packageReady: "உங்கள் பயணத் தொகுப்பு மதிப்பாய்வுக்கு தயாராக உள்ளது",
   },
   hi: {
     brand: "पैकेजप्रो",
@@ -352,6 +354,7 @@ const copy = {
     compareRoutes: "गंतव्य मैच की तुलना करें",
     useThisSetup: "यह सेटअप उपयोग करें",
     requestApplied: "यात्रा विवरण आपके प्लानर में लोड हो गया",
+    packageReady: "आपका ट्रिप पैकेज समीक्षा के लिए तैयार है",
   },
   te: {
     brand: "ప్యాకేజ్ ప్రో",
@@ -467,6 +470,7 @@ const copy = {
     compareRoutes: "గమ్యస్థాన సరిపోలికను సరిపోల్చండి",
     useThisSetup: "ఈ సెటప్ ఉపయోగించండి",
     requestApplied: "ట్రిప్ వివరాలు మీ ప్లానర్‌లో లోడ్ అయ్యాయి",
+    packageReady: "మీ ట్రిప్ ప్యాకేజీ సమీక్షకు సిద్ధంగా ఉంది",
   },
 } as const;
 

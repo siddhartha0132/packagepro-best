@@ -28,6 +28,17 @@ describe("master trip flow", () => {
     expect(trip.flightOptions.length).toBeGreaterThan(0);
   });
 
+  it("auto-builds a complete Jaipur package from a natural trip request", async () => {
+    const trip = await caller().trip.autoBuild({ origin: "DEL", destination: "JAI", departDate: "2026-09-25", returnDate: "2026-09-27", travelers: 1, language: "en-IN", interests: "heritage and food" });
+    expect(trip.status).toBe("review");
+    expect(trip.origin).toBe("DEL");
+    expect(trip.destination).toBe("Jaipur");
+    expect(trip.chosenFlight).toBeTruthy();
+    expect(trip.chosenHotel).toBeTruthy();
+    expect(trip.package?.city).toBe("Jaipur");
+    expect(trip.runningTotal).toBeGreaterThan(0);
+  });
+
   it("rejects the same origin and destination", async () => {
     await expect(caller().trip.create({ origin: "DEL", destination: "DEL", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 1, budgetCap: 20000, language: "en-IN" })).rejects.toThrow(/same/);
   });

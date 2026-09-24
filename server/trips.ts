@@ -125,6 +125,42 @@ export async function createTrip(input: { origin: string; destination: string; d
   return snapshot(trip);
 }
 
+export async function autoBuildTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap?: number; language: string; interests?: string }) {
+  const durationDays = Math.max(1, Math.round((Date.parse(`${input.returnDate}T00:00:00Z`) - Date.parse(`${input.departDate}T00:00:00Z`)) / 86400000));
+  const destination = CITY_BY_CODE[input.destination.trim().toUpperCase()] ?? "Thanjavur";
+  const pkg = packageFor(destination);
+  const liveHotels = await searchHotelsLive(destination, input.departDate, input.returnDate, input.travelers);
+  const cheapestFlightEstimate = 6500;
+  const hotelRates = liveHotels.hotels.map(hotel => hotel.total);
+  const cheapestHotelEstimate = hotelRates.length ? Math.min(...hotelRates) : 7500;
+  const packageEstimate = packagePriceFor(pkg, durationDays);
+  const guideRates = GUIDES.filter(guide => guide.city === destination && (guide.languages.includes(input.language) || guide.languages.includes("en-IN"))).map(guide => guide.dayRate);
+  const guideEstimate = (guideRates.length ? Math.min(...guideRates) : 0) * durationDays;
+  const suggestedCap = Math.ceil((cheapestFlightEstimate + cheapestHotelEstimate + packageEstimate + guideEstimate) * 1.12 / 500) * 500;
+  const trip = await createTrip({ ...input, budgetCap: input.budgetCap && input.budgetCap > 0 ? input.budgetCap : suggestedCap });
+  const cheapestFlight = [...trip.flightOptions].sort((a, b) => a.price - b.price)[0];
+  if (!cheapestFlight) throw new Error("No flight option was found for this trip");
+  let built = await selectFlight(trip.tripId, cheapestFlight.id);
+  if (built.status === "negotiate") throw new Error("The requested trip needs a larger budget before it can be auto-built");
+  const cheapestHotel = [...built.hotelOptions].sort((a, b) => a.total - b.total)[0];
+  if (!cheapestHotel) throw new Error("No hotel option was found for this trip");
+  built = selectHotel(trip.tripId, cheapestHotel.id);
+  if (built.status === "negotiate") throw new Error("The requested trip needs a larger budget before it can be auto-built");
+  built = continueFromPackage(trip.tripId);
+  const guides = listGuides(trip.tripId).sort((a, b) => b.rating - a.rating || a.dayRate - b.dayRate);
+  const preferredGuide = guides[0];
+  if (preferredGuide) {
+    built = selectGuide(trip.tripId, preferredGuide.id, durationDays);
+    if (built.status === "select_guide" && built.guideAvailabilityIssue?.replacement) {
+      built = selectGuide(trip.tripId, built.guideAvailabilityIssue.replacement.id, durationDays);
+    }
+  }
+  if (built.status === "select_guide") built = skipGuide(trip.tripId);
+  const final = getTrip(trip.tripId);
+  log(trips.get(trip.tripId)!, "reasoning", `Auto-built the lowest-priced complete ${durationDays}-day ${destination} package from the chat request`);
+  return final;
+}
+
 export function getTrip(tripId: string) {
   const trip = trips.get(tripId);
   if (!trip) throw new Error("Trip not found");

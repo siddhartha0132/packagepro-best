@@ -26,7 +26,7 @@ describe("third-party API secrets", () => {
     const body = await res.json() as { result?: string; conversion_rates?: { INR?: number } };
     expect(body.result).toBe("success");
     expect(body.conversion_rates?.INR).toBeGreaterThan(50);
-  });
+  }, 15000);
 
   it("pings Sarvam translate with the stored key", async () => {
     const key = process.env.SARVAM_API_KEY;
@@ -46,5 +46,5 @@ describe("third-party API secrets", () => {
     expect(res.ok).toBe(true);
     const body = await res.json() as { translated_text?: string };
     expect(body.translated_text && body.translated_text.length).toBeGreaterThan(0);
-  });
+  }, 15000);
 });

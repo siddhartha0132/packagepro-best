@@ -58,6 +58,10 @@ export const appRouter = router({
       origin: z.string(), destination: z.string(), departDate: z.string(), returnDate: z.string(),
       travelers: z.number().int().min(1).max(20), budgetCap: z.number().positive(), language: languageSchema, interests: z.string().optional(),
     })).mutation(({ input }) => trips.createTrip(input)),
+    autoBuild: publicProcedure.input(z.object({
+      origin: z.string(), destination: z.string(), departDate: z.string(), returnDate: z.string(),
+      travelers: z.number().int().min(1).max(20), budgetCap: z.number().positive().optional(), language: languageSchema, interests: z.string().optional(),
+    })).mutation(({ input }) => trips.autoBuildTrip(input)),
     get: publicProcedure.input(z.object({ tripId: z.string() })).query(({ input }) => trips.getTrip(input.tripId)),
     selectFlight: publicProcedure.input(z.object({ tripId: z.string(), flightId: z.string() })).mutation(({ input }) => trips.selectFlight(input.tripId, input.flightId)),
     selectHotel: publicProcedure.input(z.object({ tripId: z.string(), hotelId: z.string() })).mutation(({ input }) => trips.selectHotel(input.tripId, input.hotelId)),

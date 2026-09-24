@@ -28,12 +28,14 @@ export default function AgentTransparencyChat({
   destination,
   plannerContext,
   onApplyTrip,
+  onBuildPackage,
 }: {
   trip: any;
   lang: Lang;
   destination?: string;
   plannerContext: Record<string, unknown>;
   onApplyTrip: (request: ParsedTripRequest) => void;
+  onBuildPackage: (request: ParsedTripRequest) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -47,7 +49,9 @@ export default function AgentTransparencyChat({
 
   const explain = trpc.packagepro.explain.useMutation({
     onSuccess: (data) => {
-      setMessages((prev) => [...prev, { role: "assistant", content: data.text, modelUsed: data.modelUsed, tripRequest: data.tripRequest as ParsedTripRequest | undefined }]);
+      const parsedRequest = data.tripRequest as ParsedTripRequest | undefined;
+      setMessages((prev) => [...prev, { role: "assistant", content: data.text, modelUsed: data.modelUsed, tripRequest: parsedRequest }]);
+      if (parsedRequest) onBuildPackage(parsedRequest);
     },
     onError: (error) => setMessages((prev) => [...prev, { role: "assistant", content: `I couldn't process that request yet: ${error.message}`, modelUsed: "request-error" }]),
   });
@@ -109,7 +113,7 @@ export default function AgentTransparencyChat({
               {messages.map((m, idx) => (
                 <div key={idx} className={`space-y-1 ${m.role === "user" ? "text-right" : "text-left"}`}>
                   <div className={`inline-block max-w-[95%] rounded-lg px-3 py-2 leading-relaxed ${m.role === "user" ? "bg-[#17231f] text-[#f7f5ef]" : "border border-[#d8d7cd] bg-white text-[#17231f]"}`}>{m.content}</div>
-                  {m.tripRequest && <div className="mt-2 rounded border border-[#b8d8cf] bg-[#e1efea]/70 p-2 text-left"><div className="font-semibold text-[#286c62]">{m.tripRequest.origin?.city || "Origin"} → {m.tripRequest.destination?.city || "Destination"} · {m.tripRequest.durationDays || 2} days</div><div className="mt-1 text-[10px] text-[#68736c]">{m.tripRequest.departDate || "Choose dates"}{m.tripRequest.returnDate ? ` → ${m.tripRequest.returnDate}` : ""}</div><Button size="sm" onClick={() => onApplyTrip(m.tripRequest!)} className="mt-2 h-7 bg-[#17231f] text-[11px] text-[#f7f5ef] hover:bg-[#283832]">{t(lang, "useThisSetup")}</Button></div>}
+                  {m.tripRequest && <div className="mt-2 rounded border border-[#b8d8cf] bg-[#e1efea]/70 p-2 text-left"><div className="font-semibold text-[#286c62]">{m.tripRequest.origin?.city || "Origin"} → {m.tripRequest.destination?.city || "Destination"} · {m.tripRequest.durationDays || 2} days</div><div className="mt-1 text-[10px] text-[#68736c]">{m.tripRequest.departDate || "Choose dates"}{m.tripRequest.returnDate ? ` → ${m.tripRequest.returnDate}` : ""}</div><div className="mt-2 flex gap-2"><Button size="sm" onClick={() => onBuildPackage(m.tripRequest!)} className="h-7 bg-[#17231f] text-[11px] text-[#f7f5ef] hover:bg-[#283832]">Build complete package</Button><Button size="sm" variant="outline" onClick={() => onApplyTrip(m.tripRequest!)} className="h-7 text-[11px]">{t(lang, "useThisSetup")}</Button></div></div>}
                   {m.modelUsed && <div className="text-[10px] text-[#68736c]">powered by <Badge variant="outline" className="border-[#b8d8cf] px-1 py-0 text-[9px]">{m.modelUsed}</Badge></div>}
                 </div>
               ))}
