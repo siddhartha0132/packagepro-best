@@ -394,9 +394,18 @@ The command writes the browser bundle and the bundled server under `dist/`. Star
 pnpm start
 ```
 
-For managed WebDev deployment, keep the project as a single Node server process. Configure runtime secrets through the hosting secret manager rather than committing `.env` files. Run the production build and test suite before saving a release checkpoint or publishing a new version.
+Node 22.13 or newer is required (the server uses the built-in `node:sqlite`). Trips and bookings live in `data/packagepro-app.db` (override with `PACKAGEPRO_APP_DB`); the PS-04 dataset in `data/PS-04.db` is read-only. Clear test trips and bookings with `pnpm db:reset` while the server is stopped.
 
-The default WebDev hosting model is suitable for request/response APIs and the current in-memory planner. Move trip sessions, saved drafts, notifications, and provider-job state into durable storage before using multiple instances or autoscaling for long-lived workflows.
+### Deploy on Railway
+
+`railway.json` holds the build (`pnpm build`) and start (`pnpm start`) commands and a health check on `/`.
+
+1. In Railway, **New Project → Deploy from GitHub repo**, pick this repository and the branch to deploy.
+2. **Variables:** add the keys listed in `.env.example` (at minimum `SARVAM_API_KEY`, `SERP_API_KEY`, `JWT_SECRET`), plus `PACKAGEPRO_APP_DB=/data/packagepro-app.db`.
+3. **Volume:** add a volume to the service mounted at `/data` so trips and bookings survive redeploys. Do not mount it over `/app/data` — that would hide the bundled dataset.
+4. **Networking → Generate Domain** to get the public URL. Railway sets `PORT`; the server reads it.
+
+Keep a single instance: the planner caches active trips in memory in front of the SQLite store.
 
 ## Security and secret handling
 
