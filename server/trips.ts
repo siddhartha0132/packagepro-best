@@ -23,6 +23,7 @@ export type Trip = {
   chosenFlight: FlightRecord | null;
   chosenHotel: HotelRecord | null;
   package: PackageRecord | null;
+  packagePrice: number;
   packageComponents: PackageComponent[];
   chosenGuide: (GuideRecord & { daysBooked: number; totalCost: number; bookedDates: string[] }) | null;
   guideAvailabilityIssue: {
@@ -84,6 +85,10 @@ function packageFor(city: string) {
   return PACKAGES.find(pkg => pkg.city === city) ?? PACKAGES[0];
 }
 
+function packagePriceFor(pkg: PackageRecord, durationDays: number) {
+  return Math.round(pkg.basePrice * Math.max(1, durationDays) / Math.max(1, pkg.duration));
+}
+
 function defaultComponents(pkg: PackageRecord) {
   const groups = new Map<string, PackageComponent>();
   for (const component of pkg.components) {
@@ -110,7 +115,7 @@ export async function createTrip(input: { origin: string; destination: string; d
     status: "select_flight",
     flightOptions: liveFlights.flights,
     hotelOptions: [], chosenFlight: null, chosenHotel: null,
-    package: null, packageComponents: [], chosenGuide: null, guideAvailabilityIssue: null,
+    package: null, packagePrice: 0, packageComponents: [], chosenGuide: null, guideAvailabilityIssue: null,
     flightSource: liveFlights.source, hotelSource: "catalogue",
     negotiationOptions: [], pending: null, trace: [],
   };
@@ -150,14 +155,17 @@ export function selectHotel(tripId: string, hotelId: string) {
   if (trip.status !== "select_hotel") throw new Error(`Can't book a hotel from '${trip.status}'`);
   const hotel = trip.hotelOptions.find(item => item.id === hotelId);
   if (!hotel) throw new Error("Hotel not in this trip's options");
-  if (tryAdd(trip, hotel.total, hotel.name, "select_package")) {
+  const pkg = packageFor(trip.destination);
+  const packagePrice = packagePriceFor(pkg, trip.durationDays);
+  const packageAmount = hotel.total + packagePrice;
+  if (tryAdd(trip, packageAmount, `${hotel.name} + ${pkg.name}`, "select_package")) {
     trip.chosenHotel = hotel;
-    const pkg = packageFor(trip.destination);
     trip.package = pkg;
+    trip.packagePrice = packagePrice;
     trip.packageComponents = defaultComponents(pkg);
     log(trip, "tool_result", `Loaded package '${pkg.name}' with ${trip.packageComponents.length} components`);
   } else {
-    trip.pending && (trip.pending.payload = { hotel });
+    trip.pending && (trip.pending.payload = { hotel, packagePrice });
   }
   return snapshot(trip);
 }
@@ -266,6 +274,7 @@ async function applyPending(trip: Trip, pending: NonNullable<Trip["pending"]>) {
     trip.chosenHotel = payload.hotel as HotelRecord;
     const pkg = packageFor(trip.destination);
     trip.package = pkg;
+    trip.packagePrice = Number(payload.packagePrice || packagePriceFor(pkg, trip.durationDays));
     trip.packageComponents = defaultComponents(pkg);
     log(trip, "tool_result", `Loaded package '${pkg.name}' with ${trip.packageComponents.length} components`);
   }
@@ -295,11 +304,12 @@ export function goBack(tripId: string) {
   }
   if (trip.status === "select_package") {
     if (trip.chosenHotel) {
-      trip.runningTotal -= trip.chosenHotel.total;
+      trip.runningTotal -= trip.chosenHotel.total + trip.packagePrice;
       trip.chosenHotel = null;
     }
     trip.runningTotal = Math.max(0, trip.runningTotal);
     trip.package = null;
+    trip.packagePrice = 0;
     trip.packageComponents = [];
     trip.status = "select_hotel";
     log(trip, "decision", "Went back to hotel selection");

@@ -42,6 +42,7 @@ describe("master trip flow", () => {
     trip = await api.trip.selectHotel({ tripId: trip.tripId, hotelId: trip.hotelOptions[0].id });
     expect(trip.status).toBe("select_package");
     expect(trip.package?.city).toBe("Thanjavur");
+    expect(trip.runningTotal).toBe(trip.chosenFlight!.price + trip.chosenHotel!.total + trip.package!.basePrice);
     trip = await api.trip.continuePackage({ tripId: trip.tripId });
     expect(trip.status).toBe("select_guide");
     trip = await api.trip.skipGuide({ tripId: trip.tripId });
