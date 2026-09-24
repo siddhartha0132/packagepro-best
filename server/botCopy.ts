@@ -4,8 +4,9 @@ import type { Lang } from "../client/src/i18n";
 // is reliable in Hindi, Tamil and Telugu from the first message. {name} placeholders are filled by `say()`.
 
 const en = {
+  componentsLine: "Hotel, activities & transfers",
   btnDemo: "▶ Try the demo",
-  demoIntro: "▶ <b>Demo trip:</b> New Delhi → Thanjavur · 28 Sept · 3 days · Tamil guide.\nAfter the estimate, build the trip, pick a flight, then tap <b>Add a guide → Meera Novak</b> — she is busy on 28 Sept.",
+  demoIntro: "▶ <b>Demo trip:</b> New Delhi → Thanjavur · 28 Sept · 3 days · 4 travellers · Tamil guide.\nAfter the estimate, build the trip, pick a flight, then tap <b>Add a guide → Meera Novak</b> — she is busy on 28 Sept.",
   perPerson: "per person",
   catalogueFares: "ℹ️ Live fares are unavailable right now — showing catalogue fares.",
   welcome: "👋 <b>Welcome to PackagePro</b> — holiday packages priced live, with local guides who speak your language.\n\nनमस्ते · வணக்கம் · నమస్కారం\n\nChoose your language · भाषा चुनें · மொழியைத் தேர்ந்தெடுங்கள் · భాషను ఎంచుకోండి:",
@@ -70,8 +71,9 @@ const en = {
 type Copy = typeof en;
 
 const hi: Copy = {
+  componentsLine: "होटल, गतिविधियाँ और ट्रांसफ़र",
   btnDemo: "▶ डेमो आज़माएँ",
-  demoIntro: "▶ <b>डेमो यात्रा:</b> नई दिल्ली → तंजावुर · 28 सितंबर · 3 दिन · तमिल गाइड।\nअनुमान के बाद यात्रा बनाएँ, उड़ान चुनें, फिर <b>गाइड जोड़ें → मीरा नोवाक</b> पर टैप करें — वे 28 सितंबर को व्यस्त हैं।",
+  demoIntro: "▶ <b>डेमो यात्रा:</b> नई दिल्ली → तंजावुर · 28 सितंबर · 3 दिन · 4 यात्री · तमिल गाइड।\nअनुमान के बाद यात्रा बनाएँ, उड़ान चुनें, फिर <b>गाइड जोड़ें → मीरा नोवाक</b> पर टैप करें — वे 28 सितंबर को व्यस्त हैं।",
   perPerson: "प्रति व्यक्ति",
   catalogueFares: "ℹ️ अभी लाइव किराए उपलब्ध नहीं हैं — कैटलॉग किराए दिखाए जा रहे हैं।",
   welcome: en.welcome,
@@ -134,8 +136,9 @@ const hi: Copy = {
 };
 
 const ta: Copy = {
+  componentsLine: "ஹோட்டல், செயல்பாடுகள் & போக்குவரத்து",
   btnDemo: "▶ டெமோவை முயற்சிக்கவும்",
-  demoIntro: "▶ <b>டெமோ பயணம்:</b> புது தில்லி → தஞ்சாவூர் · 28 செப்டம்பர் · 3 நாட்கள் · தமிழ் வழிகாட்டி.\nமதிப்பீட்டுக்குப் பிறகு பயணத்தை உருவாக்கி, விமானத்தைத் தேர்ந்தெடுத்து, <b>வழிகாட்டியைச் சேர் → மீரா நோவாக்</b> என்பதைத் தட்டவும் — அவர் 28 செப்டம்பர் அன்று கிடைக்கமாட்டார்.",
+  demoIntro: "▶ <b>டெமோ பயணம்:</b> புது தில்லி → தஞ்சாவூர் · 28 செப்டம்பர் · 3 நாட்கள் · 4 பயணிகள் · தமிழ் வழிகாட்டி.\nமதிப்பீட்டுக்குப் பிறகு பயணத்தை உருவாக்கி, விமானத்தைத் தேர்ந்தெடுத்து, <b>வழிகாட்டியைச் சேர் → மீரா நோவாக்</b> என்பதைத் தட்டவும் — அவர் 28 செப்டம்பர் அன்று கிடைக்கமாட்டார்.",
   perPerson: "ஒருவருக்கு",
   catalogueFares: "ℹ️ நேரடி கட்டணங்கள் இப்போது கிடைக்கவில்லை — பட்டியல் கட்டணங்கள் காட்டப்படுகின்றன.",
   welcome: en.welcome,
@@ -198,8 +201,9 @@ const ta: Copy = {
 };
 
 const te: Copy = {
+  componentsLine: "హోటల్, కార్యకలాపాలు & ట్రాన్స్‌ఫర్లు",
   btnDemo: "▶ డెమో ప్రయత్నించండి",
-  demoIntro: "▶ <b>డెమో ప్రయాణం:</b> న్యూ ఢిల్లీ → తంజావూరు · 28 సెప్టెంబర్ · 3 రోజులు · తమిళ గైడ్.\nఅంచనా తర్వాత ప్రయాణాన్ని సిద్ధం చేసి, విమానాన్ని ఎంచుకుని, <b>గైడ్‌ను జోడించండి → మీరా నోవాక్</b> పై నొక్కండి — ఆమె 28 సెప్టెంబర్‌న అందుబాటులో లేరు.",
+  demoIntro: "▶ <b>డెమో ప్రయాణం:</b> న్యూ ఢిల్లీ → తంజావూరు · 28 సెప్టెంబర్ · 3 రోజులు · 4 ప్రయాణికులు · తమిళ గైడ్.\nఅంచనా తర్వాత ప్రయాణాన్ని సిద్ధం చేసి, విమానాన్ని ఎంచుకుని, <b>గైడ్‌ను జోడించండి → మీరా నోవాక్</b> పై నొక్కండి — ఆమె 28 సెప్టెంబర్‌న అందుబాటులో లేరు.",
   perPerson: "ఒక్కరికి",
   catalogueFares: "ℹ️ ప్రస్తుతం లైవ్ ఛార్జీలు అందుబాటులో లేవు — కేటలాగ్ ఛార్జీలు చూపిస్తున్నాం.",
   welcome: en.welcome,

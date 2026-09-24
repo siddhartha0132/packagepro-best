@@ -1,5 +1,5 @@
 import { all, rupees } from "./catalogue";
-import { partyUnits, unitsFor } from "./trips";
+import { defaultComponentsTotal, partyUnits, unitsFor } from "./trips";
 import { completeGrounded, languageName } from "./aiChat";
 import { getDestinationInsight } from "./insights";
 import { DESTINATIONS, searchFlightsLive } from "./integrations";
@@ -104,8 +104,11 @@ export async function estimateTrip(input: { origin: string; destination: string;
   const flightHigh = flightSearch.insights?.typicalRange?.[1] ? flightSearch.insights.typicalRange[1] * party.pax : (fares.length ? Math.max(...fares) : 0);
 
   const packageBase = Math.round(pkg.basePrice * days / Math.max(1, pkg.duration) * 100) * party.pax / 100;
+  // base + the price_delta of every default component kept on these days (same formula as the live trip)
+  const componentsTotal = defaultComponentsTotal(pkg, days, party.pax);
+  const nightsFactor = days / Math.max(1, pkg.durationNights);
   const defaultHotel = pkg.components.find(item => item.type === "hotel" && item.isDefault);
-  const hotelOptions = pkg.components.filter(item => item.type === "hotel").map(item => ({ id: item.id, name: item.label, detail: item.detail, delta: Math.round((item.price - (defaultHotel?.price ?? item.price)) * party.rooms * 100) / 100, isDefault: !!item.isDefault }));
+  const hotelOptions = pkg.components.filter(item => item.type === "hotel").map(item => ({ id: item.id, name: item.label, detail: item.detail, delta: Math.round((item.price - (defaultHotel?.price ?? item.price)) * party.rooms * nightsFactor * 100) / 100, isDefault: !!item.isDefault }));
   const hotelUpgrade = Math.max(0, ...hotelOptions.map(item => item.delta));
   const addOns = pkg.components.filter(item => item.optional && item.isDefault);
   const addOnTotal = addOns.reduce((sum, item) => sum + item.price * unitsFor(item.type, party), 0);
@@ -117,9 +120,10 @@ export async function estimateTrip(input: { origin: string; destination: string;
   })).sort((a, b) => Number(b.available) - Number(a.available) || a.tripCost - b.tripCost);
   const guideTypical = guides.find(guide => guide.available)?.tripCost ?? 0;
 
-  const low = Math.round(flightLow + packageBase);
-  const typical = Math.round(flightTypical + packageBase + guideTypical);
-  const high = Math.round(flightHigh + packageBase + hotelUpgrade + addOnTotal + Math.max(guideTypical, ...guides.map(guide => guide.tripCost)));
+  const low = Math.round(flightLow + packageBase + componentsTotal);
+  const typical = Math.round(flightTypical + packageBase + componentsTotal + guideTypical);
+  const high = Math.round(flightHigh + packageBase + componentsTotal + hotelUpgrade + addOnTotal + Math.max(guideTypical, ...guides.map(guide => guide.tripCost)));
+  const groupSize = { min: pkg.minGroupSize, max: pkg.maxGroupSize, ok: party.pax >= pkg.minGroupSize && party.pax <= pkg.maxGroupSize };
   const verdict = input.budget >= typical * 1.1 ? "comfortable" : input.budget >= low ? "tight" : "unrealistic";
   const popularity = cityPopularity(pkg.cityId);
 
@@ -143,7 +147,8 @@ export async function estimateTrip(input: { origin: string; destination: string;
   return {
     destination: place.city, cityId: pkg.cityId, days, dates, budget: input.budget,
     verdict, low, typical, high,
-    package: { id: pkg.id, name: pkg.name, theme: pkg.theme, tier: pkg.tier, duration: pkg.duration, basePrice: pkg.basePrice, forTrip: packageBase, image: pkg.image, inclusions: pkg.inclusions, languagesOffered: pkg.languagesOffered },
+    groupSize,
+    package: { id: pkg.id, name: pkg.name, theme: pkg.theme, tier: pkg.tier, duration: pkg.duration, basePrice: pkg.basePrice, forTrip: packageBase + componentsTotal, components: componentsTotal, image: pkg.image, inclusions: pkg.inclusions, languagesOffered: pkg.languagesOffered },
     flights: { source: flightSearch.source, note: flightSearch.note, insights: flightSearch.insights, options: flightSearch.flights.slice(0, 5), low: flightLow, typical: flightTypical, high: flightHigh },
     hotels: { options: hotelOptions, upgradeMax: hotelUpgrade },
     addOns: addOns.map(item => ({ id: item.id, label: item.label, price: item.price * unitsFor(item.type, party) })),

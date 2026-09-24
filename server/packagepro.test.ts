@@ -33,16 +33,17 @@ describe("packagepro catalogue", () => {
   });
 });
 
-async function customiseThanjavur(budgetCap = 200000, dates = { departDate: "2026-09-02", returnDate: "2026-09-05" }) {
+// Thanjavur Honeymoon takes groups of 4–8 (tour_packages.min_group_size / max_group_size), so the flows use a party of 4.
+async function customiseThanjavur(budgetCap = 500000, dates = { departDate: "2026-09-02", returnDate: "2026-09-05" }) {
   const api = caller();
-  let trip = await api.trip.create({ origin: "DEL", destination: "Thanjavur", ...dates, travelers: 1, budgetCap, language: "ta" });
+  let trip = await api.trip.create({ origin: "DEL", destination: "Thanjavur", ...dates, travelers: 4, budgetCap, language: "ta" });
   trip = await api.trip.selectFlight({ tripId: trip.tripId, flightId: [...trip.flightOptions].sort((a, b) => a.price - b.price)[0].id });
   return { api, trip };
 }
 
 describe("master trip flow", () => {
   it("creates a trip and starts at flight selection", async () => {
-    const trip = await caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 1, budgetCap: 50000, language: "ta" });
+    const trip = await caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 500000, language: "ta" });
     expect(trip.status).toBe("select_flight");
     expect(trip.flightOptions.length).toBeGreaterThan(0);
   });
@@ -60,17 +61,22 @@ describe("master trip flow", () => {
     expect(declined.status).toBe("select_flight");
   });
 
-  it("loads the package into a customisable itinerary whose total is flight + prorated base", async () => {
+  it("prices the package as base + every kept component (PS-04 rule), so the itinerary lines add up to the total", async () => {
     const { trip } = await customiseThanjavur();
     expect(trip.status).toBe("select_package");
     expect(trip.package?.city).toBe("Thanjavur");
-    const expectedBase = Math.round(trip.package!.basePrice * 100 * 3 / trip.package!.duration) / 100;
-    expect(trip.priceBreakdown.packageBase).toBeCloseTo(expectedBase, 2);
-    expect(trip.runningTotal).toBeCloseTo(trip.chosenFlight!.price + expectedBase, 2);
+    const b = trip.priceBreakdown;
+    expect(b.party).toEqual({ pax: 4, rooms: 2, vehicles: 1 });
+    const expectedBase = Math.round(trip.package!.basePrice * 100 * 3 / trip.package!.duration) / 100 * 4;
+    expect(b.packageBase).toBeCloseTo(expectedBase, 2);
+    expect(b.transport).toBeCloseTo(trip.chosenFlight!.price * 4, 2);
     expect(trip.itinerary).toHaveLength(3);
     expect(trip.itinerary[0].items.some(item => item.kind === "hotel")).toBe(true);
-    // the hotel is part of the package, not charged a second time
-    expect(trip.priceBreakdown.total).toBe(trip.priceBreakdown.transport + trip.priceBreakdown.packageTotal + trip.priceBreakdown.guide);
+    // transparent pricing: base + the priced itinerary lines = the package total, to the paisa
+    const lines = trip.itinerary.flatMap(day => day.items).filter(item => item.kind !== "guide" && item.kind !== "arrival" && item.price != null);
+    const linesPaise = lines.reduce((sum, item) => sum + Math.round(item.price! * 100), 0);
+    expect(Math.round(b.packageBase * 100) + linesPaise).toBe(Math.round(b.packageTotal * 100));
+    expect(Math.round(b.total * 100)).toBe(Math.round((b.transport + b.packageTotal + b.guide) * 100));
   });
 
   it("reprices live when swapping the hotel tier, an activity and the transfer, and when adding an add-on", async () => {
@@ -81,14 +87,16 @@ describe("master trip flow", () => {
       const options = trip.package!.components.filter(item => item.swapGroup === current.swapGroup && item.id !== current.id);
       if (!options.length) continue;
       const before = trip.runningTotal;
+      const { party, nightsFactor } = trip.priceBreakdown;
+      const factor = type === "hotel" ? party.rooms * nightsFactor : type === "transfer" ? party.vehicles : party.pax;
       trip = await api.trip.swap({ tripId: trip.tripId, fromId: current.id, toId: options[0].id });
       expect(trip.packageComponents.some(item => item.id === options[0].id)).toBe(true);
-      expect(trip.runningTotal).toBeCloseTo(before + options[0].price - current.price, 2);
+      expect(trip.runningTotal).toBeCloseTo(before + (options[0].price - current.price) * factor, 1);
     }
     const addOn = trip.packageComponents.find(item => item.optional && !item.included)!;
     const before = trip.runningTotal;
     trip = await api.trip.toggleAddOn({ tripId: trip.tripId, componentId: addOn.id, include: true });
-    expect(trip.runningTotal).toBeCloseTo(before + addOn.price, 2);
+    expect(trip.runningTotal).toBeCloseTo(before + addOn.price * 4, 2);
     expect(trip.itinerary.some(day => day.items.some(item => item.componentId === addOn.id))).toBe(true);
     trip = await api.trip.toggleAddOn({ tripId: trip.tripId, componentId: addOn.id, include: false });
     expect(trip.runningTotal).toBeCloseTo(before, 2);
@@ -100,7 +108,7 @@ describe("master trip flow", () => {
     expect(trip.durationDays).toBe(5);
     expect(trip.returnDate).toBe("2026-09-07");
     expect(trip.itinerary).toHaveLength(5);
-    expect(trip.priceBreakdown.packageBase).toBeCloseTo(Math.round(trip.package!.basePrice * 100 * 5 / trip.package!.duration) / 100, 2);
+    expect(trip.priceBreakdown.packageBase).toBeCloseTo(Math.round(trip.package!.basePrice * 100 * 5 / trip.package!.duration) / 100 * 4, 2);
   });
 
   it("refuses an unavailable Tamil heritage guide, names the date, and reprices with the same-language substitute", async () => {
@@ -194,19 +202,21 @@ describe("master trip flow", () => {
 describe("party pricing", () => {
   it("prices flights and the package per person, hotel swaps per room and the guide per group", async () => {
     const plan = async (travelers: number) => {
-      const created = await caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers, budgetCap: 500000, language: "ta" });
+      const created = await caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers, budgetCap: 900000, language: "ta" });
       return caller().trip.selectFlight({ tripId: created.tripId, flightId: created.flightOptions[0].id });
     };
-    const solo = await plan(1);
-    const trio = await plan(3);
-    expect(trio.priceBreakdown.party).toEqual({ pax: 3, rooms: 2, vehicles: 1 });
-    expect(trio.priceBreakdown.transport).toBeCloseTo(solo.priceBreakdown.transport * 3, 2);
-    expect(trio.priceBreakdown.packageBase).toBeCloseTo(solo.priceBreakdown.packageBase * 3, 2);
+    const solo = await plan(4);
+    const trio = await plan(8);
+    expect(solo.priceBreakdown.party).toEqual({ pax: 4, rooms: 2, vehicles: 1 });
+    expect(trio.priceBreakdown.party).toEqual({ pax: 8, rooms: 4, vehicles: 2 });
+    expect(trio.priceBreakdown.transport).toBeCloseTo(solo.priceBreakdown.transport * 2, 2);
+    expect(trio.priceBreakdown.packageBase).toBeCloseTo(solo.priceBreakdown.packageBase * 2, 2);
+    expect(trio.priceBreakdown.components).toBeCloseTo(solo.priceBreakdown.components * 2, 1);
 
     const hotel = trio.packageComponents.find(item => item.type === "hotel")!;
     const upgrade = (await caller().packagepro.alternatives({ packageId: trio.package!.id, componentId: hotel.id }))[0];
     const swapped = await caller().trip.swap({ tripId: trio.tripId, fromId: hotel.id, toId: upgrade.id });
-    expect(swapped.priceBreakdown.swapAdjustments).toBeCloseTo((upgrade.price - hotel.price) * 2, 2);
+    expect(swapped.priceBreakdown.swapAdjustments).toBeCloseTo((upgrade.price - hotel.price) * 4 * swapped.priceBreakdown.nightsFactor, 1);
 
     const guided = await caller().trip.selectGuide({ tripId: trio.tripId, guideId: ARJUN, days: 3 });
     const soloGuided = await caller().trip.selectGuide({ tripId: solo.tripId, guideId: ARJUN, days: 3 });
@@ -215,17 +225,19 @@ describe("party pricing", () => {
 
   it("scales the live estimate with the party", async () => {
     const base = { origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", budget: 100000, language: "ta" };
-    const one = await caller().packagepro.estimate({ ...base, travelers: 1 });
-    const two = await caller().packagepro.estimate({ ...base, travelers: 2 });
-    expect(two.package.forTrip).toBeCloseTo(one.package.forTrip * 2, 2);
+    const one = await caller().packagepro.estimate({ ...base, travelers: 4 });
+    const two = await caller().packagepro.estimate({ ...base, travelers: 8 });
+    expect(two.package.forTrip).toBeCloseTo(one.package.forTrip * 2, 0);
     expect(two.low).toBeGreaterThan(one.low * 1.9);
+    expect(one.groupSize).toEqual({ min: 4, max: 8, ok: true });
+    expect((await caller().packagepro.estimate({ ...base, travelers: 1 })).groupSize.ok).toBe(false);
   });
 });
 
 describe("guide bookings hold real slots", () => {
   // Dataset slots for Arjun Nair: 28 Sept = 2, 29 Sept = 1, 30 Sept = 1. A confirmed booking uses one slot per date.
   const planWithArjun = async () => {
-    const created = await caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 1, budgetCap: 200000, language: "ta" });
+    const created = await caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 4, budgetCap: 900000, language: "ta" });
     await caller().trip.selectFlight({ tripId: created.tripId, flightId: created.flightOptions[0].id });
     return caller().trip.selectGuide({ tripId: created.tripId, guideId: ARJUN, days: 3 });
   };
@@ -263,5 +275,26 @@ describe("guide bookings hold real slots", () => {
     expect(late.chosenGuide).toBeNull();
     expect(late.guideAvailabilityIssue?.conflictingDates).toEqual(["2026-09-29", "2026-09-30"]);
     expect(late.runningTotal).toBeLessThan(b.runningTotal);
+  });
+});
+
+describe("PS-04 boundary rules are enforced in the backend", () => {
+  const trip = (overrides: Record<string, unknown>) => caller().trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 4, budgetCap: 500000, language: "ta", ...overrides } as never);
+
+  it("rejects a party outside tour_packages.min_group_size … max_group_size", async () => {
+    await expect(trip({ travelers: 1 })).rejects.toThrow(/takes groups of 4–8 travellers/);
+    await expect(trip({ travelers: 9 })).rejects.toThrow(/takes groups of 4–8 travellers/);
+    await expect(trip({ travelers: 4 })).resolves.toMatchObject({ travelers: 4 });
+    await expect(trip({ travelers: 8 })).resolves.toMatchObject({ travelers: 8 });
+  });
+
+  it("accepts only BCP-47 language tags from the languages table (R6)", async () => {
+    await expect(trip({ language: "Tamil" })).rejects.toThrow(/BCP-47/);
+    await expect(trip({ language: "ta" })).resolves.toMatchObject({ language: "ta" });
+  });
+
+  it("returns an estimate that flags a party outside the package's group size", async () => {
+    const estimate = await caller().packagepro.estimate({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01", travelers: 2, budget: 100000, language: "ta" });
+    expect(estimate.groupSize).toEqual({ min: 4, max: 8, ok: false });
   });
 });

@@ -113,21 +113,22 @@ export default function Home() {
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) { setForm(current => ({ ...current, [key]: value })); }
   function changeGuideLanguage(value: string) { update("language", value); if (tripId && trip && trip.status !== "confirmed") setTripLanguage.mutate({ tripId, language: value }); }
-  function choosePackage(pkg: { city: string; duration: number }) {
+  function choosePackage(pkg: { city: string; duration: number; minGroupSize?: number; maxGroupSize?: number }) {
     const match = cities.data?.destinations.find(item => item.city === pkg.city);
-    setForm(current => ({ ...current, destination: match?.code || current.destination, returnDate: addDays(current.departDate, pkg.duration) }));
+    // Start inside the package's group size (tour_packages.min_group_size … max_group_size); the backend rejects anything else.
+    setForm(current => ({ ...current, destination: match?.code || current.destination, returnDate: addDays(current.departDate, pkg.duration), travelers: Math.min(pkg.maxGroupSize ?? 20, Math.max(pkg.minGroupSize ?? 1, current.travelers)) }));
     setDetailId(null);
     setTripId(null);
     setScreen("reality");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
-  // One-tap demo: Delhi → Thanjavur on 28 Sept with a Tamil guide — Meera Novak is busy that day, Arjun Nair is free.
+  // One-tap demo: Delhi → Thanjavur on 28 Sept, a party of 4 (the package takes 4–8), Tamil guide — Meera Novak is busy that day, Arjun Nair is free.
   const DEMO = { origin: "DEL", city: "Thanjavur", departDate: "2026-09-28", returnDate: "2026-10-01" };
   const [demoMode, setDemoMode] = useState(false);
   function startDemo() {
     const destination = cities.data?.destinations.find(item => item.city === DEMO.city)?.code;
     if (!destination) return;
-    setForm(current => ({ ...current, origin: DEMO.origin, destination, departDate: DEMO.departDate, returnDate: DEMO.returnDate, travelers: 1, budgetCap: 60000, language: "ta", interests: "heritage, temples, local food" }));
+    setForm(current => ({ ...current, origin: DEMO.origin, destination, departDate: DEMO.departDate, returnDate: DEMO.returnDate, travelers: 4, budgetCap: 150000, language: "ta", interests: "heritage, temples, local food" }));
     setTripId(null);
     setDemoMode(true);
     setScreen("reality");
@@ -296,7 +297,7 @@ export default function Home() {
         {demoMode && destinationCity === DEMO.city && trip?.status !== "confirmed" && <div className="mb-4 flex items-start gap-3 rounded-xl border border-[#b9d7fb] bg-[#eef6ff] px-4 py-3 text-xs leading-5 text-[#0b1f3a]"><Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#0b6bcb]" /><span className="flex-1">{copy("demoHint")}</span><button onClick={() => setDemoMode(false)} className="text-[#5f6b7a] hover:text-[#0b1f3a]"><X className="h-4 w-4" /></button></div>}
         {screen === "reality" && <>
           <ScreenHeader title={`${tr(cities.data?.origins.find(item => item.code === form.origin)?.city) || form.origin} → ${tr(destinationCity)}`} sub={`${form.departDate} → ${form.returnDate} · ${form.travelers} ${copy("travelers").toLowerCase()} · ${copy("guideLanguage")}: ${GUIDE_LANGS.find(lang => lang.value === form.language)?.native}`} onBack={back} backLabel={copy("back")} />
-          <EstimateView estimate={estimate.data} loading={estimate.isLoading} lang={uiLang} continuing={createTrip.isPending} onContinue={() => createTrip.mutate({ ...form, budgetCap: form.budgetCap || 1 })} />
+          <EstimateView estimate={estimate.data} loading={estimate.isLoading} lang={uiLang} onFixParty={travelers => update("travelers", travelers)} continuing={createTrip.isPending} onContinue={() => createTrip.mutate({ ...form, budgetCap: form.budgetCap || 1 })} />
           {estimate.error && <Panel className="mt-4 p-5 text-sm text-[#c0392b]">{estimate.error.message}</Panel>}
         </>}
         {screen === "trip" && trip && <>

@@ -48,6 +48,8 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
   // Unit prices scale with the party: per room for hotels (2 per room), per vehicle for transfers (4 each), per person otherwise; guides per group.
   const party = trip.priceBreakdown.party;
   const unitsOf = (type?: string) => (type === "hotel" ? party.rooms : type === "transfer" ? party.vehicles : type === "guide" ? 1 : party.pax);
+  // What a component adds to the total: units × (hotel) the share of the package's nights stayed — same as the server.
+  const factorOf = (type?: string) => unitsOf(type) * (type === "hotel" ? trip.priceBreakdown.nightsFactor : 1);
   const specialisations = Array.from(new Set((guides.data || []).map(guide => guide.specialisation)));
   const visibleGuides = (guides.data || []).filter(guide => !specFilter || guide.specialisation === specFilter);
 
@@ -91,7 +93,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
                     <div className="min-w-0"><div className="text-sm font-medium">{tr(item.label)}</div><div className="mt-0.5 text-xs text-[#5f6b7a]">{tr(item.detail)}</div></div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {item.price != null && <span className="text-sm">{money(item.price * unitsOf(item.kind))}{unitsOf(item.kind) > 1 && <span className="ml-1 text-[10px] text-[#5f6b7a]">×{unitsOf(item.kind)}</span>}</span>}
+                    {item.price != null && <span className="text-sm">{money(item.price)}{unitsOf(item.kind) > 1 && <span className="ml-1 text-[10px] text-[#5f6b7a]">×{unitsOf(item.kind)}</span>}</span>}
                     {swappable.length > 0 && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-[#0b6bcb]" onClick={() => setOpenSwap(openSwap === key ? null : key)}><ArrowLeftRight className="mr-1 h-3 w-3" />{copy("swap")}</Button>}
                     {item.kind === "guide" && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-[#ad4738]" disabled={loading} onClick={() => removeGuide.mutate({ tripId: trip.tripId })}><X className="mr-1 h-3 w-3" />{copy("remove")}</Button>}
                   </div>
@@ -99,7 +101,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
                 {openSwap === key && current && <div className="mt-3 space-y-1 rounded-md bg-[#f6f8fb] p-2">
                   {swappable.map(option => <button key={option.id} disabled={loading} onClick={() => swap.mutate({ tripId: trip.tripId, fromId: current.id, toId: option.id })} className="flex w-full items-center justify-between gap-3 rounded px-2 py-2 text-left text-sm hover:bg-white disabled:opacity-50">
                     <span className="min-w-0"><span className="block">{tr(option.label)}</span><span className="block text-xs text-[#5f6b7a]">{tr(option.detail)}</span></span>
-                    <span className="shrink-0 text-right"><span className="block">{money(option.price * unitsOf(option.type))}</span><span className={`block text-xs ${option.price - current.price > 0 ? "text-[#ad4738]" : "text-[#0b6bcb]"}`}>{signed((option.price - current.price) * unitsOf(option.type))}</span></span>
+                    <span className="shrink-0 text-right"><span className="block">{money(option.price * factorOf(option.type))}</span><span className={`block text-xs ${option.price - current.price > 0 ? "text-[#ad4738]" : "text-[#0b6bcb]"}`}>{signed((option.price - current.price) * factorOf(option.type))}</span></span>
                   </button>)}
                 </div>}
               </div>;
@@ -192,7 +194,7 @@ export function PriceBreakdown({ trip, lang }: { trip: TripView; lang: Lang }) {
       {b.party.pax > 1 && <div className="flex justify-between py-1 text-xs text-[#5f6b7a]"><span>👥 {b.party.pax} {copy("travelers").toLowerCase()}</span><span>{b.party.rooms} {copy("roomsLabel")}</span></div>}
       {line(`${copy("transport")}${b.party.pax > 1 ? ` × ${b.party.pax}` : ""}`, b.transport)}
       {line(`${copy("packageBase")} (${trip.durationDays}/${trip.package.duration} ${copy("days").toLowerCase()})${b.party.pax > 1 ? ` × ${b.party.pax}` : ""}`, b.packageBase)}
-      {b.swapAdjustments !== 0 && line(copy("swaps"), b.swapAdjustments, true)}
+      {b.components !== 0 && line(copy("componentsLine"), b.components)}
       {b.addOns !== 0 && line(copy("addOnsLine"), b.addOns)}
       {b.guide !== 0 && line(copy("guide"), b.guide)}
       <div className="mt-1 flex justify-between border-t border-[#e6ebf2] pt-2 text-sm font-semibold"><span>{copy("total")}</span><span>{money(b.total)}</span></div>

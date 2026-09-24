@@ -137,7 +137,7 @@ async function startDemo(chatId: string, s: Session) {
   const cityId = DESTINATIONS.find(item => item.city === "Thanjavur")?.code;
   if (!cityId) return showMenu(chatId, s);
   startPlanning(s, cityId);
-  s.draft = { ...s.draft, origin: "DEL", departDate: "2026-09-28", days: 3, travelers: 1, budget: 60000, language: "ta" };
+  s.draft = { ...s.draft, origin: "DEL", departDate: "2026-09-28", days: 3, travelers: 4, budget: 150000, language: "ta" };
   await send(chatId, say(s.lang, "demoIntro"));
   return runEstimate(chatId, s);
 }
@@ -192,7 +192,12 @@ async function askNext(chatId: string, s: Session) {
     const days = [2, 3, 4, 5, 6, 7, 8, 10];
     return send(chatId, say(s.lang, "askDays"), [days.slice(0, 4), days.slice(4)].map(row => row.map(n => ({ text: `${n === pkg?.duration ? "⭐ " : ""}${say(s.lang, "daysN", { n })}`, data: `N:${n}` }))));
   }
-  if (!d.travelers) return send(chatId, say(s.lang, "askTravellers"), [[1, 2, 3, 4].map(n => ({ text: `👤 ${n}`, data: `V:${n}` })), [5, 6].map(n => ({ text: `👥 ${n}`, data: `V:${n}` }))]);
+  if (!d.travelers) {
+    // Only party sizes the package accepts (tour_packages.min_group_size … max_group_size).
+    const pkg = PACKAGES.find(item => item.cityId === d.cityId);
+    const sizes = Array.from({ length: Math.min(8, (pkg?.maxGroupSize ?? 6) - (pkg?.minGroupSize ?? 1) + 1) }, (_, index) => (pkg?.minGroupSize ?? 1) + index);
+    return send(chatId, say(s.lang, "askTravellers"), [sizes.slice(0, 4), sizes.slice(4)].filter(row => row.length).map(row => row.map(n => ({ text: `${n > 1 ? "👥" : "👤"} ${n}`, data: `V:${n}` }))));
+  }
   if (!d.budget) {
     s.step = "budget";
     return send(chatId, say(s.lang, "askBudget"), [
@@ -331,7 +336,7 @@ async function showHotels(chatId: string, s: Session, trip: TripView) {
   const stars = (detail: string) => detail.match(/(\d)★/)?.[1];
   await send(chatId, say(s.lang, "pickHotel"), [
     [{ text: `✓ ${current.label}${stars(current.detail) ? ` · ${stars(current.detail)}★` : ""} (${say(s.lang, "current")})`, data: "x" }],
-    ...alternatives.map((item, index) => [{ text: `${item.label}${stars(item.detail) ? ` · ${stars(item.detail)}★` : ""} · ${signed((item.price - current.price) * trip.priceBreakdown.party.rooms)}`, data: `H:${index}` }]),
+    ...alternatives.map((item, index) => [{ text: `${item.label}${stars(item.detail) ? ` · ${stars(item.detail)}★` : ""} · ${signed((item.price - current.price) * trip.priceBreakdown.party.rooms * trip.priceBreakdown.nightsFactor)}`, data: `H:${index}` }]),
     [{ text: say(s.lang, "back"), data: "M:trip" }],
   ]);
 }
@@ -391,7 +396,7 @@ async function showReview(chatId: string, s: Session, trip: TripView) {
   const breakdown = [
     `${say(s.lang, "flight")}: ${money(b.transport)}`,
     `${say(s.lang, "packageBase")}: ${money(b.packageBase)}`,
-    b.swapAdjustments ? `${say(s.lang, "swaps")}: ${signed(b.swapAdjustments)}` : "",
+    b.components ? `${say(s.lang, "componentsLine")}: ${money(b.components)}` : "",
     b.addOns ? `${say(s.lang, "addOns")}: ${money(b.addOns)}` : "",
     b.guide ? `${say(s.lang, "guide")}: ${money(b.guide)}` : "",
   ].filter(Boolean).join("\n");

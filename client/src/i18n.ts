@@ -281,6 +281,10 @@ const copy = {
     perPerson: "per person",
     roomsLabel: "rooms",
     guideCalendar: "Availability on your dates",
+    componentsLine: "Hotel, activities & transfers",
+    groupSizeLabel: "This package takes groups of",
+    travellersWord: "travellers",
+    useParty: "Use",
   },
   ta: {
     brand: "பேக்கேஜ் புரோ",
@@ -555,6 +559,10 @@ const copy = {
     perPerson: "ஒருவருக்கு",
     roomsLabel: "அறைகள்",
     guideCalendar: "உங்கள் தேதிகளில் இருப்பு",
+    componentsLine: "ஹோட்டல், செயல்பாடுகள் & போக்குவரத்து",
+    groupSizeLabel: "இந்தத் தொகுப்பு இத்தனை பயணிகள் கொண்ட குழுவுக்கானது:",
+    travellersWord: "பயணிகள்",
+    useParty: "தேர்வு:",
   },
   hi: {
     brand: "पैकेजप्रो",
@@ -829,6 +837,10 @@ const copy = {
     perPerson: "प्रति व्यक्ति",
     roomsLabel: "कमरे",
     guideCalendar: "आपकी तारीखों पर उपलब्धता",
+    componentsLine: "होटल, गतिविधियाँ और ट्रांसफ़र",
+    groupSizeLabel: "यह पैकेज इतने यात्रियों के समूह के लिए है:",
+    travellersWord: "यात्री",
+    useParty: "चुनें:",
   },
   te: {
     brand: "ప్యాకేజ్ ప్రో",
@@ -1103,6 +1115,10 @@ const copy = {
     perPerson: "ఒక్కరికి",
     roomsLabel: "గదులు",
     guideCalendar: "మీ తేదీల్లో లభ్యత",
+    componentsLine: "హోటల్, కార్యకలాపాలు & ట్రాన్స్‌ఫర్లు",
+    groupSizeLabel: "ఈ ప్యాకేజీ ఇంత మంది ప్రయాణికుల గ్రూపుకు:",
+    travellersWord: "ప్రయాణికులు",
+    useParty: "ఎంచుకోండి:",
   },
 } as const;
 

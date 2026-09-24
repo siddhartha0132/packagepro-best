@@ -42,7 +42,7 @@ const buttonData = () => sent.flatMap(message => message.buttons.map(button => b
 const tripOf = (chatId: number) => loadBotSession<{ tripId?: string }>(String(chatId))?.tripId;
 const thanjavur = PACKAGES.find(pkg => pkg.city === "Thanjavur")!;
 
-/** Plan Delhi → Thanjavur, 28 Sept, 3 days, 1 traveller, Tamil guide, up to the built trip on the package screen. */
+/** Plan Delhi → Thanjavur, 28 Sept, 3 days, 4 travellers (the package takes 4–8), Tamil guide, up to the built trip on the package screen. */
 async function planThanjavur(chatId: number) {
   await say(chatId, "/start");
   await tap(chatId, "L:en-IN");
@@ -50,8 +50,8 @@ async function planThanjavur(chatId: number) {
   await tap(chatId, "O:DEL");
   await tap(chatId, "D:2026-09-28");
   await tap(chatId, "N:3");
-  await tap(chatId, "V:1");
-  await tap(chatId, "G:60000");
+  await tap(chatId, "V:4");
+  await tap(chatId, "G:150000");
   await tap(chatId, "GL:ta");
   await tap(chatId, "E:go");
   await tap(chatId, "F:0");
@@ -147,10 +147,10 @@ describe("telegram bot", () => {
     await tap(9006, "O:DEL");
     await tap(9006, "D:2026-09-28");
     await tap(9006, "N:3");
-    await tap(9006, "V:1");
+    await tap(9006, "V:4");
     await tap(9006, "G:x");
     expect(last().text).toContain("Type your budget in rupees");
-    await say(9006, "30k");
+    await say(9006, "1 lakh");
     expect(last().text).toContain("Which language should your guide speak?");
     await tap(9006, "GL:ta");
     await tap(9006, "E:go");
@@ -162,7 +162,7 @@ describe("telegram bot", () => {
       expect(last().text).toContain("goes over your budget");
       expect(last().buttons.map(button => button.data)).toEqual(expect.arrayContaining(["NG:approve_overage", "NG:raise_cap"]));
       await tap(9006, "NG:raise_cap");
-      await say(9006, "80000");
+      await say(9006, "200000");
     }
     expect(trips.getTrip(tripOf(9006)!).status).toBe("select_package");
     await tap(9006, "R");
@@ -195,7 +195,7 @@ describe("telegram bot", () => {
     expect(last().text).toContain("Please pick today or a later date");
     await tap(9008, "D:2026-09-28");
     await tap(9008, "N:3");
-    await tap(9008, "V:1");
+    await tap(9008, "V:4");
     await tap(9008, "G:x");
     await say(9008, "lots");
     expect(last().text).toContain("Please type an amount in rupees");
@@ -213,8 +213,8 @@ describe("telegram bot", () => {
       await tap(9100, "O:DEL");
       await tap(9100, "D:2026-09-28");
       await tap(9100, "N:3");
-      await tap(9100, "V:1");
-      await tap(9100, "G:60000");
+      await tap(9100, "V:4");
+      await tap(9100, "G:150000");
       await tap(9100, "GL:ta");
       await tap(9100, "E:go");
       await tap(9100, "F:0");
@@ -254,15 +254,25 @@ describe("telegram bot", () => {
     await say(9201, "/start");
     await tap(9201, "L:en-IN");
     await tap(9201, `B:${thanjavur.id}`);
-    for (const data of ["O:DEL", "D:2026-09-28", "N:3", "V:3", "G:150000", "GL:ta", "E:go"]) await tap(9201, data);
-    expect(last().buttons[0].text).toMatch(/₹[\d,]+ \(3×₹[\d,]+\)/);
+    for (const data of ["O:DEL", "D:2026-09-28", "N:3", "V:6", "G:300000", "GL:ta", "E:go"]) await tap(9201, data);
+    expect(last().buttons[0].text).toMatch(/₹[\d,]+ \(6×₹[\d,]+\)/);
     await tap(9201, "F:0");
     const trip = trips.getTrip(tripOf(9201)!);
-    expect(trip.priceBreakdown.party).toEqual({ pax: 3, rooms: 2, vehicles: 1 });
+    expect(trip.priceBreakdown.party).toEqual({ pax: 6, rooms: 3, vehicles: 2 });
     await tap(9201, "H:list");
     const current = trip.packageComponents.find(item => item.type === "hotel")!;
     const first = PACKAGES.find(pkg => pkg.id === trip.package!.id)!.components.filter(item => item.swapGroup === current.swapGroup && item.id !== current.id)[0];
-    const delta = Math.round((first.price - current.price) * 2);
+    const delta = Math.round((first.price - current.price) * 3 * trip.priceBreakdown.nightsFactor);
     expect(last().buttons[1].text).toContain(`₹${Math.abs(delta).toLocaleString("en-IN")}`);
+  });
+});
+
+describe("telegram bot boundary rules", () => {
+  it("offers only party sizes the package accepts", async () => {
+    await say(9300, "/start");
+    await tap(9300, "L:en-IN");
+    await tap(9300, `B:${thanjavur.id}`);
+    for (const data of ["O:DEL", "D:2026-09-28", "N:3"]) await tap(9300, data);
+    expect(last().buttons.map(button => button.data)).toEqual(["V:4", "V:5", "V:6", "V:7", "V:8"]);
   });
 });

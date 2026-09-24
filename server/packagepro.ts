@@ -28,6 +28,9 @@ export type PackageRecord = {
   durationNights: number;
   basePrice: number;
   currency: string;
+  /** tour_packages.min_group_size / max_group_size — enforced when a trip is created. */
+  minGroupSize: number;
+  maxGroupSize: number;
   description: string;
   inclusions: string;
   exclusions: string;
@@ -84,6 +87,8 @@ export const TRANSPORTS: TransportRecord[] = [
 const data = loadCatalogue();
 
 export const CITIES = data.cities;
+/** Legal BCP-47 tags from the languages table (rule R6). */
+export const LANGUAGE_TAGS = new Set(data.languages);
 const cityById = new Map(data.cities.map(city => [city.city_id, city]));
 const cityName = (cityId: string) => cityById.get(cityId)?.name ?? cityId;
 
@@ -230,6 +235,8 @@ export const PACKAGES: PackageRecord[] = data.packages.map(row => {
     durationNights: row.duration_nights,
     basePrice: rupees(row.base_price),
     currency: row.currency,
+    minGroupSize: row.min_group_size,
+    maxGroupSize: row.max_group_size,
     description: row.description,
     inclusions: row.inclusions,
     exclusions: row.exclusions,

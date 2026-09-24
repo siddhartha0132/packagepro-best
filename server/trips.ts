@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { fromPaise, toPaise } from "./catalogue";
-import { GUIDES, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, isGuideFree, liveAvailability, packageForCity, realityCheck, withLiveAvailability, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
+import { GUIDES, LANGUAGE_TAGS, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, isGuideFree, liveAvailability, packageForCity, realityCheck, withLiveAvailability, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
 import { DESTINATIONS, searchFlightsLive, sendConfirmation } from "./integrations";
 import { GuideSlotTakenError, loadTrip, recordBooking, saveTrip } from "./appStore";
 
@@ -105,31 +105,62 @@ export function partyUnits(travelers: number) {
 }
 export const unitsFor = (type: PackageComponent["type"], party: ReturnType<typeof partyUnits>) => (type === "hotel" ? party.rooms : type === "transfer" ? party.vehicles : party.pax);
 
+/** A component counts only when its day falls inside the trip (shortening a trip drops later days). */
+const inTrip = (component: PackageComponent, days: number) => (component.dayIndex ?? 1) <= Math.max(1, days);
+
+/** Party units × (for the hotel) the share of the package's nights actually stayed. */
+function chargeFactor(trip: Pick<Trip, "travelers" | "durationDays" | "package">, component: PackageComponent) {
+  const units = unitsFor(component.type, partyUnits(trip.travelers));
+  const nights = component.type === "hotel" && trip.package ? Math.max(1, trip.durationDays) / Math.max(1, trip.package.durationNights) : 1;
+  return units * nights;
+}
+
+/** What one component adds to the total, in rupees (price_delta × units, hotel prorated by nights). */
+export function componentCharge(trip: Pick<Trip, "travelers" | "durationDays" | "package">, component: PackageComponent) {
+  return fromPaise(Math.round(paise(component.price) * chargeFactor(trip, component)));
+}
+
+/**
+ * PS-04 pricing: package base + the price_delta of every component you keep (never a float: all sums in integer paise).
+ * The base is per person and prorated by days; components scale per person / room / vehicle; the guide is per group.
+ */
 function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "durationDays" | "chosenFlight" | "chosenTransport" | "chosenGuide" | "travelers">) {
   const party = partyUnits(trip.travelers);
-  // Flight/train and the package are per person; hotel swaps per room; transfers per vehicle; experiences, meals, tickets per person.
   const transport = paise(trip.chosenTransport?.price ?? trip.chosenFlight?.price ?? 0) * party.pax;
   const base = trip.package ? Math.round(paise(trip.package.basePrice) * Math.max(1, trip.durationDays) / Math.max(1, trip.package.duration)) * party.pax : 0;
-  let swaps = 0;
+  let components = 0;
   let addOns = 0;
+  let swaps = 0;
   for (const component of trip.packageComponents) {
-    if (!component.included) continue;
-    const units = unitsFor(component.type, party);
-    if (component.optional) addOns += paise(component.price) * units;
-    else swaps += (paise(component.price) - paise(component.defaultPrice)) * units;
+    if (!component.included || !inTrip(component, trip.durationDays)) continue;
+    const charge = paise(componentCharge(trip, component));
+    if (component.optional) addOns += charge;
+    else {
+      components += charge;
+      swaps += charge - Math.round(paise(component.defaultPrice) * chargeFactor(trip, component));
+    }
   }
   const guide = paise(trip.chosenGuide?.totalCost ?? 0);
-  const packageTotal = base + swaps + addOns;
+  const packageTotal = base + components + addOns;
   return {
     transport: fromPaise(transport),
     packageBase: fromPaise(base),
+    components: fromPaise(components),
+    /** How much of `components` comes from the traveller's swaps (informational; already inside `components`). */
     swapAdjustments: fromPaise(swaps),
     addOns: fromPaise(addOns),
     packageTotal: fromPaise(packageTotal),
     guide: fromPaise(guide),
     total: fromPaise(transport + packageTotal + guide),
     party,
+    nightsFactor: trip.package ? Math.max(1, trip.durationDays) / Math.max(1, trip.package.durationNights) : 1,
   };
+}
+
+/** Default package total for a party and trip length — the same formula, used by the estimate before a trip exists. */
+export function defaultComponentsTotal(pkg: PackageRecord, days: number, travelers: number) {
+  const trip = { package: pkg, durationDays: days, travelers };
+  return fromPaise(pkg.components.filter(component => component.isDefault && !component.optional && inTrip(component, days)).reduce((sum, component) => sum + paise(componentCharge(trip, component)), 0));
 }
 
 const SLOT_ORDER: Record<string, number> = { morning: 0, afternoon: 1, evening: 2, overnight: 3 };
@@ -147,13 +178,13 @@ function itinerary(trip: Trip) {
     }
     for (const component of lines) {
       if (component.type === "hotel") continue;
-      if (Math.min(component.dayIndex ?? 1, dates.length) !== day) continue;
-      items.push({ kind: component.type, slot: component.slot ?? "morning", label: component.label, detail: component.detail, price: component.price, componentId: component.id });
+      if ((component.dayIndex ?? 1) !== day) continue;
+      items.push({ kind: component.type, slot: component.slot ?? "morning", label: component.label, detail: component.detail, price: componentCharge(trip, component), componentId: component.id });
     }
     if (trip.chosenGuide?.bookedDates.includes(date)) {
       items.push({ kind: "guide", slot: "morning", label: `Guide: ${trip.chosenGuide.name}`, detail: `${trip.chosenGuide.specialisation} · ${trip.chosenGuide.languages.join(", ")}`, price: guideCost(trip.chosenGuide, [date]) });
     }
-    if (hotel) items.push({ kind: "hotel", slot: "overnight", label: day === 1 ? `Check in: ${hotel.label}` : `Stay: ${hotel.label}`, detail: hotel.detail.replace(/^Day \d+ · \w+ · /, ""), componentId: hotel.id });
+    if (hotel) items.push({ kind: "hotel", slot: "overnight", label: day === 1 ? `Check in: ${hotel.label}` : `Stay: ${hotel.label}`, detail: hotel.detail.replace(/^Day \d+ · \w+ · /, ""), price: day === 1 ? componentCharge(trip, hotel) : undefined, componentId: hotel.id });
     items.sort((a, b) => (SLOT_ORDER[a.slot] ?? 9) - (SLOT_ORDER[b.slot] ?? 9));
     return { day, date, items };
   });
@@ -222,6 +253,23 @@ function loadPackage(trip: Trip) {
 // Trip lifecycle
 // ---------------------------------------------------------------------------
 
+/**
+ * PS-04 boundary rules, enforced before a trip exists:
+ *  - party size within the package's tour_packages.min_group_size … max_group_size
+ *  - guide/tour language is a BCP-47 tag present in the languages table (rule R6)
+ *  - the package is priced in INR (the only currency this build sells)
+ */
+export function assertTripRules(city: string, travelers: number, language: string) {
+  const pkg = packageForCity(city);
+  if (!pkg) throw new Error(`No package found for ${city}`);
+  if (!Number.isInteger(travelers) || travelers < pkg.minGroupSize || travelers > pkg.maxGroupSize) {
+    throw new Error(`${pkg.name} takes groups of ${pkg.minGroupSize}–${pkg.maxGroupSize} travellers (you asked for ${travelers})`);
+  }
+  if (!LANGUAGE_TAGS.has(language)) throw new Error(`'${language}' is not a BCP-47 language tag from the languages table`);
+  if (pkg.currency !== "INR") throw new Error(`${pkg.name} is priced in ${pkg.currency}; PackagePro sells INR packages only`);
+  return pkg;
+}
+
 export async function createTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap: number; language: string; interests?: string }) {
   const origin = input.origin.trim().toUpperCase();
   const place = resolveDestination(input.destination);
@@ -229,6 +277,7 @@ export async function createTrip(input: { origin: string; destination: string; d
   if (origin === code) throw new Error("origin and destination can't be the same");
   const durationDays = daysBetween(input.departDate, input.returnDate);
   if (!Number.isFinite(durationDays) || durationDays <= 0) throw new Error("return_date must be after depart_date");
+  assertTripRules(place.city, input.travelers, input.language);
   const liveFlights = await searchFlightsLive(origin, code, input.departDate);
   const trip: Trip = {
     tripId: `trp_${nanoid(8)}`,
@@ -510,8 +559,10 @@ export async function autoBuildTrip(input: { origin: string; destination: string
   const packageEstimate = pkg.basePrice * durationDays / Math.max(1, pkg.duration);
   const guideRates = GUIDES.filter(guide => guide.city === destination && guide.languages.includes(input.language)).map(guide => guide.dayRate * 1.35);
   const guideEstimate = (guideRates.length ? Math.min(...guideRates) : 0) * durationDays;
-  const pax = Math.max(1, input.travelers);
-  const suggestedCap = Math.ceil((7000 * pax + packageEstimate * 1.25 * pax + guideEstimate) * 1.12 / 500) * 500;
+  // The AI builder books at least the package's minimum group (tour_packages.min_group_size).
+  const pax = Math.min(pkg.maxGroupSize, Math.max(pkg.minGroupSize, input.travelers));
+  input = { ...input, travelers: pax };
+  const suggestedCap = Math.ceil((7000 * pax + (packageEstimate * pax + defaultComponentsTotal(pkg, durationDays, pax)) * 1.25 + guideEstimate) * 1.12 / 500) * 500;
   const created = await createTrip({ ...input, budgetCap: input.budgetCap && input.budgetCap > 0 ? input.budgetCap : suggestedCap });
   const trip = need(created.tripId);
 

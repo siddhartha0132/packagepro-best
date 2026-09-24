@@ -68,5 +68,6 @@ export function loadCatalogue() {
       ORDER BY CAST(r2.base_rate AS REAL) LIMIT 1)
     WHERE h.status = 'active' AND h.base_currency = 'INR'`);
   const transfers = all<TransferRow>(`SELECT transfer_id, city_id, from_label, to_label, mode, duration_minutes, cost FROM transfers WHERE ${INR_ACTIVE}`);
-  return { cities, packages, components, guides, availability, hotels, transfers };
+  const languages = all<{ bcp47: string }>("SELECT bcp47 FROM languages").map(row => row.bcp47);
+  return { cities, packages, components, guides, availability, hotels, transfers, languages };
 }

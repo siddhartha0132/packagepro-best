@@ -95,7 +95,7 @@ function RangeBar({ low, typical, high, budget, lang }: { low: number; typical: 
 }
 
 /** Live estimate: range vs budget, live flights, package, hotel tiers, guides, what past travellers liked, AI insight. */
-export function EstimateView({ estimate, loading, lang, onContinue, continuing }: { estimate?: Estimate; loading: boolean; lang: Lang; onContinue: () => void; continuing: boolean }) {
+export function EstimateView({ estimate, loading, lang, onContinue, continuing, onFixParty }: { estimate?: Estimate; loading: boolean; lang: Lang; onContinue: () => void; continuing: boolean; onFixParty?: (travelers: number) => void }) {
   const copy = (key: CopyKey) => t(lang, key);
   const tr = useTr(lang);
   if (loading || !estimate) return <Panel className="grid place-items-center p-16 text-sm text-[#5f6b7a]"><Loader2 className="mb-3 h-7 w-7 animate-spin text-[#0b6bcb]" />{copy("searching")}</Panel>;
@@ -150,7 +150,8 @@ export function EstimateView({ estimate, loading, lang, onContinue, continuing }
       </Panel>
     </div>
 
-    <Button disabled={continuing} onClick={onContinue} className="h-12 w-full rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg hover:opacity-95">{continuing ? <Loader2 className="h-4 w-4 animate-spin" /> : copy("continueFlights")}</Button>
+    {!e.groupSize.ok && <Panel className="flex flex-wrap items-center gap-3 border border-[#f3c1b8] bg-[#fff6f4] p-4 text-sm text-[#7a3b2e]"><CircleAlert className="h-4 w-4 shrink-0 text-[#c0392b]" /><span className="flex-1">{copy("groupSizeLabel")} <strong>{e.groupSize.min}–{e.groupSize.max}</strong> {copy("travellersWord")}.</span>{onFixParty && <Button size="sm" onClick={() => onFixParty(e.groupSize.min)} className="rounded-full bg-[#0b1f3a] text-white">{copy("useParty")} {e.groupSize.min} {copy("travellersWord")}</Button>}</Panel>}
+    <Button disabled={continuing || !e.groupSize.ok} onClick={onContinue} className="h-12 w-full rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg hover:opacity-95">{continuing ? <Loader2 className="h-4 w-4 animate-spin" /> : copy("continueFlights")}</Button>
   </div>;
 }
 
