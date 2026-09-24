@@ -77,6 +77,8 @@ Open **http://localhost:3000**.
 
 ## Demo path
 
+**Guided tour:** open **http://localhost:3000/how-it-works**. It has every PS-04 requirement with how we solve it, where it is in the code, and a live 3D demo.
+
 The terminal outcome: **a customised package, booked, with the guide rule shown**. Run `pnpm db:reset` first so the demo guide's slots are free.
 
 1. Click **▶ Try the live demo**. This fills in New Delhi → Thanjavur, 28 Sept → 1 Oct, **4 travellers** (the package takes 4–8), a Tamil guide and ₹1,50,000. The live estimate shows Low / Typical / High against the budget.
