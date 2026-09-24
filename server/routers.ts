@@ -22,7 +22,7 @@ void prewarmTranslations(Array.from(new Set([
 
 /** Package as served to the client: real destination photo when warmed, plus dataset popularity. */
 function withMedia<T extends (typeof PACKAGES)[number]>(pkg: T) {
-  return { ...pkg, image: cityImage(pkg.city) ?? pkg.image, popularity: PACKAGE_POPULARITY[pkg.cityId] ?? { trips: 0, bookings: 0 } };
+  return { ...pkg, image: cityImage(pkg.city) ?? pkg.image, fallbackImage: pkg.image, popularity: PACKAGE_POPULARITY[pkg.cityId] ?? { trips: 0, bookings: 0 } };
 }
 
 export const appRouter = router({

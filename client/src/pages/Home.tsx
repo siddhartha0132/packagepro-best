@@ -10,6 +10,7 @@ import { buildWhatsAppUrl } from "@/lib/itineraryExport";
 import { PackageCustomiser, PriceBreakdown } from "@/components/PackageCustomiser";
 import { EstimateView, FlightRow, NegotiationPanel, Panel, ReviewPanel, ScreenHeader, SectionTitle, Stepper, money, prettyDate, slotLabel } from "@/components/TripScreens";
 import { useTr } from "@/lib/translate";
+import { SmartImage } from "@/components/SmartImage";
 
 function isoDateFromToday(offset: number) { const date = new Date(); date.setDate(date.getDate() + offset); return date.toISOString().slice(0, 10); }
 function addDays(iso: string, days: number) { const date = new Date(`${iso}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
@@ -204,7 +205,7 @@ export default function Home() {
             <SectionTitle icon={<Sparkles className="h-4 w-4 text-[#7c3aed]" />} title={copy("pickedForYou")} sub={copy("grounded")} />
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               {(recommendations.data?.packages || []).map(pkg => <button key={pkg.id} onClick={() => setDetailId(pkg.id)} className="group overflow-hidden rounded-xl border border-[#e6ebf2] text-left transition hover:-translate-y-0.5 hover:shadow-lg">
-                <div className="relative h-28 overflow-hidden bg-[#dfe8f4]"><img src={packageList.find(item => item.id === pkg.id)?.image || pkg.image} alt={pkg.city} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" /><span className="absolute left-2 top-2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-bold text-[#0b1f3a]">{tr(pkg.city)}</span></div>
+                <div className="relative h-28 overflow-hidden bg-[#dfe8f4]"><SmartImage src={packageList.find(item => item.id === pkg.id)?.image || pkg.image} fallback={packageList.find(item => item.id === pkg.id)?.fallbackImage} alt={pkg.city} eager className="group-hover:scale-105" /><span className="absolute left-2 top-2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-bold text-[#0b1f3a]">{tr(pkg.city)}</span></div>
                 <div className="p-3"><div className="line-clamp-1 text-sm font-bold">{tr(pkg.name)}</div><div className="mt-1 flex flex-wrap gap-1">{pkg.matchReasons.slice(0, 3).map(reason => <span key={reason} className="rounded bg-[#eef6ff] px-1.5 py-0.5 text-[9px] font-semibold text-[#0b6bcb]">✓ {copy(`reason_${reason.replaceAll(" ", "_")}` as CopyKey) || reason}</span>)}</div><div className="mt-2 text-base font-extrabold">{money(pkg.basePrice)}</div></div>
               </button>)}
             </div>
@@ -227,7 +228,7 @@ export default function Home() {
               const inLang = pkg.languagesOffered.includes(form.language);
               return <article key={pkg.id} className="group flex flex-col overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(16,24,40,.08),0_8px_24px_rgba(16,24,40,.06)] transition hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(16,24,40,.14)]">
                 <button onClick={() => setDetailId(pkg.id)} className="relative h-48 overflow-hidden bg-[#dfe8f4] text-left">
-                  <img src={pkg.image} alt={pkg.city} loading="lazy" className="h-full w-full object-cover transition duration-700 group-hover:scale-105" />
+                  <SmartImage src={pkg.image} fallback={pkg.fallbackImage} alt={pkg.city} className="group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                   <span className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-[#0b1f3a]">{copy(`theme_${pkg.tags[0]}` as CopyKey)}</span>
                   {hot && <span className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-[#ff5a1f] px-2.5 py-1 text-[10px] font-extrabold text-white"><Flame className="h-3 w-3" />{copy("mostBooked")}</span>}
@@ -306,7 +307,7 @@ export default function Home() {
     <Dialog open={Boolean(detail)} onOpenChange={open => !open && setDetailId(null)}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto rounded-2xl p-0">
         {detail && <>
-          <div className="relative h-56 bg-[#0b1f3a]"><img src={detail.image} alt={tr(detail.city)} className="h-full w-full object-cover opacity-90" /><div className="absolute inset-0 bg-gradient-to-t from-black/75 to-transparent" /><button onClick={() => setDetailId(null)} className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-white/90"><X className="h-4 w-4" /></button>
+          <div className="relative h-56 bg-[#0b1f3a]"><SmartImage src={detail.image} fallback={detail.fallbackImage} alt={tr(detail.city)} eager /><div className="absolute inset-0 bg-gradient-to-t from-black/75 to-transparent" /><button onClick={() => setDetailId(null)} className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-white/90"><X className="h-4 w-4" /></button>
             <div className="absolute bottom-4 left-5 right-5 text-white"><div className="text-[11px] font-bold uppercase tracking-[.2em] text-white/75">{copy(`theme_${detail.tags[0]}` as CopyKey)} · {copy(`tier_${detail.tier}` as CopyKey)} · {copy(`diff_${detail.difficulty}` as CopyKey)}</div><DialogTitle className="text-2xl font-black">{tr(detail.name)}</DialogTitle><div className="text-xs text-white/80">{tr(detail.city)} · {detail.durationNights}N/{detail.duration}D · {detail.popularity.bookings} {copy("bookedBy")}</div></div></div>
           <div className="space-y-5 p-5">
             <p className="text-sm leading-6 text-[#334155]">{tr(detail.description)}</p>
