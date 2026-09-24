@@ -56,7 +56,14 @@ export default function Home() {
   function update<K extends keyof FormState>(key: K, value: FormState[K]) { setForm(current => ({ ...current, [key]: value })); }
   function changeLanguage(value: Lang) { update("language", value); if (tripId) setLanguage.mutate({ tripId, language: value }); }
   function startOver() { setTripId(null); setScreen("intake"); setOpenSwap(null); }
-  function back() { if (screen === "reality") setScreen("intake"); else if (tripId) goBack.mutate({ tripId }); }
+  function back() {
+    if (screen === "reality") setScreen("intake");
+    else if (trip?.status === "select_flight") {
+      setTripId(null);
+      setScreen("intake");
+      toast.success(copy("adjust"));
+    } else if (tripId) goBack.mutate({ tripId });
+  }
 
   return <div className="min-h-screen bg-[#f7f5ef] text-[#17231f]">
     <header className="mx-auto max-w-[1320px] px-5 pb-4 pt-7 lg:px-10">
