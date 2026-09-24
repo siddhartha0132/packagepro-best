@@ -120,6 +120,8 @@ const copy = {
     comparing: "Alternative routes for your style",
     moods: "Quick trip vibes",
     compareRoutes: "Compare destination fit",
+    useThisSetup: "Use this setup",
+    requestApplied: "Trip details loaded into your planner",
   },
   ta: {
     brand: "பேக்கேஜ் புரோ",
@@ -233,6 +235,8 @@ const copy = {
     comparing: "உங்கள் பாணிக்கான மாற்று வழிகள்",
     moods: "விரைவு பயண பாணிகள்",
     compareRoutes: "சேருமிட பொருத்தத்தை ஒப்பிடுங்கள்",
+    useThisSetup: "இந்த அமைப்பைப் பயன்படுத்துங்கள்",
+    requestApplied: "பயண விவரங்கள் உங்கள் திட்டத்தில் ஏற்றப்பட்டன",
   },
   hi: {
     brand: "पैकेजप्रो",
@@ -346,6 +350,8 @@ const copy = {
     comparing: "आपकी पसंद के वैकल्पिक रूट",
     moods: "क्विक ट्रिप मूड",
     compareRoutes: "गंतव्य मैच की तुलना करें",
+    useThisSetup: "यह सेटअप उपयोग करें",
+    requestApplied: "यात्रा विवरण आपके प्लानर में लोड हो गया",
   },
   te: {
     brand: "ప్యాకేజ్ ప్రో",
@@ -459,6 +465,8 @@ const copy = {
     comparing: "మీ స్టైల్ కోసం ప్రత్యామ్నాయ రూట్లు",
     moods: "త్వరిత ట్రిప్ వైబ్స్",
     compareRoutes: "గమ్యస్థాన సరిపోలికను సరిపోల్చండి",
+    useThisSetup: "ఈ సెటప్ ఉపయోగించండి",
+    requestApplied: "ట్రిప్ వివరాలు మీ ప్లానర్‌లో లోడ్ అయ్యాయి",
   },
 } as const;
 
