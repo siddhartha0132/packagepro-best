@@ -45,6 +45,8 @@ export type CityRow = { city_id: string; name: string; state: string; lat: numbe
 export type PackageRow = { package_id: string; city_id: string; name: string; theme: string; tier: string; duration_days: number; duration_nights: number; base_price: string; currency: string; min_group_size: number; max_group_size: number; difficulty: string; languages_offered: string; inclusions: string; exclusions: string; description: string };
 export type ComponentRow = { component_id: string; package_id: string; component_type: string; entity_type: string | null; entity_id: string | null; day_index: number; slot: string; title: string; quantity: number; price_delta: string; is_optional: number; is_swappable: number; swap_group: string | null };
 export type GuideRow = { guide_id: string; city_id: string; display_name: string; languages: string; specialisation: string; secondary_specialisation: string | null; years_experience: number; rating: number | null; review_count: number; day_rate: string; half_day_rate: string; certified: number; bio: string };
+export type UserRow = { user_id: string; display_name: string; locale: string; home_city_id: string; budget_band: string; travel_style: string; traveller_type: string; segment: string; preferred_languages: string; guide_language: string | null; interests: string; max_daily_budget: string | null; pace: string };
+export type HistoryRow = { user_id: string; booking_id: string; status: string; total_amount: string; currency: string; channel: string; destination_city_id: string; city: string; trip_type: string; start_date: string; party_size: number };
 export type AvailabilityRow = { guide_id: string; for_date: string; is_available: number; slots_available: number; price_multiplier: number };
 export type HotelRow = { hotel_id: string; city_id: string; name: string; property_type: string; star_rating: number; guest_score: number; distance_to_centre_km: number; description: string; min_rate: string; room_name: string };
 export type TransferRow = { transfer_id: string; city_id: string; from_label: string; to_label: string; mode: string; duration_minutes: number; cost: string };
@@ -69,5 +71,11 @@ export function loadCatalogue() {
     WHERE h.status = 'active' AND h.base_currency = 'INR'`);
   const transfers = all<TransferRow>(`SELECT transfer_id, city_id, from_label, to_label, mode, duration_minutes, cost FROM transfers WHERE ${INR_ACTIVE}`);
   const languages = all<{ bcp47: string }>("SELECT bcp47 FROM languages").map(row => row.bcp47);
-  return { cities, packages, components, guides, availability, hotels, transfers, languages };
+  // Travellers: identity (users), explicit preferences (user_preferences) and booking history (bookings → trips → cities).
+  const users = all<UserRow>(`SELECT u.user_id, u.display_name, u.locale, u.home_city_id, u.budget_band, u.travel_style, u.traveller_type, u.segment,
+      p.preferred_languages, p.guide_language, p.interests, p.max_daily_budget, p.pace
+    FROM users u JOIN user_preferences p USING (user_id) WHERE u.status = 'active'`);
+  const history = all<HistoryRow>(`SELECT b.user_id, b.booking_id, b.status, b.total_amount, b.currency, b.channel, t.destination_city_id, c.name AS city, t.trip_type, t.start_date, t.party_size
+    FROM bookings b JOIN trips t USING (trip_id) JOIN cities c ON c.city_id = t.destination_city_id ORDER BY t.start_date DESC`);
+  return { cities, packages, components, guides, availability, hotels, transfers, languages, users, history };
 }

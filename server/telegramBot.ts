@@ -7,6 +7,7 @@ import { cityImage } from "./insights";
 import { DESTINATIONS, ORIGINS, translateMany } from "./integrations";
 import { PACKAGES, getAlternatives } from "./packagepro";
 import * as trips from "./trips";
+import { travellerForLanguage } from "./travellers";
 import { unitsFor } from "./trips";
 
 // PackagePro on Telegram: the same engine as the web app (live fares, PS-04 packages, per-date guide checks with
@@ -268,7 +269,8 @@ async function runEstimate(chatId: string, s: Session) {
 async function buildTrip(chatId: string, s: Session) {
   const d = s.draft as Required<Draft>;
   await typing(chatId);
-  const trip = await trips.createTrip({ origin: d.origin, destination: d.cityId, departDate: d.departDate, returnDate: addDays(d.departDate, d.days), travelers: d.travelers, budgetCap: d.budget, language: d.language });
+  // The chat books as the dataset traveller for its language (users + user_preferences), over the mobile_app channel.
+  const trip = await trips.createTrip({ origin: d.origin, destination: d.cityId, departDate: d.departDate, returnDate: addDays(d.departDate, d.days), travelers: d.travelers, budgetCap: d.budget, language: d.language, userId: travellerForLanguage(s.lang).userId, channel: "mobile_app" });
   s.tripId = trip.tripId;
   return showTrip(chatId, s, trip);
 }

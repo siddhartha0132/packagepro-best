@@ -11,13 +11,14 @@ const guideName = new Map(ps04.prepare("SELECT guide_id, display_name FROM tour_
 const slots = ps04.prepare("SELECT slots_available FROM guide_availability WHERE guide_id = ? AND for_date = ? AND is_available = 1");
 const has = name => app.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
 
-const counts = app.prepare("SELECT (SELECT COUNT(*) FROM app_trips) trips, (SELECT COUNT(*) FROM app_bookings) bookings").get();
+const bookingsTable = has("bookings") && app.prepare("PRAGMA table_info(bookings)").all().some(column => column.name === "idempotency_key") ? "bookings" : "app_bookings";
+const counts = app.prepare(`SELECT (SELECT COUNT(*) FROM app_trips) trips, (SELECT COUNT(*) FROM ${bookingsTable}) bookings`).get();
 console.log(`\nApp database: ${appPath}\nTrips saved: ${counts.trips} · Bookings: ${counts.bookings}${has("app_bot_sessions") ? ` · Telegram chats: ${app.prepare("SELECT COUNT(*) n FROM app_bot_sessions").get().n}` : ""}`);
 
 console.log("\nBookings (newest first)");
 console.table(app.prepare(`
   SELECT b.booking_reference AS pnr, t.destination, t.start_date AS depart, t.end_date AS "return", b.total_amount AS total, b.guide_id, b.confirmed_at
-  FROM app_bookings b JOIN app_trips t USING (trip_id) ORDER BY b.created_at DESC LIMIT 25
+  FROM ${bookingsTable} b JOIN app_trips t USING (trip_id) ORDER BY b.created_at DESC LIMIT 25
 `).all().map(({ guide_id, ...row }) => ({ ...row, guide: guideName.get(guide_id) ?? "—" })));
 
 if (has("app_guide_bookings")) {

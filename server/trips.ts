@@ -1,8 +1,9 @@
 import { nanoid } from "nanoid";
 import { fromPaise, toPaise } from "./catalogue";
-import { GUIDES, LANGUAGE_TAGS, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, isGuideFree, liveAvailability, packageForCity, realityCheck, withLiveAvailability, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
-import { DESTINATIONS, searchFlightsLive, sendConfirmation } from "./integrations";
-import { GuideSlotTakenError, loadTrip, recordBooking, saveTrip } from "./appStore";
+import { CITIES, GUIDES, LANGUAGE_TAGS, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, isGuideFree, liveAvailability, packageForCity, realityCheck, withLiveAvailability, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
+import { DESTINATIONS, ORIGINS, searchFlightsLive, sendConfirmation } from "./integrations";
+import { GuideSlotTakenError, loadTrip, recordBooking, saveTrip, type CanonicalItem, type CanonicalTrip } from "./appStore";
+import { DEFAULT_TRAVELLER_ID, getTraveller } from "./travellers";
 
 // Flow: select_flight → select_package (customise: itinerary, swaps, add-ons, guide, duration) → review → confirmed.
 // The total is never accumulated: it is recomputed from the current selection after every change.
@@ -49,7 +50,11 @@ export type Trip = {
   flightInsights?: { lowestPrice?: number; typicalRange?: [number, number]; priceLevel?: string };
   negotiationOptions: { choice: string; amount?: number; item_label: string; label: string }[];
   pending: { amount: number; label: string; retryStatus: TripStatus; advanceStatus: TripStatus; patch: Partial<Trip> } | null;
-  booking?: { bookingId: string; reference: string } | null;
+  booking?: { bookingId: string; reference: string; itineraryId?: string } | null;
+  /** users.user_id of the traveller (canonical trips.owner_user_id / bookings.user_id). */
+  userId: string;
+  /** Canonical bookings.channel: web app, or mobile_app for the Telegram bot. */
+  channel: "web" | "mobile_app";
   trace: { kind: string; text: string }[];
 };
 
@@ -191,7 +196,7 @@ function itinerary(trip: Trip) {
 }
 
 function snapshot(trip: Trip) {
-  saveTrip(trip);
+  saveTrip(trip, canonicalTrip(trip));
   const breakdown = priceBreakdown(trip);
   const hotel = trip.packageComponents.find(component => component.type === "hotel" && component.included);
   return {
@@ -270,7 +275,9 @@ export function assertTripRules(city: string, travelers: number, language: strin
   return pkg;
 }
 
-export async function createTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap: number; language: string; interests?: string }) {
+export async function createTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap: number; language: string; interests?: string; userId?: string; channel?: "web" | "mobile_app" }) {
+  const traveller = getTraveller(input.userId);
+  if (!traveller) throw new Error(`Unknown traveller '${input.userId}' (not in the users table)`);
   const origin = input.origin.trim().toUpperCase();
   const place = resolveDestination(input.destination);
   const code = place.airport || place.code;
@@ -280,7 +287,9 @@ export async function createTrip(input: { origin: string; destination: string; d
   assertTripRules(place.city, input.travelers, input.language);
   const liveFlights = await searchFlightsLive(origin, code, input.departDate);
   const trip: Trip = {
-    tripId: `trp_${nanoid(8)}`,
+    tripId: `trp_${nanoid(8).toLowerCase().replace(/[^a-z0-9]/g, "0")}`,
+    userId: traveller.userId,
+    channel: input.channel ?? "web",
     origin, destination: place.city, destinationCode: code,
     departDate: input.departDate, returnDate: input.returnDate, durationDays,
     travelers: input.travelers, budgetCap: input.budgetCap, runningTotal: 0,
@@ -522,16 +531,21 @@ function guideTakenMeanwhile(trip: Trip, guide: GuideRecord) {
   return snapshot(trip);
 }
 
-export async function confirmTrip(tripId: string, contact?: { email?: string; phone?: string }) {
+export async function confirmTrip(tripId: string, contact?: { email?: string; phone?: string }, options: { idempotencyKey?: string } = {}) {
   const trip = need(tripId);
+  // Idempotent: confirming an already-booked trip again returns the same booking instead of an error or a duplicate.
+  if (trip.status === "confirmed" && trip.booking) return snapshot(trip);
   if (trip.status !== "review" && trip.status !== "select_package") throw new Error(trip.status === "negotiate" ? "Resolve the pending budget negotiation first" : `Can't confirm from '${trip.status}'`);
   // Re-check the guide at the moment of booking: another traveller may have taken the last slot since it was selected.
   const guide = trip.chosenGuide ? GUIDES.find(item => item.id === trip.chosenGuide!.id) : undefined;
   if (guide && trip.chosenGuide!.bookedDates.some(date => !isGuideFree(guide, date))) return guideTakenMeanwhile(trip, guide);
+  const items = canonicalItems(trip);
   try {
     trip.booking = recordBooking({
-      tripId: trip.tripId, total: trip.runningTotal, guideId: trip.chosenGuide?.id, email: contact?.email, phone: contact?.phone,
+      tripId: trip.tripId, userId: trip.userId ?? DEFAULT_TRAVELLER_ID, total: trip.runningTotal, channel: trip.channel ?? "web",
+      idempotencyKey: options.idempotencyKey ?? `idem_${trip.tripId}`, email: contact?.email, phone: contact?.phone,
       guide: guide ? { guideId: guide.id, dates: trip.chosenGuide!.bookedDates, capacity: guide.slots } : undefined,
+      itinerary: { name: `${trip.package?.name ?? trip.destination} — ${trip.departDate}`, totalDurationMinutes: items.reduce((sum, item) => sum + item.duration_minutes, 0), items },
     });
   } catch (error) {
     if (guide && error instanceof GuideSlotTakenError) return guideTakenMeanwhile(trip, guide);
@@ -548,10 +562,68 @@ export async function confirmTrip(tripId: string, contact?: { email?: string; ph
 }
 
 // ---------------------------------------------------------------------------
+// Canonical rows (shared data model): trips, itinerary_items
+// ---------------------------------------------------------------------------
+
+const CITY_ID_BY_NAME = new Map(CITIES.map(city => [city.name.toLowerCase(), city.city_id]));
+const ORIGIN_CITY_BY_CODE = new Map(ORIGINS.map(origin => [origin.code, origin.city]));
+const TRIP_STATUS: Record<TripStatus, CanonicalTrip["status"]> = { select_flight: "draft", select_package: "planning", negotiate: "planning", review: "planning", confirmed: "confirmed" };
+
+/** The canonical trips row: owner, cities as city_id, party, trip_type (traveller_type enum) and trip_status. */
+function canonicalTrip(trip: Trip): CanonicalTrip {
+  const traveller = getTraveller(trip.userId);
+  const originCity = ORIGIN_CITY_BY_CODE.get(trip.origin);
+  return {
+    owner_user_id: traveller?.userId ?? DEFAULT_TRAVELLER_ID,
+    title: `${trip.package?.name ?? trip.destination} · ${trip.departDate}`,
+    origin_city_id: originCity ? CITY_ID_BY_NAME.get(originCity.toLowerCase()) ?? null : null,
+    destination_city_id: DESTINATIONS.find(item => item.city === trip.destination)?.code ?? trip.destinationCode,
+    start_date: trip.departDate,
+    end_date: trip.returnDate,
+    party_size: trip.travelers,
+    trip_type: trip.travelers === 1 ? "solo" : trip.travelers === 2 ? (traveller?.travellerType === "friends" ? "friends" : "couple") : traveller?.travellerType === "friends" ? "friends" : "family",
+    status: TRIP_STATUS[trip.status] ?? "planning",
+  };
+}
+
+const minutesOf = (text?: string) => {
+  const match = text?.match(/(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?/);
+  const byMin = text?.match(/(\d+)\s*min/);
+  if (byMin) return Number(byMin[1]);
+  return match ? Number(match[1] ?? 0) * 60 + Number(match[2] ?? 0) : 0;
+};
+
+/** The confirmed plan as canonical itinerary_items: item_type / entity_type from enums.json, entity_id pointing at dataset rows. */
+function canonicalItems(trip: Trip): CanonicalItem[] {
+  const leg = trip.chosenFlight ?? trip.chosenTransport;
+  const items: CanonicalItem[] = [];
+  for (const day of itinerary(trip)) {
+    for (const item of day.items) {
+      const component = trip.packageComponents.find(entry => entry.id === item.componentId);
+      const entityId = item.kind === "guide" ? trip.chosenGuide?.id ?? null : item.kind === "hotel" ? component?.entityId ?? null : component ? (component.entityId?.startsWith("trf_") ? component.entityId : component.id) : null;
+      const entityType = item.kind === "arrival" ? "flight" : item.kind === "guide" ? "guide" : item.kind === "hotel" ? "hotel" : entityId?.startsWith("trf_") ? "transfer" : component ? "package_component" : null;
+      const itemType: CanonicalItem["item_type"] = item.kind === "arrival" ? (trip.chosenTransport ? "transfer" : "flight") : item.kind === "experience" || item.kind === "entry_ticket" ? "poi" : item.kind === "hotel" ? "hotel" : item.kind === "guide" ? "guide" : item.kind === "meal" ? "meal" : item.kind === "transfer" ? "transfer" : "free";
+      const swapped = component && component.id !== component.defaultId;
+      items.push({
+        day_index: day.day,
+        item_type: itemType,
+        entity_type: entityType,
+        entity_id: entityType === "flight" ? null : entityId,
+        title: item.label,
+        cost: item.kind === "arrival" ? (leg?.price ?? 0) * Math.max(1, trip.travelers) : item.price ?? 0,
+        duration_minutes: item.kind === "arrival" ? minutesOf(leg?.duration) : item.kind === "transfer" ? minutesOf(item.detail) : 0,
+        explanation: item.kind === "guide" ? "Guide checked against guide_availability and remaining slots on every trip date" : swapped ? "Swapped by the traveller from the package default" : null,
+      });
+    }
+  }
+  return items;
+}
+
+// ---------------------------------------------------------------------------
 // Chat auto-build
 // ---------------------------------------------------------------------------
 
-export async function autoBuildTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap?: number; language: string; interests?: string; hotelTier?: "budget" | "boutique" | "luxury"; transportMode?: "flight" | "train" | "cab" }) {
+export async function autoBuildTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap?: number; language: string; interests?: string; hotelTier?: "budget" | "boutique" | "luxury"; transportMode?: "flight" | "train" | "cab"; userId?: string; channel?: "web" | "mobile_app" }) {
   const durationDays = Math.max(1, daysBetween(input.departDate, input.returnDate));
   const destination = resolveDestination(input.destination).city;
   const pkg = packageForCity(destination);

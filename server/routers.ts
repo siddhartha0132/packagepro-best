@@ -77,11 +77,11 @@ export const appRouter = router({
   trip: router({
     create: publicProcedure.input(z.object({
       origin: z.string(), destination: z.string(), departDate: z.string(), returnDate: z.string(),
-      travelers: z.number().int().min(1).max(20), budgetCap: z.number().positive(), language: languageSchema, interests: z.string().optional(),
+      travelers: z.number().int().min(1).max(20), budgetCap: z.number().positive(), language: languageSchema, interests: z.string().optional(), userId: z.string().regex(/^usr_/).optional(),
     })).mutation(({ input }) => trips.createTrip(input)),
     autoBuild: publicProcedure.input(z.object({
       origin: z.string(), destination: z.string(), departDate: z.string(), returnDate: z.string(),
-      travelers: z.number().int().min(1).max(20), budgetCap: z.number().positive().optional(), language: languageSchema, interests: z.string().optional(), hotelTier: z.enum(["budget", "boutique", "luxury"]).optional(), transportMode: z.enum(["flight", "train", "cab"]).optional(),
+      travelers: z.number().int().min(1).max(20), budgetCap: z.number().positive().optional(), language: languageSchema, interests: z.string().optional(), hotelTier: z.enum(["budget", "boutique", "luxury"]).optional(), transportMode: z.enum(["flight", "train", "cab"]).optional(), userId: z.string().regex(/^usr_/).optional(),
     })).mutation(({ input }) => trips.autoBuildTrip(input)),
     get: publicProcedure.input(z.object({ tripId: z.string() })).query(({ input }) => trips.getTrip(input.tripId)),
     selectFlight: publicProcedure.input(z.object({ tripId: z.string(), flightId: z.string() })).mutation(({ input }) => trips.selectFlight(input.tripId, input.flightId)),
@@ -98,7 +98,7 @@ export const appRouter = router({
     goBack: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.goBack(input.tripId)),
     setLanguage: publicProcedure.input(z.object({ tripId: z.string(), language: languageSchema })).mutation(({ input }) => trips.setLanguage(input.tripId, input.language)),
     bookings: publicProcedure.query(() => listBookings()),
-    confirm: publicProcedure.input(z.object({ tripId: z.string(), email: z.string().email().optional(), phone: z.string().optional() })).mutation(({ input }) => trips.confirmTrip(input.tripId, { email: input.email, phone: input.phone })),
+    confirm: publicProcedure.input(z.object({ tripId: z.string(), email: z.string().email().optional(), phone: z.string().optional(), idempotencyKey: z.string().min(8).max(80).optional() })).mutation(({ input }) => trips.confirmTrip(input.tripId, { email: input.email, phone: input.phone }, { idempotencyKey: input.idempotencyKey })),
   }),
 });
 
