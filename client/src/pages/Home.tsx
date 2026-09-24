@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, BedDouble, FileDown, Calendar, Check, Compass, Flame, Languages, Map as MapIcon, MapPin, Plane, Search, Share2, Sparkles, Star, Ticket, Users, UtensilsCrossed, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -199,8 +199,8 @@ export default function Home() {
               <DateCell label={copy("depart")} value={form.departDate} onChange={value => { update("departDate", value); if (value >= form.returnDate) update("returnDate", addDays(value, 3)); }} />
               <DateCell label={copy("return")} value={form.returnDate} min={addDays(form.departDate, 1)} onChange={value => update("returnDate", value)} />
               <FieldCell label={copy("travellersBudget")}>
-                <div className="flex items-baseline gap-1"><input type="number" min={1} max={20} value={form.travelers} onChange={event => update("travelers", Math.max(1, Number(event.target.value)))} className="w-8 bg-transparent text-2xl font-black outline-none" /><Users className="h-4 w-4 text-[#5f6b7a]" /></div>
-                <div className="flex items-center text-[11px] text-[#5f6b7a]">₹<input type="number" min={1000} step={1000} value={form.budgetCap} onChange={event => update("budgetCap", Number(event.target.value))} className="w-20 bg-transparent font-semibold text-[#0b1f3a] outline-none" /></div>
+                <div className="flex items-baseline gap-1"><input type="text" inputMode="numeric" aria-label={copy("travelers")} value={form.travelers} onChange={event => update("travelers", Math.min(20, Math.max(1, Number(event.target.value.replace(/\D/g, "").slice(-2)) || 1)))} className="w-8 bg-transparent text-2xl font-black outline-none" /><Users className="h-4 w-4 text-[#5f6b7a]" /></div>
+                <div className="flex items-center text-[11px] text-[#5f6b7a]">₹<input type="text" inputMode="numeric" aria-label={copy("yourBudget")} value={form.budgetCap ? form.budgetCap.toLocaleString("en-IN") : ""} onChange={event => update("budgetCap", Math.min(10_000_000, Number(event.target.value.replace(/\D/g, "")) || 0))} placeholder="40,000" className="w-24 bg-transparent font-semibold text-[#0b1f3a] outline-none" /></div>
               </FieldCell>
               <FieldCell label={copy("guideLanguage")}>
                 <select value={form.language} onChange={event => changeGuideLanguage(event.target.value)} className="absolute inset-0 cursor-pointer opacity-0">{GUIDE_LANGS.map(lang => <option key={lang.value} value={lang.value}>{lang.native}</option>)}</select>
@@ -348,14 +348,20 @@ export default function Home() {
   </div>;
 }
 
-function FieldCell({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="relative block cursor-pointer border-b border-[#e6ebf2] px-4 py-3 transition hover:bg-[#f5f9ff] sm:border-r lg:border-b-0"><div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-[#5f6b7a]">{label}</div>{children}</label>;
+function FieldCell({ label, children, onClick }: { label: string; children: React.ReactNode; onClick?: () => void }) {
+  const className = "relative block cursor-pointer border-b border-[#e6ebf2] px-4 py-3 transition hover:bg-[#f5f9ff] sm:border-r lg:border-b-0";
+  const heading = <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-[#5f6b7a]">{label}</div>;
+  // A clickable cell is a div, not a label: a label would also forward the click to its input and toggle the picker twice.
+  return onClick ? <div onClick={onClick} className={className}>{heading}{children}</div> : <label className={className}>{heading}{children}</label>;
 }
 
 function DateCell({ label, value, min, onChange }: { label: string; value: string; min?: string; onChange: (value: string) => void }) {
   const date = prettyDate(value);
-  return <FieldCell label={label}>
-    <input type="date" value={value} min={min} onChange={event => event.target.value && onChange(event.target.value)} className="absolute inset-0 cursor-pointer opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full" />
+  const input = useRef<HTMLInputElement>(null);
+  // Open the native calendar from anywhere in the cell without stretching its indicator (which shows a "Show date picker" tooltip).
+  const open = () => { try { input.current?.showPicker(); } catch { input.current?.focus(); } };
+  return <FieldCell label={label} onClick={open}>
+    <input ref={input} type="date" value={value} min={min} aria-label={label} onChange={event => event.target.value && onChange(event.target.value)} className="pointer-events-none absolute bottom-0 left-4 h-px w-px opacity-0" />
     <div className="flex items-baseline gap-1"><span className="text-2xl font-black">{date.day}</span><span className="text-sm font-bold">{date.rest}</span></div>
     <div className="text-[11px] text-[#5f6b7a]">{date.weekday}</div>
   </FieldCell>;
