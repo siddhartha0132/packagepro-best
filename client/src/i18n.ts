@@ -108,6 +108,11 @@ const copy = {
     saved: "Draft saved",
     share: "Share plan",
     copied: "Link copied",
+    detail: "Package detail",
+    routes: "routes",
+    guideAddons: "Local guide add-ons",
+    sharedLoaded: "Shared plan loaded",
+    confidence: "confidence",
   },
   ta: {
     brand: "பேக்கேஜ் புரோ",
@@ -209,6 +214,11 @@ const copy = {
     saved: "வரைவு சேமிக்கப்பட்டது",
     share: "திட்டத்தை பகிர்",
     copied: "இணைப்பு நகலெடுக்கப்பட்டது",
+    detail: "தொகுப்பு விவரம்",
+    routes: "வழிகள்",
+    guideAddons: "உள்ளூர் வழிகாட்டி சேர்க்கைகள்",
+    sharedLoaded: "பகிரப்பட்ட திட்டம் ஏற்றப்பட்டது",
+    confidence: "நம்பகத்தன்மை",
   },
   hi: {
     brand: "पैकेजप्रो",
@@ -310,6 +320,11 @@ const copy = {
     saved: "ड्राफ्ट सेव हो गया",
     share: "प्लान शेयर करें",
     copied: "लिंक कॉपी हो गया",
+    detail: "पैकेज विवरण",
+    routes: "रूट",
+    guideAddons: "लोकल गाइड ऐड-ऑन",
+    sharedLoaded: "शेयर किया गया प्लान लोड हो गया",
+    confidence: "विश्वास",
   },
   te: {
     brand: "ప్యాకేజ్ ప్రో",
@@ -411,6 +426,11 @@ const copy = {
     saved: "డ్రాఫ్ట్ సేవ్ అయింది",
     share: "ప్లాన్ షేర్ చేయి",
     copied: "లింక్ కాపీ అయింది",
+    detail: "ప్యాకేజీ వివరాలు",
+    routes: "రూట్లు",
+    guideAddons: "లోకల్ గైడ్ యాడ్-ఆన్స్",
+    sharedLoaded: "షేర్ చేసిన ప్లాన్ లోడ్ అయింది",
+    confidence: "నమ్మకం",
   },
 } as const;
 

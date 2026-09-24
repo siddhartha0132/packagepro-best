@@ -15,6 +15,7 @@ export type PackageRecord = {
   duration: number;
   basePrice: number;
   description: string;
+  image: string;
   tags: string[];
   components: PackageComponent[];
 };
@@ -57,6 +58,7 @@ export const PACKAGES: PackageRecord[] = [
     duration: 3,
     basePrice: 21400,
     description: "Tamil-speaking stories, living bronze craft, and the quiet geometry of the Chola heartland.",
+    image: "/manus-storage/thanjavur_ab6c3046.jpg",
     tags: ["heritage", "culture", "slow travel"],
     components: [
       { id: "hotel-thanjavur-courtyard", type: "hotel", label: "Courtyard heritage stay", detail: "Boutique · breakfast included", price: 6800, swapGroup: "hotel" },
@@ -74,6 +76,7 @@ export const PACKAGES: PackageRecord[] = [
     duration: 4,
     basePrice: 28500,
     description: "Pink city mornings, hand-block prints, and a heritage stay close to the old walls.",
+    image: "/manus-storage/jaipur_e21af428.jpg",
     tags: ["heritage", "food", "slow travel"],
     components: [
       { id: "hotel-jaipur-boutique", type: "hotel", label: "Courtyard haveli stay", detail: "Boutique · breakfast included", price: 9200, swapGroup: "hotel" },
@@ -91,6 +94,7 @@ export const PACKAGES: PackageRecord[] = [
     duration: 4,
     basePrice: 22400,
     description: "A softer Goa built around local kitchens, quiet coves, and an unhurried final day.",
+    image: "/manus-storage/goa_a37cc251.jpg",
     tags: ["beach", "food", "slow travel"],
     components: [
       { id: "hotel-goa-garden", type: "hotel", label: "Garden boutique", detail: "Boutique · breakfast included", price: 7600, swapGroup: "hotel" },
@@ -108,6 +112,7 @@ export const PACKAGES: PackageRecord[] = [
     duration: 3,
     basePrice: 19800,
     description: "A grounded introduction to the riverfront, living craft, and the city's devotional rhythm.",
+    image: "/manus-storage/varanasi_c36642d3.jpg",
     tags: ["heritage", "religious", "culture"],
     components: [
       { id: "hotel-vns-house", type: "hotel", label: "Riverfront guesthouse", detail: "Boutique · breakfast included", price: 6100, swapGroup: "hotel" },
