@@ -92,8 +92,37 @@ describe("master trip flow", () => {
     expect(trip.guideAvailabilityIssue?.replacement?.id).toBe("guide-meera");
     expect(trip.guideAvailabilityIssue?.replacement?.specialisation).toBe("heritage");
     expect(trip.guideAvailabilityIssue?.replacement?.languages).toContain("ta");
+    expect(trip.guideAvailabilityIssue?.requestedDates).toEqual(["2026-09-02", "2026-09-03", "2026-09-04"]);
+    expect(trip.guideAvailabilityIssue?.replacementOptions.length).toBeGreaterThan(0);
     trip = await api.trip.selectGuide({ tripId: trip.tripId, guideId: "guide-meera", days: 3 });
     expect(trip.status).toBe("review");
     expect(trip.chosenGuide?.id).toBe("guide-meera");
+  });
+
+  it("blocks a guide with unknown or missing availability instead of treating it as open", async () => {
+    const api = caller();
+    let trip = await api.trip.create({ origin: "DEL", destination: "BLR", departDate: "2026-09-25", returnDate: "2026-09-27", travelers: 1, budgetCap: 80000, language: "ta" });
+    trip = await api.trip.selectFlight({ tripId: trip.tripId, flightId: trip.flightOptions[0].id });
+    trip = await api.trip.selectHotel({ tripId: trip.tripId, hotelId: trip.hotelOptions[0].id });
+    trip = await api.trip.continuePackage({ tripId: trip.tripId });
+    const guides = await api.trip.guides({ tripId: trip.tripId });
+    expect(guides.every(guide => guide.isAvailableForTrip === false)).toBe(true);
+    trip = await api.trip.selectGuide({ tripId: trip.tripId, guideId: "guide-arjun", days: 2 });
+    expect(trip.status).toBe("select_guide");
+    expect(trip.guideAvailabilityIssue?.conflictingDates).toEqual(["2026-09-25", "2026-09-26"]);
+    expect(trip.chosenGuide).toBeNull();
+  });
+
+  it("limits a compliant guide by the live budget and exposes negotiation instead of silently overcharging", async () => {
+    const api = caller();
+    let trip = await api.trip.create({ origin: "DEL", destination: "BLR", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 1, budgetCap: 41299, language: "ta" });
+    trip = await api.trip.selectFlight({ tripId: trip.tripId, flightId: [...trip.flightOptions].sort((a, b) => a.price - b.price)[0].id });
+    trip = await api.trip.selectHotel({ tripId: trip.tripId, hotelId: trip.hotelOptions[0].id });
+    trip = await api.trip.continuePackage({ tripId: trip.tripId });
+    trip = await api.trip.selectGuide({ tripId: trip.tripId, guideId: "guide-meera", days: 3 });
+    expect(trip.status).toBe("negotiate");
+    expect(trip.chosenGuide).toBeNull();
+    expect(trip.pending?.label).toContain("guide Meera Novak");
+    expect(trip.negotiationOptions.some(option => option.choice === "raise_cap")).toBe(true);
   });
 });

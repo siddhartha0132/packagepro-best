@@ -40,11 +40,11 @@ export const appRouter = router({
     guides: publicProcedure.input(z.object({ city: z.string(), language: languageSchema.optional(), specialisation: z.string().optional() })).query(({ input }) => {
       return GUIDES.filter(guide => guide.city.toLowerCase() === input.city.toLowerCase() && (!input.language || guide.languages.includes(input.language) || guide.languages.includes("en-IN") || guide.languages.includes("en")) && (!input.specialisation || guide.specialisation === input.specialisation));
     }),
-    checkGuide: publicProcedure.input(z.object({ guideId: z.string(), departDate: z.string(), duration: z.number().int().min(1).max(30) })).query(({ input }) => {
+    checkGuide: publicProcedure.input(z.object({ guideId: z.string(), departDate: z.string(), duration: z.number().int().min(1).max(30), language: languageSchema.optional(), specialisation: z.string().optional() })).query(({ input }) => {
       const guide = GUIDES.find(item => item.id === input.guideId);
       if (!guide) throw new Error("Guide not found");
       const dates = datesBetween(input.departDate, input.duration);
-      const result = guideCheck(guide, dates);
+      const result = guideCheck(guide, dates, { language: input.language, specialisation: input.specialisation });
       return { guide, dates, ...result, accepted: result.conflicts.length === 0, total: guide.dayRate * dates.length, replacementTotal: result.replacement ? result.replacement.dayRate * dates.length : null };
     }),
     recommend: publicProcedure.input(z.object({ query: z.string().default(""), language: languageSchema, destination: z.string().optional(), budget: z.number().positive().optional() })).query(async ({ input }) => ({ ...recommendPackages(input.query, input.language, input.destination, input.budget), destinationInsight: input.destination ? await getDestinationInsight(input.destination) : null, groundedIn: ["PackagePro package catalogue", "guide availability records", "language preferences", "cached destination insight"] })),

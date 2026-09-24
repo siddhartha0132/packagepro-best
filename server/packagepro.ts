@@ -155,11 +155,17 @@ export function datesBetween(start: string, duration: number) {
   });
 }
 
-export function guideCheck(guide: GuideRecord, dates: string[]) {
-  const conflicts = dates.filter(date => guide.availability[date] === false);
-  const candidates = GUIDES.filter(candidate => candidate.id !== guide.id && candidate.city === guide.city && candidate.specialisation === guide.specialisation && candidate.languages.some(language => guide.languages.includes(language)) && dates.every(date => candidate.availability[date] === true));
-  const replacement = candidates.sort((a, b) => Math.abs(a.dayRate - guide.dayRate) - Math.abs(b.dayRate - guide.dayRate) || b.rating - a.rating)[0] ?? null;
-  return { conflicts, replacement, priceDelta: replacement ? (replacement.dayRate - guide.dayRate) * dates.length : null };
+export function guideCheck(guide: GuideRecord, dates: string[], options: { language?: string; specialisation?: string; chargeDays?: number } = {}) {
+  const requiredSpecialisation = options.specialisation || guide.specialisation;
+  const speaksRequestedLanguage = (candidate: GuideRecord) => !options.language || candidate.languages.includes(options.language);
+  const conflicts = dates.filter(date => guide.availability[date] !== true);
+  const candidates = GUIDES.filter(candidate => candidate.id !== guide.id && candidate.city === guide.city && candidate.specialisation === requiredSpecialisation && speaksRequestedLanguage(candidate) && dates.every(date => candidate.availability[date] === true));
+  const chargeDays = options.chargeDays ?? dates.length;
+  const replacementOptions = candidates
+    .sort((a, b) => Math.abs(a.dayRate - guide.dayRate) - Math.abs(b.dayRate - guide.dayRate) || b.rating - a.rating)
+    .map(candidate => ({ guide: candidate, priceDelta: (candidate.dayRate - guide.dayRate) * chargeDays }));
+  const replacement = replacementOptions[0]?.guide ?? null;
+  return { conflicts, replacement, replacementOptions, priceDelta: replacement ? (replacement.dayRate - guide.dayRate) * chargeDays : null, requiredSpecialisation };
 }
 
 export function recommendPackages(query: string, language: string, destination?: string, budget?: number) {

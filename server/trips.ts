@@ -17,6 +17,7 @@ export type Trip = {
   runningTotal: number;
   language: string;
   interests: string;
+  guideSpecialisation: string;
   status: TripStatus;
   flightOptions: FlightRecord[];
   hotelOptions: HotelRecord[];
@@ -32,6 +33,7 @@ export type Trip = {
     conflictingDates: string[];
     requestedDates: string[];
     replacement: GuideRecord | null;
+    replacementOptions: { guide: GuideRecord; priceDelta: number }[];
     replacementTotalCost: number | null;
     priceDelta: number | null;
   } | null;
@@ -99,6 +101,10 @@ function defaultComponents(pkg: PackageRecord) {
   return Array.from(groups.values());
 }
 
+function guideSpecialisationFor(pkg: PackageRecord | null) {
+  return pkg?.tags.some(tag => ["food", "culinary"].includes(tag.toLowerCase())) ? "food" : "heritage";
+}
+
 export async function createTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap: number; language: string; interests?: string }) {
   const origin = input.origin.trim().toUpperCase();
   const code = input.destination.trim().toUpperCase();
@@ -112,7 +118,7 @@ export async function createTrip(input: { origin: string; destination: string; d
     origin, destination, destinationCode: code,
     departDate: input.departDate, returnDate: input.returnDate, durationDays,
     travelers: input.travelers, budgetCap: input.budgetCap, runningTotal: 0,
-    language: input.language, interests: input.interests || "",
+    language: input.language, interests: input.interests || "", guideSpecialisation: "heritage",
     status: "select_flight",
     flightOptions: liveFlights.flights,
     hotelOptions: [], chosenFlight: null, chosenHotel: null,
@@ -239,6 +245,7 @@ export function selectHotel(tripId: string, hotelId: string) {
     trip.package = pkg;
     trip.packagePrice = packagePrice;
     trip.packageComponents = defaultComponents(pkg);
+    trip.guideSpecialisation = guideSpecialisationFor(pkg);
     log(trip, "tool_result", `Loaded package '${pkg.name}' with ${trip.packageComponents.length} components`);
   } else {
     trip.pending && (trip.pending.payload = { hotel, packagePrice });
@@ -272,7 +279,14 @@ export function continueFromPackage(tripId: string) {
 export function listGuides(tripId: string, specialisation?: string) {
   const trip = trips.get(tripId);
   if (!trip) throw new Error("Trip not found");
-  return GUIDES.filter(guide => guide.city === trip.destination && (!specialisation || guide.specialisation === specialisation) && (guide.languages.includes(trip.language) || guide.languages.includes("en-IN") || guide.languages.includes("en")));
+  const requiredSpecialisation = specialisation || trip.guideSpecialisation;
+  const requestedDates = datesBetween(trip.departDate, trip.durationDays);
+  return GUIDES.filter(guide => guide.city === trip.destination && guide.specialisation === requiredSpecialisation && guide.languages.includes(trip.language)).map(guide => ({
+    ...guide,
+    requestedDates,
+    unavailableDates: requestedDates.filter(date => guide.availability[date] !== true),
+    isAvailableForTrip: requestedDates.every(date => guide.availability[date] === true),
+  }));
 }
 
 export function selectGuide(tripId: string, guideId: string, days: number) {
@@ -281,24 +295,29 @@ export function selectGuide(tripId: string, guideId: string, days: number) {
   if (trip.status !== "select_guide") throw new Error(`Can't book a guide from '${trip.status}'`);
   const guide = GUIDES.find(item => item.id === guideId);
   if (!guide) throw new Error("Guide not found for this destination");
-  const bookedDays = Math.min(days, trip.durationDays);
-  const dates = datesBetween(trip.departDate, bookedDays);
-  const check = guideCheck(guide, dates);
+  if (guide.city !== trip.destination) throw new Error(`This guide is not based in ${trip.destination}`);
+  if (guide.specialisation !== trip.guideSpecialisation) throw new Error(`Choose a ${trip.guideSpecialisation} guide for this package`);
+  if (!guide.languages.includes(trip.language)) throw new Error(`This guide does not match the requested ${trip.language} language preference`);
+  if (!Number.isInteger(days) || days < 1 || days > trip.durationDays) throw new Error(`Guide days must be between 1 and the ${trip.durationDays}-day trip duration`);
+  const bookedDays = days;
+  const packageDates = datesBetween(trip.departDate, trip.durationDays);
+  const bookedDates = datesBetween(trip.departDate, bookedDays);
+  const check = guideCheck(guide, packageDates, { language: trip.language, specialisation: trip.guideSpecialisation, chargeDays: bookedDays });
   if (check.conflicts.length) {
     trip.guideAvailabilityIssue = {
-      guide, conflictingDates: check.conflicts, requestedDates: dates, replacement: check.replacement,
-      replacementTotalCost: check.replacement ? check.replacement.dayRate * dates.length : null,
+      guide, conflictingDates: check.conflicts, requestedDates: packageDates, replacement: check.replacement, replacementOptions: check.replacementOptions,
+      replacementTotalCost: check.replacement ? check.replacement.dayRate * bookedDays : null,
       priceDelta: check.priceDelta,
     };
-    log(trip, "decision", `Guide ${guide.name} unavailable on ${check.conflicts.join(", ")}${check.replacement ? `; offered ${check.replacement.name} instead` : ""}`);
+    log(trip, "decision", `Guide ${guide.name} unavailable on ${check.conflicts.join(", ")}; checked all ${packageDates.length} actual package date(s) for ${trip.language}/${trip.guideSpecialisation}${check.replacement ? `; offered ${check.replacement.name} with delta ₹${Math.abs(check.priceDelta || 0).toLocaleString("en-IN")}` : "; no compliant substitute available"}`);
     return snapshot(trip);
   }
-  const cost = guide.dayRate * dates.length;
-  if (tryAdd(trip, cost, `guide ${guide.name} (${dates.length}d)`, "review")) {
-    trip.chosenGuide = { ...guide, daysBooked: dates.length, totalCost: cost, bookedDates: dates };
+  const cost = guide.dayRate * bookedDays;
+  if (tryAdd(trip, cost, `guide ${guide.name} (${bookedDays}d)`, "review")) {
+    trip.chosenGuide = { ...guide, daysBooked: bookedDays, totalCost: cost, bookedDates: bookedDates };
     trip.guideAvailabilityIssue = null;
   } else {
-    trip.pending && (trip.pending.payload = { guide: { ...guide, daysBooked: dates.length, totalCost: cost, bookedDates: dates } });
+    trip.pending && (trip.pending.payload = { guide: { ...guide, daysBooked: bookedDays, totalCost: cost, bookedDates: bookedDates } });
   }
   return snapshot(trip);
 }
@@ -352,6 +371,7 @@ async function applyPending(trip: Trip, pending: NonNullable<Trip["pending"]>) {
     trip.package = pkg;
     trip.packagePrice = Number(payload.packagePrice || packagePriceFor(pkg, trip.durationDays));
     trip.packageComponents = defaultComponents(pkg);
+    trip.guideSpecialisation = guideSpecialisationFor(pkg);
     log(trip, "tool_result", `Loaded package '${pkg.name}' with ${trip.packageComponents.length} components`);
   }
   if (payload.guide) trip.chosenGuide = payload.guide as Trip["chosenGuide"];
