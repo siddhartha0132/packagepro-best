@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
-import { FLIGHTS, GUIDES, HOTELS, PACKAGES, datesBetween, getAlternatives, guideCheck, realityCheck, type FlightRecord, type GuideRecord, type HotelRecord, type PackageComponent, type PackageRecord } from "./packagepro";
+import { GUIDES, PACKAGES, datesBetween, getAlternatives, guideCheck, realityCheck, type FlightRecord, type GuideRecord, type HotelRecord, type PackageComponent, type PackageRecord } from "./packagepro";
+import { DESTINATIONS, searchFlightsLive, searchHotelsLive, sendConfirmation } from "./integrations";
 
 export type TripStatus = "select_flight" | "select_hotel" | "select_package" | "select_guide" | "negotiate" | "review" | "confirmed";
 
@@ -32,23 +33,22 @@ export type Trip = {
     replacementTotalCost: number | null;
     priceDelta: number | null;
   } | null;
+  flightSource: string;
+  hotelSource: string;
   negotiationOptions: { choice: string; amount?: number; item_label: string; label: string }[];
   pending: { amount: number; label: string; retryStatus: TripStatus; advanceStatus: TripStatus; payload?: Record<string, unknown> } | null;
   trace: { kind: string; text: string }[];
 };
 
 const trips = new Map<string, Trip>();
-
-const CITY_BY_CODE: Record<string, string> = {
-  GOI: "Goa", JAI: "Jaipur", VNS: "Varanasi", BLR: "Thanjavur", MAA: "Thanjavur",
-  UDR: "Jaipur", AGR: "Jaipur", SXR: "Goa", LKO: "Varanasi",
-};
+const CITY_BY_CODE: Record<string, string> = Object.fromEntries(DESTINATIONS.map(item => [item.code, item.city]));
 
 function snapshot(trip: Trip) {
   return {
     ...trip,
     remaining: trip.budgetCap - trip.runningTotal,
     reality: realityCheck(trip.destination, trip.budgetCap, trip.durationDays),
+    canGoBack: trip.status !== "confirmed" && trip.status !== "select_flight",
   };
 }
 
@@ -80,15 +80,6 @@ function tryAdd(trip: Trip, amount: number, label: string, advanceTo: TripStatus
   return false;
 }
 
-function flightsFor(origin: string, destination: string): FlightRecord[] {
-  return FLIGHTS.map(flight => ({ ...flight, route: `${origin} → ${destination.slice(0, 3).toUpperCase()}` }));
-}
-
-function hotelsFor(city: string) {
-  const matches = HOTELS.filter(hotel => hotel.city === city);
-  return matches.length ? matches : HOTELS.filter(hotel => hotel.city === "Thanjavur");
-}
-
 function packageFor(city: string) {
   return PACKAGES.find(pkg => pkg.city === city) ?? PACKAGES[0];
 }
@@ -102,13 +93,14 @@ function defaultComponents(pkg: PackageRecord) {
   return Array.from(groups.values());
 }
 
-export function createTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap: number; language: string; interests?: string }) {
+export async function createTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap: number; language: string; interests?: string }) {
   const origin = input.origin.trim().toUpperCase();
   const code = input.destination.trim().toUpperCase();
   if (origin === code) throw new Error("origin and destination can't be the same");
   const durationDays = Math.round((Date.parse(`${input.returnDate}T00:00:00Z`) - Date.parse(`${input.departDate}T00:00:00Z`)) / 86400000);
   if (!Number.isFinite(durationDays) || durationDays <= 0) throw new Error("return_date must be after depart_date");
   const destination = CITY_BY_CODE[code] ?? "Thanjavur";
+  const liveFlights = await searchFlightsLive(origin, code, input.departDate);
   const trip: Trip = {
     tripId: `trp_${nanoid(8)}`,
     origin, destination, destinationCode: code,
@@ -116,13 +108,14 @@ export function createTrip(input: { origin: string; destination: string; departD
     travelers: input.travelers, budgetCap: input.budgetCap, runningTotal: 0,
     language: input.language, interests: input.interests || "",
     status: "select_flight",
-    flightOptions: flightsFor(origin, destination),
+    flightOptions: liveFlights.flights,
     hotelOptions: [], chosenFlight: null, chosenHotel: null,
     package: null, packageComponents: [], chosenGuide: null, guideAvailabilityIssue: null,
+    flightSource: liveFlights.source, hotelSource: "catalogue",
     negotiationOptions: [], pending: null, trace: [],
   };
   log(trip, "reasoning", `Planning ${durationDays}-day trip to ${destination}, cap ₹${trip.budgetCap.toLocaleString("en-IN")}`);
-  log(trip, "tool_result", `Found ${trip.flightOptions.length} flight options`);
+  log(trip, "tool_result", `Found ${trip.flightOptions.length} flight options via ${liveFlights.source}`);
   trips.set(trip.tripId, trip);
   return snapshot(trip);
 }
@@ -133,7 +126,7 @@ export function getTrip(tripId: string) {
   return snapshot(trip);
 }
 
-export function selectFlight(tripId: string, flightId: string) {
+export async function selectFlight(tripId: string, flightId: string) {
   const trip = trips.get(tripId);
   if (!trip) throw new Error("Trip not found");
   if (trip.status !== "select_flight") throw new Error(`Can't book a flight from '${trip.status}'`);
@@ -141,10 +134,11 @@ export function selectFlight(tripId: string, flightId: string) {
   if (!flight) throw new Error("Flight not in this trip's options");
   if (tryAdd(trip, flight.price, `the ${flight.airline} flight`, "select_hotel")) {
     trip.chosenFlight = flight;
-    trip.hotelOptions = hotelsFor(trip.destination);
-    log(trip, "tool_result", `Found ${trip.hotelOptions.length} hotel options`);
-  }
-  else {
+    const liveHotels = await searchHotelsLive(trip.destination, trip.departDate, trip.returnDate, trip.travelers);
+    trip.hotelOptions = liveHotels.hotels;
+    trip.hotelSource = liveHotels.source;
+    log(trip, "tool_result", `Found ${trip.hotelOptions.length} hotel options via ${liveHotels.source}`);
+  } else {
     trip.pending && (trip.pending.payload = { flight });
   }
   return snapshot(trip);
@@ -162,8 +156,7 @@ export function selectHotel(tripId: string, hotelId: string) {
     trip.package = pkg;
     trip.packageComponents = defaultComponents(pkg);
     log(trip, "tool_result", `Loaded package '${pkg.name}' with ${trip.packageComponents.length} components`);
-  }
-  else {
+  } else {
     trip.pending && (trip.pending.payload = { hotel });
   }
   return snapshot(trip);
@@ -195,7 +188,7 @@ export function continueFromPackage(tripId: string) {
 export function listGuides(tripId: string, specialisation?: string) {
   const trip = trips.get(tripId);
   if (!trip) throw new Error("Trip not found");
-  return GUIDES.filter(guide => guide.city === trip.destination && (!specialisation || guide.specialisation === specialisation) && (guide.languages.includes(trip.language) || guide.languages.includes("en-IN")));
+  return GUIDES.filter(guide => guide.city === trip.destination && (!specialisation || guide.specialisation === specialisation) && (guide.languages.includes(trip.language) || guide.languages.includes("en-IN") || guide.languages.includes("en")));
 }
 
 export function selectGuide(tripId: string, guideId: string, days: number) {
@@ -220,8 +213,7 @@ export function selectGuide(tripId: string, guideId: string, days: number) {
   if (tryAdd(trip, cost, `guide ${guide.name} (${dates.length}d)`, "review")) {
     trip.chosenGuide = { ...guide, daysBooked: dates.length, totalCost: cost, bookedDates: dates };
     trip.guideAvailabilityIssue = null;
-  }
-  else {
+  } else {
     trip.pending && (trip.pending.payload = { guide: { ...guide, daysBooked: dates.length, totalCost: cost, bookedDates: dates } });
   }
   return snapshot(trip);
@@ -236,21 +228,21 @@ export function skipGuide(tripId: string) {
   return snapshot(trip);
 }
 
-export function negotiate(tripId: string, choice: string, newCap?: number) {
+export async function negotiate(tripId: string, choice: string, newCap?: number) {
   const trip = trips.get(tripId);
   if (!trip?.pending) throw new Error("Nothing to negotiate right now");
   const pending = trip.pending;
   if (choice === "approve_overage") {
     trip.runningTotal += pending.amount;
     trip.status = pending.advanceStatus;
-    applyPending(trip, pending);
+    await applyPending(trip, pending);
     log(trip, "decision", `Approved the overage for ${pending.label}`);
   } else if (choice === "raise_cap") {
     if (!newCap || newCap <= trip.budgetCap) throw new Error("new_cap must be greater than the current cap");
     trip.budgetCap = newCap;
     trip.runningTotal += pending.amount;
     trip.status = pending.advanceStatus;
-    applyPending(trip, pending);
+    await applyPending(trip, pending);
     log(trip, "decision", `Raised cap to ₹${trip.budgetCap.toLocaleString("en-IN")} and approved ${pending.label}`);
   } else {
     trip.status = pending.retryStatus;
@@ -261,12 +253,14 @@ export function negotiate(tripId: string, choice: string, newCap?: number) {
   return snapshot(trip);
 }
 
-function applyPending(trip: Trip, pending: NonNullable<Trip["pending"]>) {
+async function applyPending(trip: Trip, pending: NonNullable<Trip["pending"]>) {
   const payload = pending.payload ?? {};
   if (payload.flight) {
     trip.chosenFlight = payload.flight as FlightRecord;
-    trip.hotelOptions = hotelsFor(trip.destination);
-    log(trip, "tool_result", `Found ${trip.hotelOptions.length} hotel options`);
+    const liveHotels = await searchHotelsLive(trip.destination, trip.departDate, trip.returnDate, trip.travelers);
+    trip.hotelOptions = liveHotels.hotels;
+    trip.hotelSource = liveHotels.source;
+    log(trip, "tool_result", `Found ${trip.hotelOptions.length} hotel options via ${liveHotels.source}`);
   }
   if (payload.hotel) {
     trip.chosenHotel = payload.hotel as HotelRecord;
@@ -278,11 +272,76 @@ function applyPending(trip: Trip, pending: NonNullable<Trip["pending"]>) {
   if (payload.guide) trip.chosenGuide = payload.guide as Trip["chosenGuide"];
 }
 
-export function confirmTrip(tripId: string) {
+export function goBack(tripId: string) {
+  const trip = trips.get(tripId);
+  if (!trip) throw new Error("Trip not found");
+  if (trip.status === "confirmed") throw new Error("A confirmed trip cannot go back");
+  if (trip.status === "negotiate") {
+    trip.status = trip.pending?.retryStatus ?? "select_flight";
+    trip.pending = null;
+    trip.negotiationOptions = [];
+    log(trip, "decision", "Left negotiation without adding the item");
+    return snapshot(trip);
+  }
+  if (trip.status === "select_hotel") {
+    if (trip.chosenFlight) {
+      trip.runningTotal -= trip.chosenFlight.price;
+      trip.chosenFlight = null;
+    }
+    trip.runningTotal = Math.max(0, trip.runningTotal);
+    trip.status = "select_flight";
+    log(trip, "decision", "Went back to flight selection");
+    return snapshot(trip);
+  }
+  if (trip.status === "select_package") {
+    if (trip.chosenHotel) {
+      trip.runningTotal -= trip.chosenHotel.total;
+      trip.chosenHotel = null;
+    }
+    trip.runningTotal = Math.max(0, trip.runningTotal);
+    trip.package = null;
+    trip.packageComponents = [];
+    trip.status = "select_hotel";
+    log(trip, "decision", "Went back to hotel selection");
+    return snapshot(trip);
+  }
+  if (trip.status === "select_guide") {
+    trip.status = "select_package";
+    trip.guideAvailabilityIssue = null;
+    log(trip, "decision", "Went back to package review");
+    return snapshot(trip);
+  }
+  if (trip.status === "review") {
+    if (trip.chosenGuide) {
+      trip.runningTotal -= trip.chosenGuide.totalCost;
+      trip.chosenGuide = null;
+    }
+    trip.runningTotal = Math.max(0, trip.runningTotal);
+    trip.status = "select_guide";
+    log(trip, "decision", "Went back to guide selection");
+    return snapshot(trip);
+  }
+  throw new Error("Already at the first planning stage");
+}
+
+export function setLanguage(tripId: string, language: string) {
+  const trip = trips.get(tripId);
+  if (!trip) throw new Error("Trip not found");
+  trip.language = language;
+  log(trip, "decision", `Language switched to ${language}`);
+  return snapshot(trip);
+}
+
+export async function confirmTrip(tripId: string, contact?: { email?: string; phone?: string }) {
   const trip = trips.get(tripId);
   if (!trip) throw new Error("Trip not found");
   if (trip.status === "negotiate") throw new Error("Resolve the pending budget negotiation first");
   trip.status = "confirmed";
+  const summary = `PackagePro confirmed: ${trip.origin} → ${trip.destination} ${trip.departDate} to ${trip.returnDate}. Total ₹${Math.round(trip.runningTotal).toLocaleString("en-IN")} of ₹${trip.budgetCap.toLocaleString("en-IN")}.`;
   log(trip, "decision", `Trip confirmed — final total ₹${Math.round(trip.runningTotal).toLocaleString("en-IN")} of ₹${trip.budgetCap.toLocaleString("en-IN")} cap`);
+  if (contact?.email || contact?.phone) {
+    const sent = await sendConfirmation({ email: contact.email, phone: contact.phone, summary });
+    log(trip, "tool_result", `Notifications: email ${sent.email ? "sent" : "skipped"}, sms ${sent.sms ? "sent" : "skipped"}`);
+  }
   return snapshot(trip);
 }

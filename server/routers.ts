@@ -4,6 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { GUIDES, PACKAGES, datesBetween, getAlternatives, guideCheck, realityCheck, recommendPackages } from "./packagepro";
+import { DESTINATIONS, ORIGINS, translateMany } from "./integrations";
 import * as trips from "./trips";
 
 const languageSchema = z.string().min(2).max(20).default("en-IN");
@@ -19,6 +20,7 @@ export const appRouter = router({
     }),
   }),
   packagepro: router({
+    cities: publicProcedure.query(() => ({ origins: ORIGINS, destinations: DESTINATIONS })),
     reality: publicProcedure.input(z.object({ destination: z.string(), budget: z.number().positive(), duration: z.number().int().positive() })).query(({ input }) => realityCheck(input.destination, input.budget, input.duration)),
     list: publicProcedure.input(z.object({ theme: z.string().optional(), language: languageSchema.optional() }).optional()).query(({ input }) => {
       const theme = input?.theme?.toLowerCase();
@@ -34,7 +36,7 @@ export const appRouter = router({
       return pkg ? getAlternatives(pkg, input.componentId) : [];
     }),
     guides: publicProcedure.input(z.object({ city: z.string(), language: languageSchema.optional(), specialisation: z.string().optional() })).query(({ input }) => {
-      return GUIDES.filter(guide => guide.city.toLowerCase() === input.city.toLowerCase() && (!input.language || guide.languages.includes(input.language) || guide.languages.includes("en-IN")) && (!input.specialisation || guide.specialisation === input.specialisation));
+      return GUIDES.filter(guide => guide.city.toLowerCase() === input.city.toLowerCase() && (!input.language || guide.languages.includes(input.language) || guide.languages.includes("en-IN") || guide.languages.includes("en")) && (!input.specialisation || guide.specialisation === input.specialisation));
     }),
     checkGuide: publicProcedure.input(z.object({ guideId: z.string(), departDate: z.string(), duration: z.number().int().min(1).max(30) })).query(({ input }) => {
       const guide = GUIDES.find(item => item.id === input.guideId);
@@ -44,6 +46,7 @@ export const appRouter = router({
       return { guide, dates, ...result, accepted: result.conflicts.length === 0, total: guide.dayRate * dates.length, replacementTotal: result.replacement ? result.replacement.dayRate * dates.length : null };
     }),
     recommend: publicProcedure.input(z.object({ query: z.string().default(""), language: languageSchema })).query(({ input }) => ({ ...recommendPackages(input.query, input.language), groundedIn: ["PackagePro package catalogue", "guide availability records", "language preferences"] })),
+    translate: publicProcedure.input(z.object({ texts: z.array(z.string()).max(40), language: languageSchema })).mutation(({ input }) => translateMany(input.texts, input.language)),
   }),
   trip: router({
     create: publicProcedure.input(z.object({
@@ -59,7 +62,9 @@ export const appRouter = router({
     selectGuide: publicProcedure.input(z.object({ tripId: z.string(), guideId: z.string(), days: z.number().int().min(1).max(30) })).mutation(({ input }) => trips.selectGuide(input.tripId, input.guideId, input.days)),
     skipGuide: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.skipGuide(input.tripId)),
     negotiate: publicProcedure.input(z.object({ tripId: z.string(), choice: z.enum(["approve_overage", "swap_cheaper", "remove_item", "raise_cap"]), newCap: z.number().optional() })).mutation(({ input }) => trips.negotiate(input.tripId, input.choice, input.newCap)),
-    confirm: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.confirmTrip(input.tripId)),
+    goBack: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.goBack(input.tripId)),
+    setLanguage: publicProcedure.input(z.object({ tripId: z.string(), language: languageSchema })).mutation(({ input }) => trips.setLanguage(input.tripId, input.language)),
+    confirm: publicProcedure.input(z.object({ tripId: z.string(), email: z.string().email().optional(), phone: z.string().optional() })).mutation(({ input }) => trips.confirmTrip(input.tripId, { email: input.email, phone: input.phone })),
   }),
 });
 
