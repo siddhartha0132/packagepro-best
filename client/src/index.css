@@ -1,31 +1,56 @@
 @import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap");
 @import "tailwindcss";
 
+/* Design tokens: one blue travel palette shared by the page and the shadcn/ui primitives (dialogs, popovers, selects, toasts). */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--foreground);
+  --color-muted: var(--secondary);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--secondary);
+  --color-accent-foreground: var(--foreground);
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--line);
+  --color-input: var(--line);
+  --color-ring: var(--primary);
+}
+
 :root {
   font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  color: #17231f;
-  background: #f7f5ef;
+  color: #0b1f3a;
+  background: #f2f5fa;
+  --background: #ffffff;
+  --foreground: #0b1f3a;
+  --card: #ffffff;
+  --primary: #0b6bcb;
+  --secondary: #eef3fa;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --ink: #17231f;
-  --muted: #68736c;
-  --teal: #286c62;
-  --teal-soft: #e1efea;
-  --sand: #ecd8b4;
-  --orange: #b6762a;
-  --paper: #f7f5ef;
-  --line: #d8d7cd;
+  --ink: #0b1f3a;
+  --muted: #5f6b7a;
+  --sky-soft: #e8f1fd;
+  --paper: #f2f5fa;
+  --line: #e6ebf2;
   --ease-out: cubic-bezier(.23,1,.32,1);
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { min-width: 320px; min-height: 100vh; margin: 0; background: radial-gradient(circle at 85% 0%, rgba(235,219,183,.30), transparent 30rem), radial-gradient(circle at 0% 44%, rgba(225,239,234,.22), transparent 26rem), var(--paper); }
+body { min-width: 320px; min-height: 100vh; margin: 0; background: var(--paper); color: var(--ink); }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; transition: transform 180ms var(--ease-out), border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease; }
 button:active { transform: scale(.98); }
-button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .font-serif { font-family: "Fraunces", Georgia, serif; }
-::selection { background: var(--sand); color: var(--ink); }
+::selection { background: var(--sky-soft); color: var(--ink); }
 
 .landing-page { position: relative; }
 .hero-spotlight { position: relative; min-height: 350px; margin: 0 0 42px; overflow: hidden; border-radius: 28px; background: #263b34; box-shadow: 0 22px 60px rgba(23,35,31,.16); isolation: isolate; }

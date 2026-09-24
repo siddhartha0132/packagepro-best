@@ -135,7 +135,7 @@ export function EstimateView({ estimate, loading, lang, onContinue, continuing }
       </Panel>
     </div>
 
-    <Button disabled={continuing} onClick={onContinue} className="h-12 w-full rounded-full bg-gradient-to-r from-[#ff8a3d] to-[#f0541e] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg hover:opacity-95">{continuing ? <Loader2 className="h-4 w-4 animate-spin" /> : copy("continueFlights")}</Button>
+    <Button disabled={continuing} onClick={onContinue} className="h-12 w-full rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg hover:opacity-95">{continuing ? <Loader2 className="h-4 w-4 animate-spin" /> : copy("continueFlights")}</Button>
   </div>;
 }
 
@@ -177,7 +177,7 @@ export function ReviewPanel({ trip, lang, busy, email, phone, setEmail, setPhone
       <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_1.4fr]">
         <Button variant="outline" className="h-12 rounded-full" disabled={busy} onClick={onEdit}>{copy("editPackage")}</Button>
         <Button variant="outline" className="h-12 rounded-full border-[#25d366] text-[#128c4a]" onClick={onWhatsApp}>{copy("whatsapp")}</Button>
-        <Button disabled={busy} onClick={onConfirm} className="h-12 rounded-full bg-gradient-to-r from-[#ff8a3d] to-[#f0541e] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg">{copy("confirmTrip")}</Button>
+        <Button disabled={busy} onClick={onConfirm} className="h-12 rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg">{copy("confirmTrip")}</Button>
       </div>
     </Panel> : <div className="grid gap-2 sm:grid-cols-2"><Button variant="outline" className="h-12 rounded-full border-[#25d366] text-[#128c4a]" onClick={onWhatsApp}>{copy("whatsapp")}</Button><Button variant="outline" className="h-12 rounded-full" onClick={onStartOver}>{copy("another")}</Button></div>}
   </div>;
