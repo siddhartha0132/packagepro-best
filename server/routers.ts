@@ -4,7 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { GUIDES, PACKAGES, datesBetween, getAlternatives, guideCheck, guideCost, realityCheck, recommendPackages } from "./packagepro";
-import { DESTINATIONS, ORIGINS, translateMany } from "./integrations";
+import { DESTINATIONS, ORIGINS, prewarmTranslations, translateMany } from "./integrations";
 import { explainWithFreeOpenRouter } from "./aiChat";
 import { cityImage, getDestinationInsight, warmCityImages } from "./insights";
 import { PACKAGE_POPULARITY, estimateTrip } from "./estimate";
@@ -13,6 +13,11 @@ import * as trips from "./trips";
 const languageSchema = z.string().min(2).max(20).default("en-IN");
 
 void warmCityImages(PACKAGES.map(pkg => pkg.city));
+// Demo languages: package names, cities, themes and copy translate once in the background (Sarvam, cached on disk).
+void prewarmTranslations(Array.from(new Set([
+  ...PACKAGES.flatMap(pkg => [pkg.name, pkg.city, pkg.theme, pkg.description, pkg.inclusions, pkg.exclusions]),
+  ...ORIGINS.flatMap(origin => [origin.city, origin.airport]),
+])), ["hi", "ta", "te"]);
 
 /** Package as served to the client: real destination photo when warmed, plus dataset popularity. */
 function withMedia<T extends (typeof PACKAGES)[number]>(pkg: T) {
@@ -60,7 +65,7 @@ export const appRouter = router({
       return { guide, dates, ...result, accepted: result.conflicts.length === 0, total: guideCost(guide, dates), replacementTotal: result.replacementOptions[0]?.totalCost ?? null };
     }),
     recommend: publicProcedure.input(z.object({ query: z.string().default(""), language: languageSchema, destination: z.string().optional(), budget: z.number().positive().optional() })).query(async ({ input }) => ({ ...recommendPackages(input.query, input.language, input.destination, input.budget), destinationInsight: input.destination ? await getDestinationInsight(input.destination) : null, groundedIn: ["PackagePro package catalogue", "guide availability records", "language preferences", "cached destination insight"] })),
-    estimate: publicProcedure.input(z.object({ origin: z.string(), destination: z.string(), departDate: z.string(), returnDate: z.string(), travelers: z.number().int().min(1).max(20), budget: z.number().positive(), language: languageSchema, interests: z.string().optional() })).query(({ input }) => estimateTrip(input)),
+    estimate: publicProcedure.input(z.object({ origin: z.string(), destination: z.string(), departDate: z.string(), returnDate: z.string(), travelers: z.number().int().min(1).max(20), budget: z.number().positive(), language: languageSchema, interests: z.string().optional(), uiLanguage: z.string().max(10).optional() })).query(({ input }) => estimateTrip(input)),
     translate: publicProcedure.input(z.object({ texts: z.array(z.string()).max(40), language: languageSchema })).mutation(({ input }) => translateMany(input.texts, input.language)),
     explain: publicProcedure.input(z.object({
       messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().min(1).max(2000) })),

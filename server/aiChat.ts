@@ -45,6 +45,53 @@ async function getFreeModels(): Promise<string[]> {
   return DEFAULT_FREE_MODELS;
 }
 
+const LANGUAGE_NAMES: Record<string, string> = { "en-IN": "English", en: "English", hi: "Hindi", ta: "Tamil", te: "Telugu", kn: "Kannada", ml: "Malayalam", mr: "Marathi", gu: "Gujarati", bn: "Bengali", pa: "Punjabi", or: "Odia", ur: "Urdu" };
+export const languageName = (tag?: string) => LANGUAGE_NAMES[tag || "en-IN"] || "English";
+
+/**
+ * One chat completion from the first provider that answers:
+ *  1. Sarvam `sarvam-105b-conversations` — Indian-language native, sub-second.
+ *  2. OpenRouter free-model chain.
+ * Returns null when no provider is configured or all fail (callers keep a grounded fallback).
+ */
+export async function chatLLM(messages: ChatMessage[], options: { maxTokens?: number; temperature?: number; json?: boolean; timeoutMs?: number } = {}): Promise<{ text: string; model: string } | null> {
+  if (process.env.NODE_ENV === "test" || process.env.VITEST) return null;
+  const { maxTokens = 500, temperature = 0.2, json = false, timeoutMs = 9000 } = options;
+  const sarvam = env("SARVAM_API_KEY");
+  if (sarvam) {
+    try {
+      const res = await fetch("https://api.sarvam.ai/v1/chat/completions", {
+        method: "POST",
+        headers: { "api-subscription-key": sarvam, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "sarvam-105b-conversations", messages, temperature, max_tokens: maxTokens }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.ok) {
+        const body = await res.json() as { choices?: { message?: { content?: string | null } }[] };
+        const text = body.choices?.[0]?.message?.content?.trim();
+        if (text) return { text, model: "sarvam-105b" };
+      }
+    } catch { /* fall through to OpenRouter */ }
+  }
+  const key = env("OPENROUTER_API_KEY");
+  if (!key) return null;
+  for (const model of (await getFreeModels()).slice(0, 3)) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "HTTP-Referer": "https://packagepro.local", "X-Title": "PackagePro", "Content-Type": "application/json" },
+        body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens, ...(json ? { response_format: { type: "json_object" } } : {}) }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) continue;
+      const body = await res.json() as { choices?: { message?: { content?: string } }[] };
+      const text = body.choices?.[0]?.message?.content?.trim();
+      if (text) return { text, model };
+    } catch { /* try the next free model */ }
+  }
+  return null;
+}
+
 function dateOnly(date: Date) { return date.toISOString().slice(0, 10); }
 
 function nextWeekendStart() {
@@ -119,41 +166,25 @@ function parseTripCommand(text: string, context?: Record<string, unknown>): Trip
   return null;
 }
 
-async function parseTripRequestWithModel(text: string, context: Record<string, unknown>, key: string): Promise<TripRequest | null> {
-  if (!key || process.env.NODE_ENV === "test" || process.env.VITEST) return null;
-  const models = await getFreeModels();
-  const destinations = JSON.stringify(context.availableDestinations || []);
+async function parseTripRequestWithModel(text: string, context: Record<string, unknown>): Promise<TripRequest | null> {
+  const destinations = JSON.stringify((context.availableDestinations as CataloguePlace[] | undefined || []).map(place => ({ code: place.code, city: place.city })));
   const origins = JSON.stringify(context.availableOrigins || []);
-  for (const model of models.slice(0, 2)) {
-    try {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          temperature: 0,
-          max_tokens: 180,
-          messages: [
-            { role: "system", content: `Extract a travel request into JSON. Only return JSON, no markdown. Match origin and destination to these exact catalogue records. If this is not a request to plan or change a trip, set isTripRequest false. Resolve next weekend relative to today ${dateOnly(new Date())}. Extract durationDays, hotelTier (budget, boutique, luxury), and transportMode (flight, train, cab) when stated. Origins: ${origins}. Destinations: ${destinations}.` },
-            { role: "user", content: text },
-          ],
-          response_format: { type: "json_object" },
-        }),
-        signal: AbortSignal.timeout(4500),
-      });
-      if (!res.ok) continue;
-      const body = await res.json() as { choices?: { message?: { content?: string } }[] };
-      const raw = body.choices?.[0]?.message?.content?.trim();
-      if (!raw) continue;
-      const parsed = JSON.parse(raw.replace(/^```json\s*|\s*```$/g, "")) as { isTripRequest?: boolean; originCode?: string; destinationCode?: string; durationDays?: number; departDate?: string; returnDate?: string; hotelTier?: "budget" | "boutique" | "luxury"; transportMode?: "flight" | "train" | "cab" };
-      if (!parsed.isTripRequest || !parsed.destinationCode) continue;
-      const destination = (context.availableDestinations as CataloguePlace[]).find(place => place.code === parsed.destinationCode);
-      const origin = (context.availableOrigins as CataloguePlace[]).find(place => place.code === parsed.originCode);
-      if (!destination) continue;
-      return { origin, destination, durationDays: parsed.durationDays, departDate: parsed.departDate, returnDate: parsed.returnDate, hotelTier: parsed.hotelTier, transportMode: parsed.transportMode || "flight" };
-    } catch { /* deterministic parser and next model remain available */ }
+  const reply = await chatLLM([
+    { role: "system", content: `Extract a travel request into JSON. Only return a JSON object, no markdown, no prose. Keys: isTripRequest (boolean), originCode, destinationCode, durationDays, departDate (YYYY-MM-DD), returnDate, hotelTier (budget|boutique|luxury), transportMode (flight|train|cab). Match origin and destination to these exact catalogue codes. The text may be in any Indian language. If this is not a request to plan a trip, set isTripRequest false. Resolve relative dates against today ${dateOnly(new Date())}. Origins: ${origins}. Destinations: ${destinations}.` },
+    { role: "user", content: text },
+  ], { maxTokens: 200, temperature: 0, json: true, timeoutMs: 6000 });
+  if (!reply) return null;
+  try {
+    const raw = reply.text.match(/\{[\s\S]*\}/)?.[0] ?? reply.text;
+    const parsed = JSON.parse(raw) as { isTripRequest?: boolean; originCode?: string; destinationCode?: string; durationDays?: number; departDate?: string; returnDate?: string; hotelTier?: "budget" | "boutique" | "luxury"; transportMode?: "flight" | "train" | "cab" };
+    if (!parsed.isTripRequest || !parsed.destinationCode) return null;
+    const destination = (context.availableDestinations as CataloguePlace[]).find(place => place.code === parsed.destinationCode);
+    const origin = (context.availableOrigins as CataloguePlace[]).find(place => place.code === parsed.originCode);
+    if (!destination) return null;
+    return { origin, destination, durationDays: parsed.durationDays, departDate: parsed.departDate, returnDate: parsed.returnDate, hotelTier: parsed.hotelTier, transportMode: parsed.transportMode || "flight" };
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export async function explainWithFreeOpenRouter(messages: ChatMessage[], context?: Record<string, unknown>) {
@@ -162,39 +193,19 @@ export async function explainWithFreeOpenRouter(messages: ChatMessage[], context
   if (command) {
     return { text: command.type === "remove_guide" ? "I’ll remove the guide from your current itinerary and reprice the running total." : `I’ll look for a ${command.target} hotel in the current destination and reprice the live total.`, modelUsed: "planner-command-parser", fallbackChain: ["catalogue-command-parser"], command };
   }
-  const tripRequest = parseTripRequest(latest, context) || await parseTripRequestWithModel(latest, context || {}, env("OPENROUTER_API_KEY"));
+  const tripRequest = parseTripRequest(latest, context) || await parseTripRequestWithModel(latest, context || {});
   if (tripRequest) {
     return { text: requestText(tripRequest), modelUsed: "planner-intent-parser", fallbackChain: ["catalogue-intent-parser"], tripRequest };
   }
 
-  const key = env("OPENROUTER_API_KEY");
-  const systemPrompt = `You are the transparent PackagePro Agent inside a live travel planner. Use ONLY the supplied PackagePro context and catalogue facts. Explain exactly why a package, flight, hotel, guide, or substitute was selected. Mention the traveller's interests, selected city, budget math, language match, and real guide availability dates when relevant. If the user asks to plan a trip, identify origin, destination, duration, and relative dates and return an actionable planner request. Never assume Thanjavur or invent inventory.
-Live PackagePro context: ${JSON.stringify(context || {})}
-Style: concise, friendly, concrete, and honest.`;
-  const fullMessages: ChatMessage[] = [{ role: "system", content: systemPrompt }, ...messages];
-
-  if (!key || process.env.NODE_ENV === "test" || process.env.VITEST) {
-    return { text: fallbackExplanation(latest, context), modelUsed: !key ? "offline-context-engine" : "test-context-engine", fallbackChain: [!key ? "no-openrouter-key" : "vitest-isolated"] };
-  }
-
-  const freeModels = await getFreeModels();
-  const attempted: string[] = [];
-  for (const model of freeModels.slice(0, 4)) {
-    attempted.push(model);
-    try {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "HTTP-Referer": "https://packagepro.local", "X-Title": "PackagePro Transparent Trip Agent", "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages: fullMessages, temperature: 0.2, max_tokens: 420 }),
-        signal: AbortSignal.timeout(4500),
-      });
-      if (!res.ok) continue;
-      const body = await res.json() as { choices?: { message?: { content?: string } }[] };
-      const reply = body.choices?.[0]?.message?.content?.trim();
-      if (reply) return { text: reply, modelUsed: model, fallbackChain: attempted };
-    } catch { /* try next free model */ }
-  }
-  return { text: fallbackExplanation(latest, context), modelUsed: "context-fallback", fallbackChain: attempted };
+  const replyLanguage = languageName(typeof context?.language === "string" ? context.language : undefined);
+  const systemPrompt = `You are the transparent PackagePro Agent inside a live travel planner. Use ONLY the supplied PackagePro context and catalogue facts. Explain exactly why a package, flight, hotel, guide, or substitute was selected. Mention the traveller's interests, selected city, budget math, language match, and real guide availability dates when relevant. Never assume a destination or invent inventory or prices.
+Live PackagePro context: ${JSON.stringify(context || {}).slice(0, 6000)}
+Style: concise (under 120 words), friendly, concrete, honest. Never mention what the context lacks — answer with what it has.
+Write the whole reply in natural ${replyLanguage}${replyLanguage === "English" ? "" : " script — translate words like destination, budget, guide and package; keep only proper nouns, flight numbers and ₹ figures as they are"}.`;
+  const reply = await chatLLM([{ role: "system", content: systemPrompt }, ...messages.map(message => ({ role: message.role, content: message.content }))], { maxTokens: 500 });
+  if (reply) return { text: reply.text, modelUsed: reply.model, fallbackChain: [reply.model] };
+  return { text: fallbackExplanation(latest, context), modelUsed: process.env.VITEST ? "test-context-engine" : "context-fallback", fallbackChain: ["no-llm-provider"] };
 }
 
 function fallbackExplanation(userQuery: string, context?: Record<string, unknown>): string {
@@ -220,23 +231,7 @@ function fallbackExplanation(userQuery: string, context?: Record<string, unknown
   return `I can explain this live plan using its actual city, interests, budget, selected components, and guide availability. Ask “Why this package?”, “Why this hotel?”, or “Why was this guide replaced?” and I’ll show the relevant trade-off.`;
 }
 
-/** One grounded completion from the free OpenRouter model chain; null when no key or every model fails. */
-export async function completeGrounded(system: string, user: string, maxTokens = 320): Promise<{ text: string; model: string } | null> {
-  const key = env("OPENROUTER_API_KEY");
-  if (!key || process.env.NODE_ENV === "test" || process.env.VITEST) return null;
-  for (const model of (await getFreeModels()).slice(0, 3)) {
-    try {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "HTTP-Referer": "https://packagepro.local", "X-Title": "PackagePro Trip Estimate", "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], temperature: 0.2, max_tokens: maxTokens }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) continue;
-      const body = await res.json() as { choices?: { message?: { content?: string } }[] };
-      const text = body.choices?.[0]?.message?.content?.trim();
-      if (text) return { text, model };
-    } catch { /* try the next free model */ }
-  }
-  return null;
+/** One grounded completion (Sarvam first, then OpenRouter); null when no provider answers. */
+export async function completeGrounded(system: string, user: string, maxTokens = 400) {
+  return chatLLM([{ role: "system", content: system }, { role: "user", content: user }], { maxTokens });
 }

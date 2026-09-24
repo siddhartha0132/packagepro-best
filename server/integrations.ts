@@ -1,4 +1,6 @@
 import { createHash } from "crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { FLIGHTS, HOTELS, PACKAGES, type FlightRecord, type HotelRecord } from "./packagepro";
 
 const SARVAM_LANG: Record<string, string> = {
@@ -7,9 +9,27 @@ const SARVAM_LANG: Record<string, string> = {
   ta: "ta-IN",
   hi: "hi-IN",
   te: "te-IN",
+  kn: "kn-IN",
+  ml: "ml-IN",
+  mr: "mr-IN",
+  gu: "gu-IN",
+  bn: "bn-IN",
+  pa: "pa-IN",
+  or: "od-IN",
 };
 
-const translationCache = new Map<string, string>();
+// Sarvam translations persist to disk so restarts (and an offline demo) keep every string already translated.
+const TRANSLATION_FILE = path.resolve(process.cwd(), "data/translation-cache.json");
+const translationCache = new Map<string, string>(Object.entries((() => { try { return JSON.parse(readFileSync(TRANSLATION_FILE, "utf8")) as Record<string, string>; } catch { return {}; } })()));
+let translationSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function persistTranslations() {
+  if (process.env.VITEST) return;
+  if (translationSaveTimer) return; // throttle: at most one write every 3 s while translations stream in
+  translationSaveTimer = setTimeout(() => {
+    translationSaveTimer = null;
+    try { writeFileSync(TRANSLATION_FILE, JSON.stringify(Object.fromEntries(translationCache))); } catch { /* read-only disk: keep in memory */ }
+  }, 3000);
+}
 let inrPerUsd: { value: number; at: number } | null = null;
 let inrPerEur: { value: number; at: number } | null = null;
 
@@ -329,21 +349,39 @@ export async function translateText(input: string, language: string) {
         model: "mayura:v1",
         mode: "formal",
       }),
-    }, 4000);
+    }, 8000);
     if (!res.ok) return input;
     const body = await res.json() as { translated_text?: string };
     const translated = body.translated_text || input;
-    translationCache.set(cacheKey, translated);
+    if (translated !== input) { translationCache.set(cacheKey, translated); persistTranslations(); }
     return translated;
   } catch {
     return input;
   }
 }
 
+/** Translate a batch with at most 6 Sarvam calls in flight (cached per string). */
 export async function translateMany(values: string[], language: string) {
   const unique = Array.from(new Set(values.filter(Boolean)));
-  const entries = await Promise.all(unique.map(async value => [value, await translateText(value, language)] as const));
-  return Object.fromEntries(entries) as Record<string, string>;
+  const result: Record<string, string> = {};
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(6, unique.length) }, async () => {
+    while (next < unique.length) {
+      const value = unique[next++];
+      result[value] = await translateText(value, language);
+    }
+  }));
+  return result;
+}
+
+/** Background warm-up: translate catalogue strings for the demo languages once (cached on disk afterwards). */
+export async function prewarmTranslations(texts: string[], languages: string[]) {
+  if (process.env.NODE_ENV === "test" || process.env.VITEST || !env("SARVAM_API_KEY")) return;
+  for (const language of languages) {
+    const target = SARVAM_LANG[language];
+    const missing = texts.filter(text => text && !translationCache.has(`${target}::${text}`));
+    for (let index = 0; index < missing.length; index += 24) await translateMany(missing.slice(index, index + 24), language);
+  }
 }
 
 export async function sendConfirmation(input: { email?: string; phone?: string; summary: string }) {

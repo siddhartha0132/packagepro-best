@@ -47,7 +47,7 @@ export default function AgentTransparencyChat({
   const [messages, setMessages] = useState<ChatItem[]>([
     {
       role: "assistant",
-      content: "I can explain every live PackagePro decision or understand a natural trip request. Try: ‘Make me a two-day Jaipur trip from Delhi next weekend.’",
+      content: t(lang, "agentWelcome"),
       modelUsed: "catalogue-aware-free-model-chain",
     },
   ]);
@@ -59,7 +59,7 @@ export default function AgentTransparencyChat({
       if (parsedRequest) onBuildPackage(parsedRequest);
       if (data.command) onCommand(data.command as TripCommand);
     },
-    onError: (error) => setMessages((prev) => [...prev, { role: "assistant", content: `I couldn't process that request yet: ${error.message}`, modelUsed: "request-error" }]),
+    onError: (error) => setMessages((prev) => [...prev, { role: "assistant", content: `${t(lang, "agentError")} ${error.message}`, modelUsed: "request-error" }]),
   });
 
   const send = (textToSend?: string) => {
@@ -72,6 +72,7 @@ export default function AgentTransparencyChat({
       messages: next.map(m => ({ role: m.role, content: m.content })),
       context: {
         ...plannerContext,
+        language: lang,
         availableOrigins: plannerContext.availableOrigins,
         availableDestinations: plannerContext.availableDestinations,
         planner: {
@@ -105,25 +106,25 @@ export default function AgentTransparencyChat({
             <Bot className="h-4 w-4 text-[#0b6bcb]" />
             <div className="text-[15px] font-bold">{t(lang, "agentExplains")}</div>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setOpen(!open)} className="text-xs whitespace-nowrap">
+          <Button variant="outline" size="sm" onClick={() => setOpen(!open)} className="h-auto max-w-full whitespace-normal py-1.5 text-left text-xs">
             <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
-            {open ? "Collapse" : t(lang, "askAgent")}
+            {open ? t(lang, "collapse") : t(lang, "askAgent")}
           </Button>
         </div>
 
         {open && (
           <div className="mt-4 space-y-3">
             <div className="flex flex-wrap gap-1.5 text-xs">
-              <button type="button" onClick={() => send("Why did you recommend this package and destination?")} className="rounded-full bg-[#e8f1fd] px-2.5 py-1 text-[11px] font-medium text-[#0b6bcb] hover:bg-[#d6e6fb]">Why this package?</button>
-              <button type="button" onClick={() => send("Why was this hotel or flight picked for my budget?")} className="rounded-full bg-[#fbf3e4] px-2.5 py-1 text-[11px] font-medium text-[#b6762a] hover:bg-[#f6ebd4]">Why this hotel/flight?</button>
-              <button type="button" onClick={() => send("Explain how guide availability and substitution works.")} className="rounded-full border border-[#e6ebf2] bg-[#ffffff] px-2.5 py-1 text-[11px] text-[#0b1f3a] hover:bg-[#eae6db]">Guide check rules</button>
+              <button type="button" onClick={() => send(t(lang, "qWhyPackage"))} className="rounded-full bg-[#e8f1fd] px-2.5 py-1 text-[11px] font-medium text-[#0b6bcb] hover:bg-[#d6e6fb]">{t(lang, "chipWhyPackage")}</button>
+              <button type="button" onClick={() => send(t(lang, "qWhyHotel"))} className="rounded-full bg-[#fbf3e4] px-2.5 py-1 text-[11px] font-medium text-[#b6762a] hover:bg-[#f6ebd4]">{t(lang, "chipWhyHotel")}</button>
+              <button type="button" onClick={() => send(t(lang, "qGuideRules"))} className="rounded-full border border-[#e6ebf2] bg-[#ffffff] px-2.5 py-1 text-[11px] text-[#0b1f3a] hover:bg-[#eae6db]">{t(lang, "chipGuideRules")}</button>
             </div>
 
             <div className="max-h-72 space-y-2 overflow-y-auto rounded-md border border-[#e6ebf2] bg-[#f6f8fb] p-3 text-xs">
               {messages.map((m, idx) => (
                 <div key={idx} className={`space-y-1 ${m.role === "user" ? "text-right" : "text-left"}`}>
-                  <div className={`inline-block max-w-[95%] rounded-lg px-3 py-2 leading-relaxed ${m.role === "user" ? "bg-[#0b1f3a] text-[#ffffff]" : "border border-[#e6ebf2] bg-white text-[#0b1f3a]"}`}>{m.content}</div>
-                  {m.tripRequest && <div className="mt-2 rounded border border-[#b9d5f6] bg-[#e8f1fd]/70 p-2 text-left"><div className="font-semibold text-[#0b6bcb]">{m.tripRequest.origin?.city || "Origin"} → {m.tripRequest.destination?.city || "Destination"} · {m.tripRequest.durationDays || 2} days</div><div className="mt-1 text-[10px] text-[#5f6b7a]">{m.tripRequest.departDate || "Choose dates"}{m.tripRequest.returnDate ? ` → ${m.tripRequest.returnDate}` : ""}</div><div className="mt-2 flex gap-2"><Button size="sm" onClick={() => onBuildPackage(m.tripRequest!)} className="h-7 bg-[#0b1f3a] text-[11px] text-[#ffffff] hover:bg-[#13325e]">Build complete package</Button><Button size="sm" variant="outline" onClick={() => onApplyTrip(m.tripRequest!)} className="h-7 text-[11px]">{t(lang, "useThisSetup")}</Button></div></div>}
+                  <div className={`inline-block max-w-[95%] rounded-lg px-3 py-2 leading-relaxed ${m.role === "user" ? "bg-[#0b1f3a] text-[#ffffff]" : "border border-[#e6ebf2] bg-white text-[#0b1f3a]"}`}>{idx === 0 && m.role === "assistant" ? t(lang, "agentWelcome") : m.content}</div>
+                  {m.tripRequest && <div className="mt-2 rounded border border-[#b9d5f6] bg-[#e8f1fd]/70 p-2 text-left"><div className="font-semibold text-[#0b6bcb]">{m.tripRequest.origin?.city || t(lang, "from")} → {m.tripRequest.destination?.city || t(lang, "to")} · {m.tripRequest.durationDays || 2} days</div><div className="mt-1 text-[10px] text-[#5f6b7a]">{m.tripRequest.departDate || t(lang, "chooseDates")}{m.tripRequest.returnDate ? ` → ${m.tripRequest.returnDate}` : ""}</div><div className="mt-2 flex gap-2"><Button size="sm" onClick={() => onBuildPackage(m.tripRequest!)} className="h-7 bg-[#0b1f3a] text-[11px] text-[#ffffff] hover:bg-[#13325e]">{t(lang, "buildComplete")}</Button><Button size="sm" variant="outline" onClick={() => onApplyTrip(m.tripRequest!)} className="h-7 text-[11px]">{t(lang, "useThisSetup")}</Button></div></div>}
                   {m.modelUsed && <div className="text-[10px] text-[#5f6b7a]">powered by <Badge variant="outline" className="border-[#b9d5f6] px-1 py-0 text-[9px]">{m.modelUsed}</Badge></div>}
                 </div>
               ))}

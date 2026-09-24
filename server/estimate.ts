@@ -1,5 +1,5 @@
 import { all, rupees } from "./catalogue";
-import { completeGrounded } from "./aiChat";
+import { completeGrounded, languageName } from "./aiChat";
 import { getDestinationInsight } from "./insights";
 import { DESTINATIONS, searchFlightsLive } from "./integrations";
 import { GUIDES, PACKAGES, datesBetween, guideCost, packageForCity } from "./packagepro";
@@ -82,7 +82,7 @@ const median = (values: number[]) => {
   return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 };
 
-export async function estimateTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budget: number; language: string; interests?: string }) {
+export async function estimateTrip(input: { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budget: number; language: string; interests?: string; uiLanguage?: string }) {
   const needle = input.destination.trim().toLowerCase();
   const place = DESTINATIONS.find(item => item.code.toLowerCase() === needle || item.city.toLowerCase() === needle) ?? DESTINATIONS.find(item => item.airport.toLowerCase() === needle);
   if (!place) throw new Error(`No PackagePro package covers '${input.destination}' yet`);
@@ -128,7 +128,7 @@ export async function estimateTrip(input: { origin: string; destination: string;
     estimate: { low, typical, high }, pastTravellers: popularity,
   };
   const ai = await completeGrounded(
-    "You are PackagePro's trip-cost analyst. Use ONLY the JSON facts given. In 3 short bullet points: (1) whether the budget fits and the realistic per-traveller spend, (2) what past travellers to this city liked most, (3) one concrete money-saving or upgrade tip. Quote rupee figures from the facts; never invent prices.",
+    `You are PackagePro's trip-cost analyst. Use ONLY the JSON facts given. In 3 short bullet points: (1) whether the budget fits and the realistic per-traveller spend, (2) what past travellers to this city liked most, (3) one concrete money-saving or upgrade tip. Quote rupee figures from the facts; never invent prices. Reply in ${languageName(input.uiLanguage)}.`,
     JSON.stringify(grounded),
   );
   const fallbackAdvice = [

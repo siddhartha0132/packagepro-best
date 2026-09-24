@@ -8,7 +8,8 @@ import { LANGS, type CopyKey, type Lang, t } from "@/i18n";
 import AgentTransparencyChat from "@/components/AgentTransparencyChat";
 import { buildWhatsAppUrl } from "@/lib/itineraryExport";
 import { PackageCustomiser, PriceBreakdown } from "@/components/PackageCustomiser";
-import { EstimateView, FlightRow, NegotiationPanel, Panel, ReviewPanel, ScreenHeader, SectionTitle, Stepper, money, prettyDate } from "@/components/TripScreens";
+import { EstimateView, FlightRow, NegotiationPanel, Panel, ReviewPanel, ScreenHeader, SectionTitle, Stepper, money, prettyDate, slotLabel } from "@/components/TripScreens";
+import { useTr } from "@/lib/translate";
 
 function isoDateFromToday(offset: number) { const date = new Date(); date.setDate(date.getDate() + offset); return date.toISOString().slice(0, 10); }
 function addDays(iso: string, days: number) { const date = new Date(`${iso}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
@@ -20,7 +21,8 @@ const GUIDE_LANGS = [
   { value: "bn", native: "বাংলা · Bengali" }, { value: "pa", native: "ਪੰਜਾਬੀ · Punjabi" }, { value: "or", native: "ଓଡ଼ିଆ · Odia" }, { value: "ur", native: "اردو · Urdu" },
 ];
 const THEMES = ["heritage", "honeymoon", "adventure", "pilgrimage", "family", "wellness", "wildlife", "food_trail"] as const;
-const MOODS = ["Heritage & living temples", "Beaches & slow food", "Pilgrimage & dawn rituals", "Street food trails", "Mountains & treks"];
+/** Mood chips: the English value feeds interest matching; the label is translated. */
+const MOODS: { value: string; key: CopyKey }[] = [{ value: "Heritage & living temples", key: "mood1" }, { value: "Beaches & slow food", key: "mood2" }, { value: "Pilgrimage & dawn rituals", key: "mood3" }, { value: "Street food trails", key: "mood4" }, { value: "Mountains & treks", key: "mood5" }];
 
 type FormState = { origin: string; destination: string; departDate: string; returnDate: string; travelers: number; budgetCap: number; language: string; interests: string };
 type Screen = "intake" | "reality" | "trip";
@@ -39,6 +41,7 @@ export default function Home() {
   const [defaultsReady, setDefaultsReady] = useState(false);
   const utils = trpc.useUtils();
   const copy = (key: CopyKey) => t(uiLang, key);
+  const tr = useTr(uiLang);
 
   useEffect(() => {
     try {
@@ -63,7 +66,7 @@ export default function Home() {
   const destination = cities.data?.destinations.find(item => item.code === form.destination);
   const destinationCity = destination?.city || "Jaipur";
   const recommendations = trpc.packagepro.recommend.useQuery({ query: form.interests, language: form.language, destination: destinationCity, budget: form.budgetCap || undefined });
-  const estimate = trpc.packagepro.estimate.useQuery({ origin: form.origin, destination: form.destination, departDate: form.departDate, returnDate: form.returnDate, travelers: form.travelers, budget: form.budgetCap || 1, language: form.language, interests: form.interests }, { enabled: screen === "reality" && Boolean(form.destination), staleTime: 5 * 60 * 1000 });
+  const estimate = trpc.packagepro.estimate.useQuery({ origin: form.origin, destination: form.destination, departDate: form.departDate, returnDate: form.returnDate, travelers: form.travelers, budget: form.budgetCap || 1, language: form.language, interests: form.interests, uiLanguage: uiLang }, { enabled: screen === "reality" && Boolean(form.destination), staleTime: 5 * 60 * 1000 });
 
   const onError = (error: { message: string }) => toast.error(error.message);
   const refresh = () => utils.trip.get.invalidate();
@@ -122,7 +125,7 @@ export default function Home() {
     else goBack.mutate({ tripId: trip.tripId });
   }
 
-  const steps = [copy("stepTrip"), copy("stepReality"), copy("stepFlight"), copy("customise").split(" ")[0], copy("stepConfirm")];
+  const steps = [copy("stepTrip"), copy("stepReality"), copy("stepFlight"), copy("customiseShort"), copy("stepConfirm")];
   const stepIndex = screen === "reality" ? 1 : !trip ? 0 : trip.status === "select_flight" ? 2 : trip.status === "select_package" || trip.status === "negotiate" ? 3 : 4;
 
   return <div className="min-h-screen bg-[#f2f5f9] text-[#0b1f3a]">
@@ -152,17 +155,17 @@ export default function Home() {
           <p className="mt-4 max-w-2xl text-sm text-white/80 md:text-base">{copy("heroLead")}</p>
 
           <form onSubmit={event => { event.preventDefault(); setScreen("reality"); }} className="relative mt-8 rounded-2xl bg-white p-2 pb-10 text-[#0b1f3a] shadow-[0_24px_60px_rgba(0,0,0,.3)]">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-4 pb-2 pt-3 text-xs font-semibold text-[#5f6b7a]"><span className="flex items-center gap-1.5 text-[#0b6bcb]"><Plane className="h-3.5 w-3.5" />Flights</span><span className="flex items-center gap-1.5"><BedDouble className="h-3.5 w-3.5" />Stays</span><span className="flex items-center gap-1.5"><Ticket className="h-3.5 w-3.5" />Activities</span><span className="flex items-center gap-1.5"><Compass className="h-3.5 w-3.5" />Local guides</span><span className="ml-auto hidden text-[11px] md:inline">{copy("everything")}</span></div>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-4 pb-2 pt-3 text-xs font-semibold text-[#5f6b7a]"><span className="flex items-center gap-1.5 text-[#0b6bcb]"><Plane className="h-3.5 w-3.5" />{copy("flights")}</span><span className="flex items-center gap-1.5"><BedDouble className="h-3.5 w-3.5" />{copy("stays")}</span><span className="flex items-center gap-1.5"><Ticket className="h-3.5 w-3.5" />{copy("activities")}</span><span className="flex items-center gap-1.5"><Compass className="h-3.5 w-3.5" />{copy("localGuides")}</span><span className="ml-auto hidden text-[11px] md:inline">{copy("everything")}</span></div>
             <div className="grid overflow-hidden rounded-xl border border-[#e6ebf2] sm:grid-cols-2 lg:grid-cols-[1.1fr_1.3fr_1fr_1fr_1fr_1.1fr]">
               <FieldCell label={copy("from")}>
-                <select value={form.origin} onChange={event => update("origin", event.target.value)} className="absolute inset-0 cursor-pointer opacity-0">{(cities.data?.origins || []).map(item => <option key={item.code} value={item.code}>{item.city} ({item.code})</option>)}</select>
-                <div className="truncate text-2xl font-black">{cities.data?.origins.find(item => item.code === form.origin)?.city || "—"}</div>
-                <div className="truncate text-[11px] text-[#5f6b7a]">{form.origin}, {cities.data?.origins.find(item => item.code === form.origin)?.airport}</div>
+                <select value={form.origin} onChange={event => update("origin", event.target.value)} className="absolute inset-0 cursor-pointer opacity-0">{(cities.data?.origins || []).map(item => <option key={item.code} value={item.code}>{tr(item.city)} ({item.code})</option>)}</select>
+                <div className="truncate text-2xl font-black">{tr(cities.data?.origins.find(item => item.code === form.origin)?.city) || "—"}</div>
+                <div className="truncate text-[11px] text-[#5f6b7a]">{form.origin}, {tr(cities.data?.origins.find(item => item.code === form.origin)?.airport)}</div>
               </FieldCell>
               <FieldCell label={copy("to")}>
-                <select value={form.destination} onChange={event => update("destination", event.target.value)} className="absolute inset-0 cursor-pointer opacity-0">{(cities.data?.destinations || []).map(item => <option key={item.code} value={item.code}>{item.label}</option>)}</select>
-                <div className="truncate text-2xl font-black">{destinationCity}</div>
-                <div className="truncate text-[11px] text-[#5f6b7a]">{destination?.airport ? `${destination.airport} · ` : ""}{destination?.label.split("·")[1]?.trim()}</div>
+                <select value={form.destination} onChange={event => update("destination", event.target.value)} className="absolute inset-0 cursor-pointer opacity-0">{(cities.data?.destinations || []).map(item => <option key={item.code} value={item.code}>{tr(item.city)} · {tr(item.label.split("·")[1]?.trim())}</option>)}</select>
+                <div className="truncate text-2xl font-black">{tr(destinationCity)}</div>
+                <div className="truncate text-[11px] text-[#5f6b7a]">{destination?.airport ? `${destination.airport} · ` : ""}{tr(destination?.label.split("·")[1]?.trim())}</div>
               </FieldCell>
               <DateCell label={copy("depart")} value={form.departDate} onChange={value => { update("departDate", value); if (value >= form.returnDate) update("returnDate", addDays(value, 3)); }} />
               <DateCell label={copy("return")} value={form.returnDate} min={addDays(form.departDate, 1)} onChange={value => update("returnDate", value)} />
@@ -173,12 +176,12 @@ export default function Home() {
               <FieldCell label={copy("guideLanguage")}>
                 <select value={form.language} onChange={event => changeGuideLanguage(event.target.value)} className="absolute inset-0 cursor-pointer opacity-0">{GUIDE_LANGS.map(lang => <option key={lang.value} value={lang.value}>{lang.native}</option>)}</select>
                 <div className="truncate text-2xl font-black">{GUIDE_LANGS.find(lang => lang.value === form.language)?.native.split(" · ")[0]}</div>
-                <div className="text-[11px] text-[#5f6b7a]">{form.language} · guides & tours</div>
+                <div className="text-[11px] text-[#5f6b7a]">{form.language} · {copy("guidesTours")}</div>
               </FieldCell>
             </div>
             <div className="flex flex-wrap items-center gap-2 px-3 pt-3">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#5f6b7a]">{copy("feel")}</span>
-              {MOODS.map(mood => <button key={mood} type="button" onClick={() => update("interests", mood)} className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${form.interests === mood ? "bg-[#0b6bcb] text-white" : "bg-[#eef3fa] text-[#0b1f3a] hover:bg-[#dfe9f7]"}`}>{mood}</button>)}
+              {MOODS.map(mood => <button key={mood.key} type="button" onClick={() => update("interests", mood.value)} className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${form.interests === mood.value ? "bg-[#0b6bcb] text-white" : "bg-[#eef3fa] text-[#0b1f3a] hover:bg-[#dfe9f7]"}`}>{copy(mood.key)}</button>)}
               <input value={form.interests} onChange={event => update("interests", event.target.value)} className="min-w-40 flex-1 rounded-full border border-[#e6ebf2] px-3 py-1 text-xs outline-none focus:border-[#0b6bcb]" />
             </div>
             <Button type="submit" className="absolute -bottom-6 left-1/2 h-12 -translate-x-1/2 rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] px-12 text-base font-black uppercase tracking-wider text-white shadow-[0_10px_24px_rgba(6,90,243,.45)] hover:opacity-95"><Search className="mr-2 h-5 w-5" />{copy("searchPackages")}</Button>
@@ -193,8 +196,8 @@ export default function Home() {
             <SectionTitle icon={<Sparkles className="h-4 w-4 text-[#7c3aed]" />} title={copy("pickedForYou")} sub={copy("grounded")} />
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               {(recommendations.data?.packages || []).map(pkg => <button key={pkg.id} onClick={() => setDetailId(pkg.id)} className="group overflow-hidden rounded-xl border border-[#e6ebf2] text-left transition hover:-translate-y-0.5 hover:shadow-lg">
-                <div className="relative h-28 overflow-hidden bg-[#dfe8f4]"><img src={packageList.find(item => item.id === pkg.id)?.image || pkg.image} alt={pkg.city} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" /><span className="absolute left-2 top-2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-bold text-[#0b1f3a]">{pkg.city}</span></div>
-                <div className="p-3"><div className="line-clamp-1 text-sm font-bold">{pkg.name}</div><div className="mt-1 flex flex-wrap gap-1">{pkg.matchReasons.slice(0, 3).map(reason => <span key={reason} className="rounded bg-[#eef6ff] px-1.5 py-0.5 text-[9px] font-semibold text-[#0b6bcb]">✓ {reason}</span>)}</div><div className="mt-2 text-base font-extrabold">{money(pkg.basePrice)}</div></div>
+                <div className="relative h-28 overflow-hidden bg-[#dfe8f4]"><img src={packageList.find(item => item.id === pkg.id)?.image || pkg.image} alt={pkg.city} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" /><span className="absolute left-2 top-2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-bold text-[#0b1f3a]">{tr(pkg.city)}</span></div>
+                <div className="p-3"><div className="line-clamp-1 text-sm font-bold">{tr(pkg.name)}</div><div className="mt-1 flex flex-wrap gap-1">{pkg.matchReasons.slice(0, 3).map(reason => <span key={reason} className="rounded bg-[#eef6ff] px-1.5 py-0.5 text-[9px] font-semibold text-[#0b6bcb]">✓ {copy(`reason_${reason.replaceAll(" ", "_")}` as CopyKey) || reason}</span>)}</div><div className="mt-2 text-base font-extrabold">{money(pkg.basePrice)}</div></div>
               </button>)}
             </div>
           </Panel>
@@ -219,24 +222,24 @@ export default function Home() {
                   <img src={pkg.image} alt={pkg.city} loading="lazy" className="h-full w-full object-cover transition duration-700 group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                   <span className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-[#0b1f3a]">{copy(`theme_${pkg.tags[0]}` as CopyKey)}</span>
-                  {hot && <span className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-[#ff5a1f] px-2.5 py-1 text-[10px] font-extrabold text-white"><Flame className="h-3 w-3" />Most booked</span>}
-                  <div className="absolute bottom-3 left-3 flex items-center gap-1.5 text-white"><MapPin className="h-3.5 w-3.5" /><span className="text-sm font-bold">{pkg.city}</span></div>
+                  {hot && <span className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-[#ff5a1f] px-2.5 py-1 text-[10px] font-extrabold text-white"><Flame className="h-3 w-3" />{copy("mostBooked")}</span>}
+                  <div className="absolute bottom-3 left-3 flex items-center gap-1.5 text-white"><MapPin className="h-3.5 w-3.5" /><span className="text-sm font-bold">{tr(pkg.city)}</span></div>
                   <span className="absolute bottom-3 right-3 rounded-md bg-black/55 px-2 py-0.5 text-[11px] font-bold text-white">{pkg.durationNights}N/{pkg.duration}D</span>
                 </button>
                 <div className="flex flex-1 flex-col p-4">
-                  <h3 className="line-clamp-1 text-base font-extrabold">{pkg.name}</h3>
+                  <h3 className="line-clamp-1 text-base font-extrabold">{tr(pkg.name)}</h3>
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#334155]">
-                    <span className="flex items-center gap-1"><BedDouble className="h-3.5 w-3.5 text-[#0b6bcb]" />{pkg.tier}</span>
-                    <span className="flex items-center gap-1"><MapIcon className="h-3.5 w-3.5 text-[#0b6bcb]" />{pkg.components.filter(item => item.isDefault && item.type === "experience").length} sights</span>
-                    <span className="flex items-center gap-1"><Plane className="h-3.5 w-3.5 rotate-45 text-[#0b6bcb]" />transfers</span>
-                    {pkg.components.some(item => item.type === "meal") && <span className="flex items-center gap-1"><UtensilsCrossed className="h-3.5 w-3.5 text-[#0b6bcb]" />meals</span>}
+                    <span className="flex items-center gap-1"><BedDouble className="h-3.5 w-3.5 text-[#0b6bcb]" />{copy(`tier_${pkg.tier}` as CopyKey)}</span>
+                    <span className="flex items-center gap-1"><MapIcon className="h-3.5 w-3.5 text-[#0b6bcb]" />{pkg.components.filter(item => item.isDefault && item.type === "experience").length} {copy("sights")}</span>
+                    <span className="flex items-center gap-1"><Plane className="h-3.5 w-3.5 rotate-45 text-[#0b6bcb]" />{copy("transfersWord")}</span>
+                    {pkg.components.some(item => item.type === "meal") && <span className="flex items-center gap-1"><UtensilsCrossed className="h-3.5 w-3.5 text-[#0b6bcb]" />{copy("mealsWord")}</span>}
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1">{pkg.languagesOffered.map(tag => <span key={tag} className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${tag === form.language ? "bg-[#0e8a5f] text-white" : "bg-[#eef2f7] text-[#5f6b7a]"}`}>{tag}</span>)}{inLang && <span className="text-[10px] font-semibold text-[#0e8a5f]">✓ {copy("offeredIn")}</span>}</div>
                   <div className="mt-auto flex items-end justify-between gap-3 pt-4">
                     <div className="text-[11px] text-[#5f6b7a]"><Star className="mr-0.5 inline h-3 w-3 fill-[#f5b83d] text-[#f5b83d]" />{pkg.popularity.bookings} {copy("bookedBy")} · {pkg.popularity.trips} {copy("pastTrips")}</div>
                     <div className="text-right"><div className="text-xl font-black">{money(pkg.basePrice)}</div><div className="text-[10px] text-[#5f6b7a]">{copy("perPackage")}</div></div>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDetailId(pkg.id)} className="h-9 rounded-full text-xs font-bold">{copy("viewDetails")}</Button><Button onClick={() => choosePackage(pkg)} className="h-9 rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-xs font-bold text-white">{copy("customiseThis").split(" ")[0]} <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></div>
+                  <div className="mt-3 grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDetailId(pkg.id)} className="h-9 rounded-full text-xs font-bold">{copy("viewDetails")}</Button><Button onClick={() => choosePackage(pkg)} className="h-9 rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-xs font-bold text-white">{copy("customiseShort")} <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></div>
                 </div>
               </article>;
             })}
@@ -249,14 +252,14 @@ export default function Home() {
       <section className="min-w-0">
         <div className="mb-4 lg:hidden"><Stepper steps={steps} current={stepIndex} /></div>
         {screen === "reality" && <>
-          <ScreenHeader title={`${cities.data?.origins.find(item => item.code === form.origin)?.city || form.origin} → ${destinationCity}`} sub={`${form.departDate} → ${form.returnDate} · ${form.travelers} ${copy("travelers").toLowerCase()} · ${copy("guideLanguage")}: ${GUIDE_LANGS.find(lang => lang.value === form.language)?.native}`} onBack={back} backLabel={copy("back")} />
+          <ScreenHeader title={`${tr(cities.data?.origins.find(item => item.code === form.origin)?.city) || form.origin} → ${tr(destinationCity)}`} sub={`${form.departDate} → ${form.returnDate} · ${form.travelers} ${copy("travelers").toLowerCase()} · ${copy("guideLanguage")}: ${GUIDE_LANGS.find(lang => lang.value === form.language)?.native}`} onBack={back} backLabel={copy("back")} />
           <EstimateView estimate={estimate.data} loading={estimate.isLoading} lang={uiLang} continuing={createTrip.isPending} onContinue={() => createTrip.mutate({ ...form, budgetCap: form.budgetCap || 1 })} />
           {estimate.error && <Panel className="mt-4 p-5 text-sm text-[#c0392b]">{estimate.error.message}</Panel>}
         </>}
         {screen === "trip" && trip && <>
           {trip.status === "negotiate" && <NegotiationPanel trip={trip} lang={uiLang} busy={busy} newCap={newCap} setNewCap={setNewCap} onChoose={choice => negotiate.mutate({ tripId: trip.tripId, choice })} onRaise={() => negotiate.mutate({ tripId: trip.tripId, choice: "raise_cap", newCap: Number(newCap) })} />}
           {trip.status === "select_flight" && <>
-            <ScreenHeader title={copy("chooseFlight")} sub={`${trip.origin} → ${trip.destination} · ${trip.departDate} · ${trip.flightNote || (trip.flightSource === "serpapi" ? "Google Flights · live fares" : trip.flightSource)}`} onBack={back} backLabel={copy("back")} />
+            <ScreenHeader title={copy("chooseFlight")} sub={`${trip.origin} → ${tr(trip.destination)} · ${trip.departDate} · ${trip.flightNote ? tr(trip.flightNote) : trip.flightSource === "serpapi" ? copy("srcGoogle") : trip.flightSource}`} onBack={back} backLabel={copy("back")} />
             {trip.flightInsights?.typicalRange && <div className="mb-3 flex items-center gap-2 rounded-xl bg-[#eef6ff] px-4 py-2.5 text-xs text-[#0b1f3a]"><Sparkles className="h-4 w-4 text-[#0b6bcb]" />{copy("typicalFare")}: <strong>{money(trip.flightInsights.typicalRange[0])}–{money(trip.flightInsights.typicalRange[1])}</strong> · {copy("priceLevel")}: <strong className="uppercase">{trip.flightInsights.priceLevel}</strong></div>}
             <div className="space-y-3">{[...trip.flightOptions].sort((a, b) => a.price - b.price).map((flight, index) => <FlightRow key={flight.id} flight={flight} lang={uiLang} cheapest={index === 0} disabled={busy} onSelect={() => selectFlight.mutate({ tripId: trip.tripId, flightId: flight.id })} />)}</div>
           </>}
@@ -295,15 +298,15 @@ export default function Home() {
     <Dialog open={Boolean(detail)} onOpenChange={open => !open && setDetailId(null)}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto rounded-2xl p-0">
         {detail && <>
-          <div className="relative h-56 bg-[#0b1f3a]"><img src={detail.image} alt={detail.city} className="h-full w-full object-cover opacity-90" /><div className="absolute inset-0 bg-gradient-to-t from-black/75 to-transparent" /><button onClick={() => setDetailId(null)} className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-white/90"><X className="h-4 w-4" /></button>
-            <div className="absolute bottom-4 left-5 right-5 text-white"><div className="text-[11px] font-bold uppercase tracking-[.2em] text-white/75">{copy(`theme_${detail.tags[0]}` as CopyKey)} · {detail.tier} · {detail.difficulty}</div><DialogTitle className="text-2xl font-black">{detail.name}</DialogTitle><div className="text-xs text-white/80">{detail.city} · {detail.durationNights}N/{detail.duration}D · {detail.popularity.bookings} {copy("bookedBy")}</div></div></div>
+          <div className="relative h-56 bg-[#0b1f3a]"><img src={detail.image} alt={tr(detail.city)} className="h-full w-full object-cover opacity-90" /><div className="absolute inset-0 bg-gradient-to-t from-black/75 to-transparent" /><button onClick={() => setDetailId(null)} className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-white/90"><X className="h-4 w-4" /></button>
+            <div className="absolute bottom-4 left-5 right-5 text-white"><div className="text-[11px] font-bold uppercase tracking-[.2em] text-white/75">{copy(`theme_${detail.tags[0]}` as CopyKey)} · {copy(`tier_${detail.tier}` as CopyKey)} · {copy(`diff_${detail.difficulty}` as CopyKey)}</div><DialogTitle className="text-2xl font-black">{tr(detail.name)}</DialogTitle><div className="text-xs text-white/80">{tr(detail.city)} · {detail.durationNights}N/{detail.duration}D · {detail.popularity.bookings} {copy("bookedBy")}</div></div></div>
           <div className="space-y-5 p-5">
-            <p className="text-sm leading-6 text-[#334155]">{detail.description}</p>
+            <p className="text-sm leading-6 text-[#334155]">{tr(detail.description)}</p>
             <div>
               <div className="text-sm font-bold">{copy("itinerary")}</div>
-              <div className="mt-3 space-y-3">{Array.from(new Set(detail.components.filter(item => item.isDefault).map(item => item.dayIndex ?? 1))).sort((a, b) => a - b).map(day => <div key={day} className="flex gap-3"><div className="h-fit w-14 shrink-0 rounded-lg bg-[#e8f1fd] py-1 text-center text-[10px] font-bold uppercase text-[#0b6bcb]">{copy("day")} {day}</div><div className="flex-1 space-y-1.5 border-l-2 border-dashed border-[#dde3ec] pl-3">{detail.components.filter(item => item.isDefault && (item.dayIndex ?? 1) === day).map(item => <div key={item.id} className="flex items-start justify-between gap-3 text-sm"><div><span className="mr-2 text-[10px] font-bold uppercase text-[#9aa7b8]">{item.slot}</span>{item.label}{item.optional && <span className="ml-2 rounded bg-[#fff4e0] px-1.5 text-[10px] font-bold text-[#b45309]">add-on</span>}{detail.components.some(other => other.swapGroup && other.swapGroup === item.swapGroup && other.id !== item.id) && <span className="ml-2 rounded bg-[#eef6ff] px-1.5 text-[10px] font-bold text-[#0b6bcb]">swappable</span>}</div><span className="shrink-0 text-xs text-[#5f6b7a]">{item.optional ? "+" : ""}{money(item.price)}</span></div>)}</div></div>)}</div>
+              <div className="mt-3 space-y-3">{Array.from(new Set(detail.components.filter(item => item.isDefault).map(item => item.dayIndex ?? 1))).sort((a, b) => a - b).map(day => <div key={day} className="flex gap-3"><div className="h-fit w-14 shrink-0 rounded-lg bg-[#e8f1fd] py-1 text-center text-[10px] font-bold uppercase text-[#0b6bcb]">{copy("day")} {day}</div><div className="flex-1 space-y-1.5 border-l-2 border-dashed border-[#dde3ec] pl-3">{detail.components.filter(item => item.isDefault && (item.dayIndex ?? 1) === day).map(item => <div key={item.id} className="flex items-start justify-between gap-3 text-sm"><div><span className="mr-2 text-[10px] font-bold uppercase text-[#9aa7b8]">{slotLabel(uiLang, item.slot)}</span>{tr(item.label)}{item.optional && <span className="ml-2 rounded bg-[#fff4e0] px-1.5 text-[10px] font-bold text-[#b45309]">{copy("addOnTag")}</span>}{detail.components.some(other => other.swapGroup && other.swapGroup === item.swapGroup && other.id !== item.id) && <span className="ml-2 rounded bg-[#eef6ff] px-1.5 text-[10px] font-bold text-[#0b6bcb]">{copy("swappable")}</span>}</div><span className="shrink-0 text-xs text-[#5f6b7a]">{item.optional ? "+" : ""}{money(item.price)}</span></div>)}</div></div>)}</div>
             </div>
-            <div className="grid gap-3 text-xs sm:grid-cols-2"><div className="rounded-xl bg-[#e7f8f0] p-3 text-[#14532d]"><strong>✓ Includes</strong><div className="mt-1">{detail.inclusions}</div></div><div className="rounded-xl bg-[#fdecea] p-3 text-[#7f1d1d]"><strong>✕ Excludes</strong><div className="mt-1">{detail.exclusions}</div></div></div>
+            <div className="grid gap-3 text-xs sm:grid-cols-2"><div className="rounded-xl bg-[#e7f8f0] p-3 text-[#14532d]"><strong>✓ {copy("includes")}</strong><div className="mt-1">{tr(detail.inclusions)}</div></div><div className="rounded-xl bg-[#fdecea] p-3 text-[#7f1d1d]"><strong>✕ {copy("excludes")}</strong><div className="mt-1">{tr(detail.exclusions)}</div></div></div>
             <div className="flex items-center justify-between gap-3 border-t border-[#e6ebf2] pt-4"><div><div className="text-2xl font-black">{money(detail.basePrice)}</div><div className="text-[11px] text-[#5f6b7a]">{copy("perPackage")} · {detail.duration} {copy("days")} · {copy("offeredIn")} {detail.languagesOffered.join(", ")}</div></div><Button onClick={() => choosePackage(detail)} className="h-11 rounded-full bg-gradient-to-r from-[#ff8a3d] to-[#f0541e] px-6 text-sm font-extrabold uppercase text-white">{copy("customiseThis")}</Button></div>
           </div>
         </>}
