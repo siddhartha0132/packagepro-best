@@ -2,13 +2,15 @@
 
 Start from a curated package, reshape it piece by piece, and watch it reprice live. Add a local guide by language and specialisation; every guide is checked day by day against real availability, and a clash is refused with the date named, a compliant substitute and the new total. On the web and in Telegram, in four languages.
 
+**Live app:** **[https://packagepro-best-production.up.railway.app/](https://packagepro-best-production.up.railway.app/)** · guided tour for judges: **[/how-it-works](https://packagepro-best-production.up.railway.app/how-it-works)** · one-tap demo: **[/?demo=1](https://packagepro-best-production.up.railway.app/?demo=1)** · Telegram: **[@wayypoint_Bot](https://t.me/wayypoint_Bot)**
+
 **At a glance**
 
 | | |
 |---|---|
 | Mandatory guide availability check | Enforced in the backend, proven by [`tests/hardProof.guideAvailability.test.ts`](tests/hardProof.guideAvailability.test.ts) |
 | Shared data model | Canonical tables read and written; organisers' validator **PASS** (`pnpm conformance`) |
-| Tests | 54 automated tests, run offline (`pnpm verify`) |
+| Tests | 63 offline tests (`pnpm verify`) + 4 live-key checks — `npx vitest run` → 67 passed |
 | Guided tour for judges | `/how-it-works`: every PS-04 requirement, where it is in the code, and a live demo |
 | Brief | [HACKATHON.md](HACKATHON.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](data-model/DATA_MODEL.md) · [AI](ai/README.md) · [API](docs/API.md) · [Demo script](docs/DEMO_SCRIPT.md) |
 
@@ -21,7 +23,7 @@ Start from a curated package, reshape it piece by piece, and watch it reprice li
 ## What we built
 
 - **Curated package listing and detail pages.** 45 PS-04 packages, browsed by theme. Each detail page shows the itinerary, inclusions/exclusions and transparent pricing: the base price plus every component, and the lines add up to the total.
-- **One fully customisable package, repriced live.** You can swap the hotel tier, an activity or the transfer, toggle recommended add-ons, change the duration, and add or remove a guide. The itinerary and total recompute on every change, and budget overruns go to negotiation.
+- **One fully customisable package, repriced live.** Swap the hotel tier, an activity or the transfer (the new choice keeps the same day and slot), remove any line except the stay and add it back, toggle recommended add-ons, change the duration, and add or remove guides. The itinerary and total recompute on every change. Over budget, the engine offers priced fixes (cheaper flight / stay / activity, fewer days) and a one-tap "fit my budget"; recommendations, undo and discard keep it easy. The flight, stay and extras can already be picked on the live estimate.
 - **Guide as a component, with the mandatory availability check.** Guides are picked by language, specialisation and price. Each is checked against `guide_availability` and the remaining slots on every trip date. An unavailable guide is **refused with the clashing date named**, the nearest **same-language, same-specialisation substitute** is offered, and the total is **repriced**. Confirmed bookings consume slots, so a guide can't be double-booked. Guides can also be **planned day by day** in a live availability grid: book a guide on just the days they're free, and cover the other days with another guide.
 - **Language preferences.** There are 4 app languages (English, हिन्दी, தமிழ், తెలుగు) and 12 guide languages (BCP-47). A traveller profile read from `users` + `user_preferences` sets both. Packages offered in the guide language rank first, and guides are filtered by it. Dataset content, AI replies and the PDF quotation follow the chosen language.
 - **AI package builder.** It works from free-text interests, budget and **booking history** (the traveller's past trips), picks only real catalogue packages, keeps to the stated budget, and builds the chosen trip in one tap. A grounded agent explains every decision.
@@ -86,16 +88,16 @@ pnpm db:reset                 # optional: start from a clean app database
 pnpm dev                      # web + API (+ Telegram bot if TELEGRAM_BOT_TOKEN is set)
 ```
 
-Open **http://localhost:3000**.
+Open **http://localhost:3000**. The same build runs live at **https://packagepro-best-production.up.railway.app/**.
 - **Data:** the PS-04 dataset ships in `data-model/seed/PS-04.db`. No migration step: the app database and its canonical tables are created on first start.
 - **Without API keys** the app runs on catalogue fares and rule-based text.
 - **Production:** `pnpm build && pnpm start`.
 
 ## Demo path
 
-**Guided tour:** open **http://localhost:3000/how-it-works**. It has every PS-04 requirement with how we solve it, where it is in the code, and a live 3D demo.
+**Live:** **https://packagepro-best-production.up.railway.app/** (or http://localhost:3000). **Guided tour:** **[/how-it-works](https://packagepro-best-production.up.railway.app/how-it-works)** — every PS-04 requirement with how we solve it, where it is in the code, and a live 3D demo.
 
-The terminal outcome: **a customised package, booked, with the guide rule shown**. Run `pnpm db:reset` first so the demo guide's slots are free.
+The terminal outcome: **a customised package, booked, with the guide rule shown**. Locally, stop the server and run `pnpm db:reset` first so the demo guide's slots are free (confirming a booking with Arjun uses his only slots on 29–30 Sept).
 
 1. Click **▶ Try the live demo**. This fills in New Delhi → Thanjavur, 28 Sept → 1 Oct, **4 travellers** (the package takes 4–8), a Tamil guide and ₹1,50,000. The live estimate shows Low / Typical / High against the budget.
 2. **Continue to flights** and pick a live Google Flights fare.
@@ -109,7 +111,8 @@ The terminal outcome: **a customised package, booked, with the guide rule shown*
 ## Tests / proof
 
 ```bash
-pnpm verify                                                   # type check + all offline tests + production build (also runs before every push)
+pnpm verify                                                   # type check + 63 offline tests + production build (also runs before every push)
+npx vitest run                                                # everything: 63 offline + 4 live-key checks (reads .env) → 67 passed
 npx vitest run tests/hardProof.guideAvailability.test.ts     # the PS-04 hard proof
 pnpm conformance                                              # organisers' validator on dataset + our rows → PASS
 ```
@@ -147,13 +150,13 @@ A pnpm workspace (`pnpm-workspace.yaml`). `frontend/` and `backend/` are workspa
 |---|---|
 | `frontend/` | UI app (React 19 + Vite + Tailwind): `package.json`, `src/pages`, `src/components`, `src/i18n.ts`, `src/lib`, `index.html` |
 | `backend/` | `package.json` + `src/`: API and services (Node + Express + tRPC): trip engine `trips.ts`, catalogue and guide rules `packagepro.ts`, `travellers.ts`, `estimate.ts`, `integrations.ts`, `appStore.ts`, Telegram bot, `routers.ts`, `_core/` server bootstrap |
-| `backend/shared/`, `backend/drizzle/` | Template auth/session helpers (not used by PackagePro's flows) |
+| `backend/shared/`, `backend/drizzle/`, `backend/src/_core/` (oauth, sdk, context) | Server bootstrap and the starter template's optional login; PackagePro's flows use dataset traveller profiles and don't require it |
 | `data-model/` | `DATA_MODEL.md` (tables used, additions, rules), generated `schema.sql`, `seed/` (PS-04 dataset + DDL + enums + starter queries + demo caches) |
 | `ai/` | AI pipeline (`pipeline.ts`: model calls, trip parser, package builder, agent) and `prompts/` (every system prompt) |
 | `docs/` | `ARCHITECTURE.md` (9 diagrams), `diagrams/*.svg`, `API.md`, `DEMO_SCRIPT.md`, `pitch/PackagePro-PS04.pptx` (11-slide pitch deck with real app screenshots in `pitch/assets/`; rebuilt by `pitch/build_deck.py`) |
 | `tests/` | Automated tests, including the hard-proof `hardProof.guideAvailability.test.ts` and `conformance.test.ts` |
 | `tools/` | Organisers' `validate_conformance.py` |
-| `scripts/` | `conformance.mjs`, `show-bookings.mjs`, `dump-schema.mjs` |
+| `scripts/` | `conformance.mjs`, `show-bookings.mjs`, `dump-schema.mjs`, `reset-db.mjs` (refuses while the server holds the database) |
 | `data/` | Runtime only: the local app database (git-ignored) |
 
 ### Security
