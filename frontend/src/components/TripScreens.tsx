@@ -63,7 +63,7 @@ export function FlightRow({ flight, lang, onSelect, disabled, cheapest, traveler
   </div>;
 }
 
-function RangeBar({ low, typical, high, budget, lang }: { low: number; typical: number; high: number; budget: number; lang: Lang }) {
+function RangeBar({ low, typical, high, budget, lang, budgetLabel = "yourBudget" }: { low: number; typical: number; high: number; budget: number; lang: Lang ; budgetLabel?: CopyKey }) {
   const copy = (key: CopyKey) => t(lang, key);
   // Scale from just below the cheapest value (not ₹0) so close figures still spread across the bar.
   const min = Math.min(low, budget) * 0.85;
@@ -82,7 +82,7 @@ function RangeBar({ low, typical, high, budget, lang }: { low: number; typical: 
   const align = (at: number) => (at < 8 ? "translate-x-0 text-left" : at > 92 ? "-translate-x-full text-right" : "-translate-x-1/2 text-center");
   const budgetAt = pct(budget);
   return <div className="mt-5">
-    <div className="relative mb-1 h-5 text-[10px] font-bold text-[#0b1f3a]"><span className={`absolute whitespace-nowrap rounded bg-[#0b1f3a] px-1.5 py-0.5 text-white ${align(budgetAt)}`} style={{ left: `${budgetAt}%` }}>{copy("yourBudget")} {money(budget)}</span></div>
+    <div className="relative mb-1 h-5 text-[10px] font-bold text-[#0b1f3a]"><span className={`absolute whitespace-nowrap rounded bg-[#0b1f3a] px-1.5 py-0.5 text-white ${align(budgetAt)}`} style={{ left: `${budgetAt}%` }}>{copy(budgetLabel)} {money(budget)}</span></div>
     <div className="relative h-3 rounded-full bg-[#eef2f7]">
       <div className="absolute inset-y-0 rounded-full bg-gradient-to-r from-[#34c38f] via-[#f5b83d] to-[#ef6a4c]" style={{ left: pos(low), width: `calc(${pos(high)} - ${pos(low)})` }} />
       {[low, typical].map((value, index) => <div key={index} className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#0b1f3a]/70" style={{ left: pos(value) }} />)}
@@ -108,7 +108,7 @@ export function plannedTotal(e: Estimate, picks: EstimatePicks) {
   return { flight, hotel, extras, total: Math.round(total) };
 }
 
-export function EstimateView({ estimate, loading, lang, onContinue, continuing, onFixParty, picks, onPick }: { estimate?: Estimate; loading: boolean; lang: Lang; onContinue: (travelers?: number) => void; continuing: boolean; onFixParty?: (travelers: number) => void; picks: EstimatePicks; onPick: (next: EstimatePicks) => void }) {
+export function EstimateView({ estimate, loading, lang, onContinue, continuing, onFixParty, picks, onPick, budgetSuggested = false }: { estimate?: Estimate; loading: boolean; lang: Lang; onContinue: (travelers?: number) => void; continuing: boolean; onFixParty?: (travelers: number) => void; picks: EstimatePicks; onPick: (next: EstimatePicks) => void; budgetSuggested?: boolean }) {
   const copy = (key: CopyKey) => t(lang, key);
   const tr = useTr(lang);
   if (loading || !estimate) return <Panel className="grid place-items-center p-16 text-sm text-[#5f6b7a]"><Loader2 className="mb-3 h-7 w-7 animate-spin text-[#0b6bcb]" />{copy("searching")}</Panel>;
@@ -126,12 +126,13 @@ export function EstimateView({ estimate, loading, lang, onContinue, continuing, 
         <div className="absolute inset-0 bg-gradient-to-t from-[#061428]/90 via-[#061428]/30 to-transparent" />
         <div className="absolute bottom-4 left-5 right-5 flex items-end justify-between gap-3 text-white">
           <div><div className="text-[11px] font-bold uppercase tracking-[.2em] text-white/75">{tr(e.package.theme)} · {e.days} {copy("days")}</div><div className="text-2xl font-extrabold md:text-3xl">{tr(e.destination)}</div><div className="text-xs text-white/80">{tr(e.package.name)}</div></div>
-          <span className={`rounded-full px-3 py-1 text-xs font-bold ${tone}`}>{copy(e.verdict as CopyKey)}</span>
+          {/* A suggested budget is derived from this estimate, so a verdict against it would say nothing. */}
+          {!budgetSuggested && <span className={`rounded-full px-3 py-1 text-xs font-bold ${tone}`}>{copy(e.verdict as CopyKey)}</span>}
         </div>
       </div>
       <div className="p-5">
         <SectionTitle icon={<TrendingUp className="h-4 w-4 text-[#0b6bcb]" />} title={copy("estimateTitle")} sub={copy("estimateSub")} />
-        <RangeBar low={e.low} typical={e.typical} high={e.high} budget={e.budget} lang={lang} />
+        <RangeBar low={e.low} typical={e.typical} high={e.high} budget={e.budget} lang={lang} budgetLabel={budgetSuggested ? "suggestedBudget" : "yourBudget"} />
       </div>
     </Panel>
 
@@ -139,10 +140,10 @@ export function EstimateView({ estimate, loading, lang, onContinue, continuing, 
       <SectionTitle icon={<Plane className="h-4 w-4 text-[#0b6bcb]" />} title={copy("liveFlights")} sub={e.flights.note ? tr(e.flights.note) : `${e.flights.source === "serpapi" ? copy("srcGoogle") : e.flights.source} · ${e.dates[0]}`}
         right={e.flights.insights?.typicalRange && <div className="text-right text-[11px] text-[#5f6b7a]">{copy("typicalFare")}<div className="text-sm font-bold text-[#0b1f3a]">{money(e.flights.insights.typicalRange[0])}–{money(e.flights.insights.typicalRange[1])}</div>{e.flights.insights.priceLevel && <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${e.flights.insights.priceLevel === "low" ? "bg-[#e7f8f0] text-[#0e8a5f]" : e.flights.insights.priceLevel === "high" ? "bg-[#fdecea] text-[#c0392b]" : "bg-[#fff4e0] text-[#b45309]"}`}>{copy("priceLevel")}: {e.flights.insights.priceLevel}</span>}</div>} />
       <div className="mt-4 space-y-2">{[...e.flights.options].sort((a, b) => a.price - b.price).slice(0, 5).map((flight, index) => {
-        const chosen = (picks.flightId ?? plan.flight?.id) === flight.id;
+        const chosen = picks.flightId === flight.id;
         return <button key={flight.id} type="button" onClick={() => onPick({ ...picks, flightId: flight.id })} className={`relative block w-full rounded-xl text-left transition ${chosen ? "ring-2 ring-[#0b6bcb]" : "opacity-90 hover:opacity-100"}`}>
-          {chosen && <span className="absolute -top-2 left-4 z-10 flex items-center gap-1 rounded-full bg-[#0b6bcb] px-2 py-0.5 text-[10px] font-bold text-white"><Check className="h-3 w-3" />{copy("pickSelected")}{index === 0 ? ` · ${copy("swapCheapest")}` : ""}</span>}
-          <FlightRow flight={flight} lang={lang} cheapest={chosen} travelers={e.party.pax} />
+          {(chosen || index === 0) && <span className={`absolute -top-2 left-4 z-10 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${chosen ? "bg-[#0b6bcb] text-white" : "bg-[#e7f8f0] text-[#0e8a5f]"}`}>{chosen && <Check className="h-3 w-3" />}{[chosen ? copy("pickSelected") : null, index === 0 ? copy("swapCheapest") : null].filter(Boolean).join(" · ")}</span>}
+          <FlightRow flight={flight} lang={lang} cheapest={chosen || (!picks.flightId && index === 0)} travelers={e.party.pax} />
         </button>;
       })}</div>
     </Panel>
@@ -151,7 +152,7 @@ export function EstimateView({ estimate, loading, lang, onContinue, continuing, 
       <Panel className="p-5">
         <SectionTitle icon={<BedDouble className="h-4 w-4 text-[#0b6bcb]" />} title={copy("hotelTiers")} sub={`${tr(e.package.name)} · ${money(e.package.forTrip)}`} />
         <div className="mt-3 space-y-2">{[...e.hotels.options].sort((a, b) => a.delta - b.delta).map(hotel => {
-          const chosen = picks.hotelId ? picks.hotelId === hotel.id : hotel.isDefault;
+          const chosen = picks.hotelId === hotel.id;
           return <button key={hotel.id} type="button" onClick={() => onPick({ ...picks, hotelId: hotel.id })} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition ${chosen ? "bg-[#e8f1fd] ring-2 ring-[#0b6bcb]" : "bg-[#f6f8fb] hover:bg-[#eef3fa]"}`}>
             <div className="min-w-0"><div className="truncate text-sm font-semibold text-[#0b1f3a]">{chosen && <Check className="mr-1 inline h-3.5 w-3.5 text-[#0b6bcb]" />}{tr(hotel.name)}{hotel.isDefault && <BadgeCheck className="ml-1 inline h-3.5 w-3.5 text-[#0b6bcb]" />}</div><div className="truncate text-[11px] text-[#5f6b7a]">{tr(hotel.detail)}</div></div>
             <span className={`shrink-0 text-xs font-bold ${hotel.delta > 0 ? "text-[#c0392b]" : hotel.delta < 0 ? "text-[#0e8a5f]" : "text-[#5f6b7a]"}`}>{hotel.isDefault ? copy("included") : `${hotel.delta >= 0 ? "+" : "−"}${money(Math.abs(hotel.delta))}`}</span>
@@ -188,13 +189,13 @@ export function EstimateView({ estimate, loading, lang, onContinue, continuing, 
     </Panel>}
 
     {/* Your package as picked, against the budget; Continue builds exactly this. */}
-    <Panel className={`flex flex-wrap items-center gap-4 border p-4 ${plan.total <= e.budget ? "border-[#b7ebd3] bg-[#f3fbf7]" : "border-[#fde2b8] bg-[#fff8ec]"}`}>
+    {customised && <Panel className={`flex flex-wrap items-center gap-4 border p-4 ${plan.total <= e.budget ? "border-[#b7ebd3] bg-[#f3fbf7]" : "border-[#fde2b8] bg-[#fff8ec]"}`}>
       <div className="flex-1">
         <div className="text-[10px] font-bold uppercase tracking-[.16em] text-[#5f6b7a]">{copy("yourPackage")}</div>
         <div className="mt-1 text-xs text-[#5f6b7a]">{[plan.flight ? `${plan.flight.airline} ${plan.flight.depart}` : null, plan.hotel ? tr(plan.hotel.name) : null, ...plan.extras.map(item => tr(item.label))].filter(Boolean).join(" · ")}</div>
       </div>
       <div className="text-right"><div className="text-2xl font-black text-[#0b1f3a]">{money(plan.total)}</div><div className={`text-xs font-bold ${plan.total <= e.budget ? "text-[#0e8a5f]" : "text-[#b45309]"}`}>{plan.total <= e.budget ? copy("fitsBudget") : `+${money(plan.total - e.budget)} ${copy("overBudgetBy")}`}</div></div>
-    </Panel>
+    </Panel>}
 
     {!e.groupSize.ok && <Panel className="flex flex-wrap items-center gap-3 border border-[#f3c1b8] bg-[#fff6f4] p-4 text-sm text-[#7a3b2e]"><CircleAlert className="h-4 w-4 shrink-0 text-[#c0392b]" /><span className="flex-1">{copy("groupSizeLabel")} <strong>{groupRange}</strong> {copy("travellersWord")}.</span>{onFixParty && <Button size="sm" onClick={() => onFixParty(fixedParty)} className="rounded-full bg-[#0b1f3a] text-white">{copy("useParty")} {fixedParty} {copy("travellersWord")}</Button>}</Panel>}
     {/* Never a dead end: with a party outside the package's group size, one click applies the nearest legal party and continues (the backend enforces the same rule). */}
