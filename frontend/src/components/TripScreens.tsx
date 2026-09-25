@@ -95,13 +95,28 @@ function RangeBar({ low, typical, high, budget, lang }: { low: number; typical: 
 }
 
 /** Live estimate: range vs budget, live flights, package, hotel tiers, guides, what past travellers liked, AI insight. */
-export function EstimateView({ estimate, loading, lang, onContinue, continuing, onFixParty }: { estimate?: Estimate; loading: boolean; lang: Lang; onContinue: (travelers?: number) => void; continuing: boolean; onFixParty?: (travelers: number) => void }) {
+/** What the traveller picked on the estimate screen, applied when the trip is built. */
+export type EstimatePicks = { flightId?: string; hotelId?: string; addOns: string[] };
+
+/** The package as picked: default package + chosen flight (× party) + stay difference + chosen extras. */
+export function plannedTotal(e: Estimate, picks: EstimatePicks) {
+  const flights = [...e.flights.options].sort((a, b) => a.price - b.price);
+  const flight = flights.find(item => item.id === picks.flightId) ?? flights[0];
+  const hotel = e.hotels.options.find(item => item.id === picks.hotelId);
+  const extras = e.addOns.filter(item => picks.addOns.includes(item.id));
+  const total = e.package.forTrip + (flight ? flight.price * e.party.pax : e.flights.low) + (hotel && !hotel.isDefault ? hotel.delta : 0) + extras.reduce((sum, item) => sum + item.price, 0);
+  return { flight, hotel, extras, total: Math.round(total) };
+}
+
+export function EstimateView({ estimate, loading, lang, onContinue, continuing, onFixParty, picks, onPick }: { estimate?: Estimate; loading: boolean; lang: Lang; onContinue: (travelers?: number) => void; continuing: boolean; onFixParty?: (travelers: number) => void; picks: EstimatePicks; onPick: (next: EstimatePicks) => void }) {
   const copy = (key: CopyKey) => t(lang, key);
   const tr = useTr(lang);
   if (loading || !estimate) return <Panel className="grid place-items-center p-16 text-sm text-[#5f6b7a]"><Loader2 className="mb-3 h-7 w-7 animate-spin text-[#0b6bcb]" />{copy("searching")}</Panel>;
   const e = estimate;
   const groupRange = e.groupSize.min === e.groupSize.max ? `${e.groupSize.min}` : `${e.groupSize.min}–${e.groupSize.max}`;
   const fixedParty = Math.min(e.groupSize.max, Math.max(e.groupSize.min, e.party.pax));
+  const plan = plannedTotal(e, picks);
+  const customised = Boolean(picks.flightId || picks.hotelId || picks.addOns.length);
   const tone = e.verdict === "comfortable" ? "bg-[#e7f8f0] text-[#0e8a5f]" : e.verdict === "tight" ? "bg-[#fff4e0] text-[#b45309]" : "bg-[#fdecea] text-[#c0392b]";
   const pop = e.popularity;
   return <div className="space-y-4">
@@ -123,13 +138,25 @@ export function EstimateView({ estimate, loading, lang, onContinue, continuing, 
     <Panel className="p-5">
       <SectionTitle icon={<Plane className="h-4 w-4 text-[#0b6bcb]" />} title={copy("liveFlights")} sub={e.flights.note ? tr(e.flights.note) : `${e.flights.source === "serpapi" ? copy("srcGoogle") : e.flights.source} · ${e.dates[0]}`}
         right={e.flights.insights?.typicalRange && <div className="text-right text-[11px] text-[#5f6b7a]">{copy("typicalFare")}<div className="text-sm font-bold text-[#0b1f3a]">{money(e.flights.insights.typicalRange[0])}–{money(e.flights.insights.typicalRange[1])}</div>{e.flights.insights.priceLevel && <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${e.flights.insights.priceLevel === "low" ? "bg-[#e7f8f0] text-[#0e8a5f]" : e.flights.insights.priceLevel === "high" ? "bg-[#fdecea] text-[#c0392b]" : "bg-[#fff4e0] text-[#b45309]"}`}>{copy("priceLevel")}: {e.flights.insights.priceLevel}</span>}</div>} />
-      <div className="mt-4 space-y-2">{e.flights.options.slice(0, 3).map((flight, index) => <FlightRow key={flight.id} flight={flight} lang={lang} cheapest={index === 0} travelers={e.party.pax} />)}</div>
+      <div className="mt-4 space-y-2">{[...e.flights.options].sort((a, b) => a.price - b.price).slice(0, 5).map((flight, index) => {
+        const chosen = (picks.flightId ?? plan.flight?.id) === flight.id;
+        return <button key={flight.id} type="button" onClick={() => onPick({ ...picks, flightId: flight.id })} className={`relative block w-full rounded-xl text-left transition ${chosen ? "ring-2 ring-[#0b6bcb]" : "opacity-90 hover:opacity-100"}`}>
+          {chosen && <span className="absolute -top-2 left-4 z-10 flex items-center gap-1 rounded-full bg-[#0b6bcb] px-2 py-0.5 text-[10px] font-bold text-white"><Check className="h-3 w-3" />{copy("pickSelected")}{index === 0 ? ` · ${copy("swapCheapest")}` : ""}</span>}
+          <FlightRow flight={flight} lang={lang} cheapest={chosen} travelers={e.party.pax} />
+        </button>;
+      })}</div>
     </Panel>
 
     <div className="grid gap-4 md:grid-cols-2">
       <Panel className="p-5">
         <SectionTitle icon={<BedDouble className="h-4 w-4 text-[#0b6bcb]" />} title={copy("hotelTiers")} sub={`${tr(e.package.name)} · ${money(e.package.forTrip)}`} />
-        <div className="mt-3 space-y-2">{e.hotels.options.slice(0, 4).map(hotel => <div key={hotel.id} className="flex items-center justify-between gap-3 rounded-lg bg-[#f6f8fb] px-3 py-2"><div className="min-w-0"><div className="truncate text-sm font-semibold text-[#0b1f3a]">{tr(hotel.name)}{hotel.isDefault && <BadgeCheck className="ml-1 inline h-3.5 w-3.5 text-[#0b6bcb]" />}</div><div className="truncate text-[11px] text-[#5f6b7a]">{tr(hotel.detail)}</div></div><span className={`shrink-0 text-xs font-bold ${hotel.delta > 0 ? "text-[#c0392b]" : hotel.delta < 0 ? "text-[#0e8a5f]" : "text-[#5f6b7a]"}`}>{hotel.isDefault ? copy("included") : `${hotel.delta >= 0 ? "+" : "−"}${money(Math.abs(hotel.delta))}`}</span></div>)}</div>
+        <div className="mt-3 space-y-2">{[...e.hotels.options].sort((a, b) => a.delta - b.delta).map(hotel => {
+          const chosen = picks.hotelId ? picks.hotelId === hotel.id : hotel.isDefault;
+          return <button key={hotel.id} type="button" onClick={() => onPick({ ...picks, hotelId: hotel.id })} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition ${chosen ? "bg-[#e8f1fd] ring-2 ring-[#0b6bcb]" : "bg-[#f6f8fb] hover:bg-[#eef3fa]"}`}>
+            <div className="min-w-0"><div className="truncate text-sm font-semibold text-[#0b1f3a]">{chosen && <Check className="mr-1 inline h-3.5 w-3.5 text-[#0b6bcb]" />}{tr(hotel.name)}{hotel.isDefault && <BadgeCheck className="ml-1 inline h-3.5 w-3.5 text-[#0b6bcb]" />}</div><div className="truncate text-[11px] text-[#5f6b7a]">{tr(hotel.detail)}</div></div>
+            <span className={`shrink-0 text-xs font-bold ${hotel.delta > 0 ? "text-[#c0392b]" : hotel.delta < 0 ? "text-[#0e8a5f]" : "text-[#5f6b7a]"}`}>{hotel.isDefault ? copy("included") : `${hotel.delta >= 0 ? "+" : "−"}${money(Math.abs(hotel.delta))}`}</span>
+          </button>;
+        })}</div>
       </Panel>
       <Panel className="p-5">
         <SectionTitle icon={<Compass className="h-4 w-4 text-[#0b6bcb]" />} title={copy("guidesInLanguage")} sub={e.dates.join(" · ")} />
@@ -152,9 +179,26 @@ export function EstimateView({ estimate, loading, lang, onContinue, continuing, 
       </Panel>
     </div>
 
+    {e.addOns.length > 0 && <Panel className="p-5">
+      <SectionTitle icon={<Sparkles className="h-4 w-4 text-[#7c3aed]" />} title={copy("addOns")} sub={copy("pickExtrasSub")} />
+      <div className="mt-3 flex flex-wrap gap-2">{e.addOns.map(item => {
+        const on = picks.addOns.includes(item.id);
+        return <button key={item.id} type="button" onClick={() => onPick({ ...picks, addOns: on ? picks.addOns.filter(id => id !== item.id) : [...picks.addOns, item.id] })} className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${on ? "border-[#7c3aed] bg-[#f3edff] text-[#6d28d9]" : "border-[#e6ebf2] bg-white text-[#0b1f3a] hover:border-[#7c3aed]"}`}>{on ? <Check className="h-3.5 w-3.5" /> : <span className="text-base leading-none">+</span>}{tr(item.label)} <span className="text-xs font-bold">{money(item.price)}</span></button>;
+      })}</div>
+    </Panel>}
+
+    {/* Your package as picked, against the budget; Continue builds exactly this. */}
+    <Panel className={`flex flex-wrap items-center gap-4 border p-4 ${plan.total <= e.budget ? "border-[#b7ebd3] bg-[#f3fbf7]" : "border-[#fde2b8] bg-[#fff8ec]"}`}>
+      <div className="flex-1">
+        <div className="text-[10px] font-bold uppercase tracking-[.16em] text-[#5f6b7a]">{copy("yourPackage")}</div>
+        <div className="mt-1 text-xs text-[#5f6b7a]">{[plan.flight ? `${plan.flight.airline} ${plan.flight.depart}` : null, plan.hotel ? tr(plan.hotel.name) : null, ...plan.extras.map(item => tr(item.label))].filter(Boolean).join(" · ")}</div>
+      </div>
+      <div className="text-right"><div className="text-2xl font-black text-[#0b1f3a]">{money(plan.total)}</div><div className={`text-xs font-bold ${plan.total <= e.budget ? "text-[#0e8a5f]" : "text-[#b45309]"}`}>{plan.total <= e.budget ? copy("fitsBudget") : `+${money(plan.total - e.budget)} ${copy("overBudgetBy")}`}</div></div>
+    </Panel>
+
     {!e.groupSize.ok && <Panel className="flex flex-wrap items-center gap-3 border border-[#f3c1b8] bg-[#fff6f4] p-4 text-sm text-[#7a3b2e]"><CircleAlert className="h-4 w-4 shrink-0 text-[#c0392b]" /><span className="flex-1">{copy("groupSizeLabel")} <strong>{groupRange}</strong> {copy("travellersWord")}.</span>{onFixParty && <Button size="sm" onClick={() => onFixParty(fixedParty)} className="rounded-full bg-[#0b1f3a] text-white">{copy("useParty")} {fixedParty} {copy("travellersWord")}</Button>}</Panel>}
     {/* Never a dead end: with a party outside the package's group size, one click applies the nearest legal party and continues (the backend enforces the same rule). */}
-    <Button disabled={continuing} onClick={() => onContinue(e.groupSize.ok ? undefined : fixedParty)} className="h-12 w-full rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg hover:opacity-95">{continuing ? <Loader2 className="h-4 w-4 animate-spin" /> : e.groupSize.ok ? copy("continueFlights") : `${copy("continueFlights")} · ${fixedParty} ${copy("travellersWord")}`}</Button>
+    <Button disabled={continuing} onClick={() => onContinue(e.groupSize.ok ? undefined : fixedParty)} className="h-12 w-full rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg hover:opacity-95">{continuing ? <Loader2 className="h-4 w-4 animate-spin" /> : `${customised ? copy("continueWithPicks") : copy("continueFlights")}${e.groupSize.ok ? "" : ` · ${fixedParty} ${copy("travellersWord")}`}`}</Button>
   </div>;
 }
 

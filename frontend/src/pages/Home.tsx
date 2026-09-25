@@ -8,7 +8,7 @@ import { LANGS, type CopyKey, type Lang, t } from "@/i18n";
 import AgentTransparencyChat from "@/components/AgentTransparencyChat";
 import { buildWhatsAppUrl } from "@/lib/itineraryExport";
 import { PackageCustomiser, PriceBreakdown } from "@/components/PackageCustomiser";
-import { EstimateView, FlightRow, NegotiationPanel, Panel, ReviewPanel, ScreenHeader, SectionTitle, Stepper, money, prettyDate, slotLabel } from "@/components/TripScreens";
+import { EstimateView, FlightRow, NegotiationPanel, Panel, ReviewPanel, ScreenHeader, SectionTitle, Stepper, money, plannedTotal, prettyDate, slotLabel, type EstimatePicks } from "@/components/TripScreens";
 import { translationsSettled, useTr } from "@/lib/translate";
 import { EstimateQuote, TripQuote } from "@/components/QuoteDocument";
 import { SmartImage } from "@/components/SmartImage";
@@ -44,6 +44,9 @@ export default function Home() {
   // Until the traveller types a budget, it follows the live estimate (typical + ~10%, rounded) instead of an old value.
   const [budgetTyped, setBudgetTyped] = useState(false);
   const [autoBudget, setAutoBudget] = useState(false);
+  // Flight, stay and extras picked on the estimate screen; applied when the trip is built. Reset when the trip changes.
+  const [picks, setPicks] = useState<EstimatePicks>({ addOns: [] });
+  const [applyingPicks, setApplyingPicks] = useState(false);
   // Once the traveller picks a destination themselves, mood chips stop moving it.
   const [destinationPicked, setDestinationPicked] = useState(false);
   const [defaultsReady, setDefaultsReady] = useState(false);
@@ -85,6 +88,30 @@ export default function Home() {
     const suggested = Math.ceil((estimate.data.typical * 1.1) / 5000) * 5000;
     if (suggested > 0 && suggested !== form.budgetCap) update("budgetCap", suggested);
   }, [autoBudget, estimate.data, screen]);
+
+  useEffect(() => { setPicks({ addOns: [] }); }, [form.destination, form.departDate, form.returnDate, form.travelers]);
+  const swapPick = trpc.trip.swap.useMutation();
+  const addOnPick = trpc.trip.toggleAddOn.useMutation();
+  const selectFlightPick = trpc.trip.selectFlight.useMutation();
+  /** Build the trip, then apply the estimate-screen picks: the flight (cheapest when only a stay or extra was picked), the stay, the extras. */
+  async function continueWithPicks(travelers?: number) {
+    if (travelers) update("travelers", travelers);
+    const input = { ...form, travelers: travelers ?? form.travelers, budgetCap: form.budgetCap || 1, userId: travellerId ?? undefined };
+    const customised = Boolean(picks.flightId || picks.hotelId || picks.addOns.length);
+    if (!customised) return createTrip.mutate(input);
+    setApplyingPicks(true);
+    try {
+      const created = await createTrip.mutateAsync(input);
+      const flights = [...created.flightOptions].sort((a, b) => a.price - b.price);
+      const flight = flights.find(item => item.id === picks.flightId) ?? flights[0];
+      if (!flight) return;
+      let trip = await selectFlightPick.mutateAsync({ tripId: created.tripId, flightId: flight.id });
+      const hotel = trip.packageComponents.find(item => item.type === "hotel");
+      if (trip.status === "select_package" && hotel && picks.hotelId && picks.hotelId !== hotel.id) trip = await swapPick.mutateAsync({ tripId: created.tripId, fromId: hotel.id, toId: picks.hotelId });
+      for (const id of picks.addOns) if (trip.status === "select_package") trip = await addOnPick.mutateAsync({ tripId: created.tripId, componentId: id, include: true });
+      await utils.trip.get.invalidate();
+    } catch (error) { onError(error as { message: string }); } finally { setApplyingPicks(false); }
+  }
 
   const onError = (error: { message: string }) => {
     if (/trip not found/i.test(error.message)) { setTripId(null); setScreen("intake"); toast.error(copy("tripExpired")); return; }
@@ -375,7 +402,7 @@ export default function Home() {
         {demoMode && destinationCity === DEMO.city && trip?.status !== "confirmed" && <div className="mb-4 flex items-start gap-3 rounded-xl border border-[#b9d7fb] bg-[#eef6ff] px-4 py-3 text-xs leading-5 text-[#0b1f3a]"><Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#0b6bcb]" /><span className="flex-1">{copy("demoHint")}</span><button onClick={() => setDemoMode(false)} className="text-[#5f6b7a] hover:text-[#0b1f3a]"><X className="h-4 w-4" /></button></div>}
         {screen === "reality" && <>
           <ScreenHeader title={`${tr(cities.data?.origins.find(item => item.code === form.origin)?.city) || form.origin} → ${tr(destinationCity)}`} sub={`${form.departDate} → ${form.returnDate} · ${form.travelers} ${copy("travelers").toLowerCase()} · ${copy("guideLanguage")}: ${GUIDE_LANGS.find(lang => lang.value === form.language)?.native}`} onBack={back} backLabel={copy("back")} />
-          <EstimateView estimate={estimate.data} loading={estimate.isLoading} lang={uiLang} onFixParty={travelers => update("travelers", travelers)} continuing={createTrip.isPending} onContinue={travelers => { if (travelers) update("travelers", travelers); createTrip.mutate({ ...form, travelers: travelers ?? form.travelers, budgetCap: form.budgetCap || 1, userId: travellerId ?? undefined }); }} />
+          <EstimateView estimate={estimate.data} loading={estimate.isLoading} lang={uiLang} onFixParty={travelers => update("travelers", travelers)} continuing={createTrip.isPending || applyingPicks} onContinue={travelers => void continueWithPicks(travelers)} picks={picks} onPick={setPicks} />
           {estimate.error && <Panel className="mt-4 p-5 text-sm text-[#c0392b]">{estimate.error.message}</Panel>}
         </>}
         {screen === "trip" && trip && <>
@@ -399,7 +426,7 @@ export default function Home() {
       {/* ---------- Side rail ---------- */}
       <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
         {trip ? <Panel className="p-5"><PriceBreakdown trip={trip} lang={uiLang} /></Panel>
-          : estimate.data && <Panel className="p-5"><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#0b6bcb]">{copy("fareSummary")}</div><div className="mt-2 text-3xl font-black">{money(estimate.data.typical)}</div><div className="text-xs text-[#5f6b7a]">{copy("typicalEst")} · {money(estimate.data.low)}–{money(estimate.data.high)}</div><div className="mt-3 space-y-1 border-t border-[#e6ebf2] pt-3 text-xs"><Line label={copy("liveFlights")} value={money(estimate.data.flights.typical)} /><Line label={copy("packageBase")} value={money(estimate.data.package.forTrip)} /><Line label={copy("guide")} value={estimate.data.guides.find(guide => guide.available) ? money(estimate.data.guides.find(guide => guide.available)!.tripCost) : "—"} /><Line label={copy("yourBudget")} value={money(form.budgetCap)} /></div></Panel>}
+          : estimate.data && <Panel className="p-5"><div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#0b6bcb]">{copy("fareSummary")}</div><div className="mt-2 text-3xl font-black">{money(estimate.data.typical)}</div><div className="text-xs text-[#5f6b7a]">{copy("typicalEst")} · {money(estimate.data.low)}–{money(estimate.data.high)}</div><div className="mt-3 space-y-1 border-t border-[#e6ebf2] pt-3 text-xs"><Line label={copy("liveFlights")} value={money(estimate.data.flights.typical)} /><Line label={copy("packageBase")} value={money(estimate.data.package.forTrip)} /><Line label={copy("guide")} value={estimate.data.guides.find(guide => guide.available) ? money(estimate.data.guides.find(guide => guide.available)!.tripCost) : "—"} /><Line label={copy("yourBudget")} value={money(form.budgetCap)} /></div>{(picks.flightId || picks.hotelId || picks.addOns.length > 0) && <div className="mt-3 flex items-center justify-between rounded-lg bg-[#e8f1fd] px-3 py-2 text-xs"><span className="font-bold text-[#0b6bcb]">{copy("yourPackage")}</span><span className="text-base font-black text-[#0b1f3a]">{money(plannedTotal(estimate.data, picks).total)}</span></div>}</Panel>}
         <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" className="h-10 rounded-full bg-white text-xs font-bold" onClick={saveDraft}><Check className="mr-1 h-3.5 w-3.5" />{draftSaved ? copy("saved") : copy("saveDraft")}</Button>
           <Button variant="outline" className="h-10 rounded-full bg-white text-xs font-bold" onClick={sharePlan}><Share2 className="mr-1 h-3.5 w-3.5" />{copy("share")}</Button>
