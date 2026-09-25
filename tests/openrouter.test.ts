@@ -1,3 +1,5 @@
+// Live-key checks: these read the real keys from .env (git-ignored); the offline suites never load it.
+import "dotenv/config";
 import { describe, expect, it } from "vitest";
 
 describe("OpenRouter integration", () => {
