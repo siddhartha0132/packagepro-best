@@ -44,7 +44,7 @@ Start from a curated package, reshape it piece by piece, and watch it reprice li
 
 ![PackagePro system overview](docs/diagrams/1-system-overview.svg)
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has 8 diagrams: system overview, repository map, the guide availability check (sequence), the booking transaction, the pricing model, the AI pipeline, the data model (ER) and deployment. API: [docs/API.md](docs/API.md).
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has 9 diagrams: system overview, repository map, the guide availability check (sequence), the booking transaction, the pricing model, the AI pipeline, the data model (ER), deployment, and a frontend ↔ backend module map. API: [docs/API.md](docs/API.md).
 
 ## Data model
 
@@ -150,7 +150,7 @@ A pnpm workspace (`pnpm-workspace.yaml`). `frontend/` and `backend/` are workspa
 | `backend/shared/`, `backend/drizzle/` | Template auth/session helpers (not used by PackagePro's flows) |
 | `data-model/` | `DATA_MODEL.md` (tables used, additions, rules), generated `schema.sql`, `seed/` (PS-04 dataset + DDL + enums + starter queries + demo caches) |
 | `ai/` | AI pipeline (`pipeline.ts`: model calls, trip parser, package builder, agent) and `prompts/` (every system prompt) |
-| `docs/` | `ARCHITECTURE.md` (8 diagrams), `diagrams/*.svg`, `API.md`, `DEMO_SCRIPT.md` |
+| `docs/` | `ARCHITECTURE.md` (9 diagrams), `diagrams/*.svg`, `API.md`, `DEMO_SCRIPT.md` |
 | `tests/` | Automated tests, including the hard-proof `hardProof.guideAvailability.test.ts` and `conformance.test.ts` |
 | `tools/` | Organisers' `validate_conformance.py` |
 | `scripts/` | `conformance.mjs`, `show-bookings.mjs`, `dump-schema.mjs` |

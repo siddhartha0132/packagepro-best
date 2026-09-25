@@ -245,6 +245,63 @@ Build: `vite build` (frontend → `dist/public`) + `esbuild` (backend → `dist/
 Secrets only in Railway Variables. One instance (the trip engine caches active trips in memory in front of SQLite, and only
 one process may poll a Telegram token).
 
+## 9 · Frontend and backend — module map
+
+Which file calls which. The browser only ever talks to the backend through one typed tRPC endpoint (`/api/trpc`); the
+Telegram bot sits inside the backend and calls the trip engine directly.
+
+```mermaid
+flowchart TB
+  subgraph FE["Frontend — frontend/src (React 19 · Vite · Tailwind)"]
+    MAIN["main.tsx<br/>React Query + tRPC client"]
+    APPR["App.tsx — routes<br/>/ · /how-it-works · 404"]
+    HOME["pages/Home.tsx<br/>search · listing · detail · trip stepper"]
+    HOW["pages/HowItWorks.tsx<br/>every PS-04 requirement + 3D demos"]
+    TS["components/TripScreens.tsx<br/>estimate · flights · negotiation · review"]
+    PC["components/PackageCustomiser.tsx<br/>swaps · add-ons · duration · price lines"]
+    GP["components/GuidePlanner.tsx<br/>guides x dates grid · refusal card"]
+    QD["components/QuoteDocument.tsx<br/>printable PDF quotation"]
+    CHAT["components/AgentTransparencyChat.tsx<br/>AI chat"]
+    IMG["components/SmartImage.tsx<br/>photo with fallback"]
+    LIB["lib/trpc.ts · lib/translate.ts<br/>i18n.ts (4 languages) · quoteCopy.ts"]
+  end
+
+  subgraph BE["Backend — backend/src (Node 22 · Express · tRPC · Zod)"]
+    IDX["_core/index.ts<br/>Express server · /api/trpc<br/>Vite in dev, static dist in prod<br/>starts the Telegram bot"]
+    RT["routers.ts<br/>packagepro.* · trip.*"]
+    TR["trips.ts — trip engine<br/>state machine · priceBreakdown<br/>guides · confirmTrip"]
+    PP["packagepro.ts<br/>packages · guideCheck · isGuideFree"]
+    CAT["catalogue.ts<br/>dataset load · paise helpers"]
+    TRV["travellers.ts<br/>profiles + booking history"]
+    EST["estimate.ts<br/>low · typical · high"]
+    INT["integrations.ts · insights.ts<br/>flights · translation · photos · email/SMS"]
+    ST["appStore.ts<br/>canonical DDL · recordBooking<br/>guide slot counts · bot sessions"]
+    BOT["telegramBot.ts · botCopy.ts"]
+  end
+
+  AI["ai/pipeline.ts + ai/prompts/"]
+  DS[("data-model/seed/PS-04.db<br/>read-only")]
+  DB[("data/packagepro-app.db<br/>canonical + app_* tables")]
+
+  MAIN --> APPR
+  APPR --> HOME & HOW
+  HOME --> TS & PC & QD & CHAT & IMG
+  PC --> GP
+  HOME & HOW & PC & GP & CHAT --> LIB
+  LIB == "HTTPS · /api/trpc · superjson" ==> IDX
+  IDX --> RT
+  IDX --> BOT
+  RT --> TR & PP & TRV & EST & INT & AI
+  BOT --> TR & AI & ST
+  TR --> PP & ST & INT
+  EST --> PP & INT & AI
+  PP --> CAT
+  PP -- "booked slots" --> ST
+  TRV --> CAT
+  CAT --> DS
+  ST --> DB
+```
+
 ## Components at a glance
 
 | Component | Where | Responsibility |
