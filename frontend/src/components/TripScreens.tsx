@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
-import { ArrowLeft, BadgeCheck, BedDouble, Bot, Check, CircleAlert, Clock, Compass, Heart, Loader2, MapPin, Plane, Sparkles, TrendingUp, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, BadgeCheck, BedDouble, Bot, CalendarMinus, Car, Check, CircleAlert, Clock, Compass, Heart, Loader2, MapPin, Plane, Sparkles, Ticket, TrendingUp, Users, UtensilsCrossed, Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { type CopyKey, type Lang, t } from "@/i18n";
 import type { AppRouter } from "../../../backend/src/routers";
@@ -167,13 +167,58 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
   </div>)}</div>;
 }
 
-export function NegotiationPanel({ trip, lang, busy, newCap, setNewCap, onChoose, onRaise }: { trip: TripView; lang: Lang; busy: boolean; newCap: string; setNewCap: (value: string) => void; onChoose: (choice: "approve_overage" | "swap_cheaper" | "remove_item") => void; onRaise: () => void }) {
+type BudgetFix = NonNullable<TripView["pending"]>["fixes"][number];
+const FIX_ICON: Record<string, ReactNode> = {
+  auto: <Wand2 className="h-4 w-4" />, flight: <Plane className="h-4 w-4" />, hotel: <BedDouble className="h-4 w-4" />, experience: <Sparkles className="h-4 w-4" />,
+  transfer: <Car className="h-4 w-4" />, meal: <UtensilsCrossed className="h-4 w-4" />, entry_ticket: <Ticket className="h-4 w-4" />, addon: <X className="h-4 w-4" />,
+  guide: <Compass className="h-4 w-4" />, days: <CalendarMinus className="h-4 w-4" />,
+};
+
+/**
+ * Over budget: the engine prices concrete fixes on the whole plan (cheaper flight, stay, activity or transfer, dropping an
+ * add-on or guide, one day less, or a combined "fit my budget" plan). One tap applies a fix; the plan is re-priced and, if still
+ * over, fresh options appear. Approving the extra, declining or raising the budget remain available.
+ */
+export function NegotiationPanel({ trip, lang, busy, newCap, setNewCap, onChoose, onFix, onRaise }: { trip: TripView; lang: Lang; busy: boolean; newCap: string; setNewCap: (value: string) => void; onChoose: (choice: "approve_overage" | "swap_cheaper" | "remove_item") => void; onFix: (fixId: string) => void; onRaise: () => void }) {
   const copy = (key: CopyKey) => t(lang, key);
+  const tr = useTr(lang);
+  const pending = trip.pending;
+  const fixes = pending?.fixes ?? [];
+  const total = pending?.total ?? trip.runningTotal + (pending?.amount ?? 0);
+  const overage = pending?.overage ?? Math.max(0, total - trip.budgetCap);
+  const fillPct = Math.min(100, (trip.budgetCap / Math.max(1, total)) * 100);
+  const decline = trip.negotiationOptions.find(option => option.choice === "swap_cheaper");
+  const change = (fix: { from?: string; to?: string; kind: string }) => fix.kind === "days" ? `${fix.from} → ${fix.to} ${copy("days").toLowerCase()}` : fix.to ? <>{tr(fix.from ?? "")} <ArrowRight className="inline h-3 w-3" /> {tr(fix.to)}</> : tr(fix.from ?? "");
+  const card = (fix: BudgetFix) => <button key={fix.id} disabled={busy} onClick={() => onFix(fix.id)} className={`group flex w-full flex-col rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md disabled:opacity-50 ${fix.kind === "auto" ? "border-[#7c3aed] bg-[#f7f3ff]" : fix.fits ? "border-[#b7ebd3] bg-white" : "border-[#e6ebf2] bg-white"}`}>
+    <div className="flex items-center justify-between gap-2">
+      <span className={`flex items-center gap-2 text-sm font-extrabold ${fix.kind === "auto" ? "text-[#6d28d9]" : "text-[#0b1f3a]"}`}><span className={`grid h-7 w-7 place-items-center rounded-lg ${fix.kind === "auto" ? "bg-[#7c3aed] text-white" : "bg-[#eef3fa] text-[#0b6bcb]"}`}>{FIX_ICON[fix.kind]}</span>{copy(`fix_${fix.kind}` as CopyKey)}</span>
+      {fix.kind === "auto" ? <span className="rounded-full bg-[#7c3aed] px-2 py-0.5 text-[10px] font-bold text-white">{copy("recommendedFix")}</span> : fix.fits && <span className="flex items-center gap-1 rounded-full bg-[#e7f8f0] px-2 py-0.5 text-[10px] font-bold text-[#0e8a5f]"><Check className="h-3 w-3" />{copy("fixFits")}</span>}
+    </div>
+    <div className="mt-2 text-xs leading-5 text-[#5f6b7a]">{fix.kind === "auto" ? (fix.steps ?? []).map((step, index) => <div key={index} className="flex items-center gap-1.5"><span className="text-[#7c3aed]">{FIX_ICON[step.kind]}</span><span>{change(step)}</span></div>) : change(fix)}</div>
+    <div className="mt-3 flex items-end justify-between gap-2 border-t border-[#eef2f7] pt-2">
+      <span className="text-xs text-[#5f6b7a]">{copy("fixSaves")} <b className="text-sm text-[#0e8a5f]">{money(fix.saving)}</b></span>
+      <span className="text-right text-xs text-[#5f6b7a]">{copy("fixNewTotal")} <b className="text-sm text-[#0b1f3a]">{money(fix.newTotal)}</b>{!fix.fits && <span className="block text-[10px] text-[#b45309]">{copy("fixStillOver")} {money(fix.newTotal - trip.budgetCap)}</span>}</span>
+    </div>
+  </button>;
   return <Panel className="border border-[#f3c1b8] p-5">
     <SectionTitle icon={<CircleAlert className="h-4 w-4 text-[#c0392b]" />} title={copy("overBudget")} sub={copy("overBudgetSub")} />
-    <div className="mt-4 space-y-2">{trip.negotiationOptions.map(option => option.choice !== "raise_cap"
-      ? <button key={option.choice} disabled={busy} onClick={() => onChoose(option.choice as "approve_overage" | "swap_cheaper" | "remove_item")} className="w-full rounded-xl border border-[#e6ebf2] bg-white px-4 py-3 text-left text-sm font-semibold text-[#0b1f3a] hover:border-[#0b6bcb]">{option.label}</button>
-      : <div key={option.choice} className="flex gap-2"><input type="number" placeholder={copy("newCap")} value={newCap} onChange={event => setNewCap(event.target.value)} className="h-11 flex-1 rounded-xl border border-[#e6ebf2] px-3 text-sm" /><Button disabled={busy || !newCap} onClick={onRaise} className="h-11 rounded-xl bg-[#0b1f3a] px-5 text-white">{copy("set")}</Button></div>)}</div>
+    {/* Budget vs the plan with this change */}
+    <div className="mt-4 rounded-xl bg-[#fff6f4] p-4">
+      <div className="flex flex-wrap items-end justify-between gap-2"><div><div className="text-[10px] font-bold uppercase tracking-[.16em] text-[#7a3b2e]">{tr(pending?.label ?? "")}</div><div className="mt-1 text-2xl font-black text-[#0b1f3a]">{money(total)} <span className="text-sm font-semibold text-[#5f6b7a]">{copy("of")} {money(trip.budgetCap)}</span></div></div><div className="rounded-full bg-[#c0392b] px-3 py-1 text-xs font-extrabold text-white">+{money(overage)} {copy("overBudgetBy")}</div></div>
+      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#f3c1b8]"><div className="h-full rounded-full bg-[#0b6bcb]" style={{ width: `${fillPct}%` }} /></div>
+    </div>
+    {fixes.length > 0 && <div className="mt-5">
+      <div className="text-sm font-extrabold text-[#0b1f3a]">{copy("fitWays")}</div>
+      <p className="mt-0.5 text-xs text-[#5f6b7a]">{copy("fitWaysSub")}</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">{fixes.map(card)}</div>
+    </div>}
+    <div className="mt-5 text-[10px] font-bold uppercase tracking-[.16em] text-[#5f6b7a]">{copy("orDecide")}</div>
+    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+      <button disabled={busy} onClick={() => onChoose("approve_overage")} className="rounded-xl border border-[#e6ebf2] bg-white px-4 py-3 text-left text-sm font-semibold text-[#0b1f3a] hover:border-[#0b6bcb]">{copy("ngApproveExtra")} {money(overage)}</button>
+      {decline && <button disabled={busy} onClick={() => onChoose("swap_cheaper")} className="rounded-xl border border-[#e6ebf2] bg-white px-4 py-3 text-left text-sm font-semibold text-[#0b1f3a] hover:border-[#0b6bcb]">{copy(pending?.retryStatus === "select_flight" ? "ngDeclineFlight" : "ngDeclineKeep")}</button>}
+    </div>
+    <div className="mt-2 flex gap-2"><input type="number" placeholder={copy("newCap")} value={newCap} onChange={event => setNewCap(event.target.value)} className="h-11 flex-1 rounded-xl border border-[#e6ebf2] px-3 text-sm" /><Button disabled={busy || !newCap || Number(newCap) <= trip.budgetCap} onClick={onRaise} className="h-11 rounded-xl bg-[#0b1f3a] px-5 text-white">{copy("set")}</Button></div>
+    {Number(newCap) > 0 && Number(newCap) <= trip.budgetCap && <p className="mt-1 text-[11px] text-[#b45309]">{copy("newCap")} &gt; {money(trip.budgetCap)}</p>}
   </Panel>;
 }
 

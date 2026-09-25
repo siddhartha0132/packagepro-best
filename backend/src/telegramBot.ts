@@ -391,7 +391,9 @@ async function showGuideRefusal(chatId: string, s: Session, trip: TripView) {
 async function showNegotiation(chatId: string, s: Session, trip: TripView) {
   const overage = trip.negotiationOptions.find(option => option.choice === "approve_overage")?.amount ?? 0;
   const label: Record<string, BotKey> = { approve_overage: "ngApprove", swap_cheaper: "ngSwap", remove_item: "ngRemove", raise_cap: "ngRaise" };
-  await send(chatId, say(s.lang, "overBudget", { amount: money(overage) }), trip.negotiationOptions.map(option => [{ text: say(s.lang, label[option.choice] ?? "ngSwap"), data: `NG:${option.choice}` }]));
+  // Budget fixes first (priced on the whole plan), then approve / keep as it was / raise the budget.
+  const fixes = (trip.pending?.fixes ?? []).slice(0, 4).map((fix, index) => [{ text: `${say(s.lang, `fx_${fix.kind}` as BotKey)} · −${money(fix.saving)}${fix.fits ? ` ✓ ${say(s.lang, "fxFits")}` : ""}`, data: `NF:${index}` }]);
+  await send(chatId, `${say(s.lang, "overBudget", { amount: money(overage) })}${fixes.length ? `\n\n${say(s.lang, "fxIntro")}` : ""}`, [...fixes, ...trip.negotiationOptions.map(option => [{ text: say(s.lang, label[option.choice] ?? "ngSwap"), data: `NG:${option.choice}` }])]);
 }
 
 async function showReview(chatId: string, s: Session, trip: TripView) {
@@ -432,7 +434,7 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
   const value = separator < 0 ? "" : data.slice(separator + 1);
   const trip = () => trips.getTrip(s.tripId!);
   // Buttons from an old message can arrive after the trip is gone (or before one exists): send them to the menu.
-  if (["F", "H", "A", "GD", "GS", "GR", "GX", "GF", "GU", "ND", "NG", "R", "BK", "K"].includes(kind) && !s.tripId) return showMenu(chatId, s, say(s.lang, "noTrip"));
+  if (["F", "H", "A", "GD", "GS", "GR", "GX", "GF", "GU", "ND", "NG", "NF", "R", "BK", "K"].includes(kind) && !s.tripId) return showMenu(chatId, s, say(s.lang, "noTrip"));
   switch (kind) {
     case "x": return;
     case "L": s.lang = (LANGS.find(lang => lang.value === value)?.value ?? "en-IN"); return showMenu(chatId, s, say(s.lang, "langSet"));
@@ -532,6 +534,11 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
         if (next.guideAvailabilityIssue && !next.chosenGuide) { await showPackage(chatId, s, next); return showGuideRefusal(chatId, s, next); }
         return showPackage(chatId, s, next);
       }
+    case "NF": {
+      const fix = trips.getTrip(s.tripId!).pending?.fixes?.[Number(value)];
+      if (!fix) return showTrip(chatId, s);
+      return showTrip(chatId, s, await trips.negotiate(s.tripId!, "apply_fix", undefined, fix.id));
+    }
     case "NG":
       if (value === "raise_cap") { s.step = "raiseCap"; return send(chatId, say(s.lang, "askNewCap")); }
       return showTrip(chatId, s, await trips.negotiate(s.tripId!, value));

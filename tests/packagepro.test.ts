@@ -78,6 +78,48 @@ describe("master trip flow", () => {
     expect(declined.status).toBe("select_flight");
   });
 
+  it("offers priced budget fixes when a change breaks the cap, and applying one fits the plan without leaving the budget", async () => {
+    const api = caller();
+    const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 500000, language: "ta" });
+    const flights = [...draft.flightOptions].sort((a, b) => a.price - b.price);
+    // A cap just under the cheapest plan: no cheaper flight exists, so the fixes must come from the package itself.
+    const probe = await api.trip.selectFlight({ tripId: draft.tripId, flightId: flights[0].id });
+    const cheapestTotal = probe.runningTotal;
+    const tight = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: Math.floor(cheapestTotal - 500), language: "ta" });
+    const over = await api.trip.selectFlight({ tripId: tight.tripId, flightId: flights[0].id });
+    expect(over.status).toBe("negotiate");
+    const fixes = over.pending!.fixes;
+    expect(fixes.length).toBeGreaterThan(0);
+    // Every fix is priced on the whole plan: saving = pending total − new total.
+    for (const fix of fixes) expect(fix.newTotal).toBeCloseTo(over.pending!.total! - fix.saving, 1);
+    expect(over.negotiationOptions.map(option => option.choice)).toEqual(["approve_overage", "swap_cheaper", "raise_cap"]);
+    const fitting = fixes.find(fix => fix.fits)!;
+    expect(fitting).toBeTruthy();
+    const applied = await api.trip.negotiate({ tripId: tight.tripId, choice: "apply_fix", fixId: fitting.id });
+    expect(applied.status).toBe("select_package");
+    expect(applied.runningTotal).toBeLessThanOrEqual(applied.budgetCap);
+    expect(applied.runningTotal).toBeCloseTo(fitting.newTotal, 1);
+    expect(applied.chosenFlight?.id).toBe(flights[0].id);
+  });
+
+  it("suggests a cheaper flight as the gentlest fix for an expensive fare", async () => {
+    const api = caller();
+    const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 1, language: "ta" });
+    const flights = [...draft.flightOptions].sort((a, b) => b.price - a.price);
+    const cheapest = flights[flights.length - 1];
+    // Cap between the cheapest and the dearest plan, then pick the dearest fare.
+    const cap = Math.round(await (async () => { const t = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 900000, language: "ta" }); return (await api.trip.selectFlight({ tripId: t.tripId, flightId: cheapest.id })).runningTotal + 1000; })());
+    const trip = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: cap, language: "ta" });
+    const over = await api.trip.selectFlight({ tripId: trip.tripId, flightId: flights[0].id });
+    if (flights[0].price === cheapest.price) return; // offline fares may all cost the same
+    expect(over.status).toBe("negotiate");
+    const flightFix = over.pending!.fixes.find(fix => fix.kind === "flight" && fix.fits);
+    expect(flightFix).toBeTruthy();
+    const applied = await api.trip.negotiate({ tripId: trip.tripId, choice: "apply_fix", fixId: flightFix!.id });
+    expect(applied.status).toBe("select_package");
+    expect(applied.chosenFlight!.price).toBeLessThan(flights[0].price);
+  });
+
   it("prices the package as base + every kept component (PS-04 rule), so the itinerary lines add up to the total", async () => {
     const { trip } = await customiseThanjavur();
     expect(trip.status).toBe("select_package");

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
-import { ArrowLeftRight, Minus, Plus, X } from "lucide-react";
+import { ArrowLeftRight, Check, Minus, Plus, Star, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
   const unitsOf = (type?: string) => (type === "hotel" ? party.rooms : type === "transfer" ? party.vehicles : type === "guide" ? 1 : party.pax);
   // What a component adds to the total: units × (hotel) the share of the package's nights stayed — same as the server.
   const factorOf = (type?: string) => unitsOf(type) * (type === "hotel" ? trip.priceBreakdown.nightsFactor : 1);
+  const stars = (detail?: string) => Number(detail?.match(/(\d)★/)?.[1] || 0);
 
   return <div className="space-y-6">
     {/* Package header + duration */}
@@ -85,17 +86,41 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
                     <div className="min-w-0"><div className="text-sm font-medium">{tr(item.label)}</div><div className="mt-0.5 text-xs text-[#5f6b7a]">{tr(item.detail)}</div></div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {item.price != null && <span className="text-sm">{money(item.price)}{unitsOf(item.kind) > 1 && <span className="ml-1 text-[10px] text-[#5f6b7a]">×{unitsOf(item.kind)}</span>}</span>}
-                    {swappable.length > 0 && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-[#0b6bcb]" onClick={() => setOpenSwap(openSwap === key ? null : key)}><ArrowLeftRight className="mr-1 h-3 w-3" />{copy("swap")}</Button>}
+                    {item.price != null && <span className="text-sm">{item.price < 0 ? signed(item.price) : money(item.price)}{unitsOf(item.kind) > 1 && <span className="ml-1 text-[10px] text-[#5f6b7a]">×{unitsOf(item.kind)}</span>}</span>}
+                    {swappable.length > 0 && current && (() => {
+                      const bestSaving = Math.max(0, ...swappable.map(option => (current.price - option.price) * factorOf(option.type)));
+                      return <Button variant="ghost" size="sm" className={`h-7 px-2 text-xs ${openSwap === key ? "bg-[#e8f1fd] text-[#0b6bcb]" : "text-[#0b6bcb]"}`} onClick={() => setOpenSwap(openSwap === key ? null : key)}><ArrowLeftRight className="mr-1 h-3 w-3" />{copy("swap")}{bestSaving > 0 && <span className="ml-1 rounded bg-[#e7f8f0] px-1 text-[10px] font-bold text-[#0e8a5f]">−{money(bestSaving)}</span>}</Button>;
+                    })()}
                     {item.kind === "guide" && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-[#ad4738]" disabled={loading} onClick={() => removeGuide.mutate({ tripId: trip.tripId, guideId: item.guideId })}><X className="mr-1 h-3 w-3" />{copy("remove")}</Button>}
                   </div>
                 </div>
-                {openSwap === key && current && <div className="mt-3 space-y-1 rounded-md bg-[#f6f8fb] p-2">
-                  {swappable.map(option => <button key={option.id} disabled={loading} onClick={() => swap.mutate({ tripId: trip.tripId, fromId: current.id, toId: option.id })} className="flex w-full items-center justify-between gap-3 rounded px-2 py-2 text-left text-sm hover:bg-white disabled:opacity-50">
-                    <span className="min-w-0"><span className="block">{tr(option.label)}</span><span className="block text-xs text-[#5f6b7a]">{tr(option.detail)}</span></span>
-                    <span className="shrink-0 text-right"><span className="block">{money(option.price * factorOf(option.type))}</span><span className={`block text-xs ${option.price - current.price > 0 ? "text-[#ad4738]" : "text-[#0b6bcb]"}`}>{signed((option.price - current.price) * factorOf(option.type))}</span></span>
-                  </button>)}
-                </div>}
+                {openSwap === key && current && (() => {
+                  // Current choice + alternatives, cheapest first, each priced on the whole trip against the budget.
+                  const options = [current, ...swappable].sort((a, b) => a.price - b.price);
+                  const cheapestId = options[0]?.id;
+                  const topRated = item.kind === "hotel" ? [...options].sort((a, b) => stars(b.detail) - stars(a.detail))[0] : undefined;
+                  return <div className="mt-3 grid gap-2 rounded-lg bg-[#f6f8fb] p-2 sm:grid-cols-2">
+                    {options.map(option => {
+                      const isCurrent = option.id === current.id;
+                      const delta = (option.price - current.price) * factorOf(option.type);
+                      const newTotal = trip.runningTotal + delta;
+                      const fits = newTotal <= trip.budgetCap;
+                      return <button key={option.id} disabled={loading || isCurrent} onClick={() => swap.mutate({ tripId: trip.tripId, fromId: current.id, toId: option.id })} className={`flex flex-col rounded-lg border p-3 text-left text-sm transition ${isCurrent ? "border-[#0b6bcb] bg-[#e8f1fd]/60" : "border-[#e6ebf2] bg-white hover:-translate-y-0.5 hover:border-[#0b6bcb] hover:shadow-sm"} disabled:cursor-default`}>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {isCurrent && <span className="rounded bg-[#0b6bcb] px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">{copy("swapCurrent")}</span>}
+                          {option.id === cheapestId && !isCurrent && <span className="rounded bg-[#e7f8f0] px-1.5 py-0.5 text-[9px] font-bold uppercase text-[#0e8a5f]">{copy("swapCheapest")}</span>}
+                          {topRated && option.id === topRated.id && stars(option.detail) > 0 && <span className="flex items-center gap-0.5 rounded bg-[#fff4e0] px-1.5 py-0.5 text-[9px] font-bold uppercase text-[#b45309]"><Star className="h-2.5 w-2.5" />{copy("swapTopRated")}</span>}
+                        </div>
+                        <span className="mt-1 font-semibold">{tr(option.label)}</span>
+                        <span className="text-xs text-[#5f6b7a]">{tr(option.detail)}</span>
+                        <span className="mt-2 flex items-end justify-between gap-2 border-t border-[#eef2f7] pt-2 text-xs">
+                          <span>{option.price < 0 ? signed(option.price * factorOf(option.type)) : money(option.price * factorOf(option.type))}{!isCurrent && <span className={`ml-1 font-bold ${delta > 0 ? "text-[#ad4738]" : "text-[#0e8a5f]"}`}>{signed(delta)}</span>}</span>
+                          {!isCurrent && <span className="text-right text-[#5f6b7a]">{copy("total")} <b className="text-[#0b1f3a]">{money(newTotal)}</b> <span className={`ml-1 inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-bold ${fits ? "bg-[#e7f8f0] text-[#0e8a5f]" : "bg-[#fff4e0] text-[#b45309]"}`}>{fits ? <><Check className="h-2.5 w-2.5" />{copy("fitsBudget")}</> : <>+{money(newTotal - trip.budgetCap)} {copy("overBudgetBy")}</>}</span></span>}
+                        </span>
+                      </button>;
+                    })}
+                  </div>;
+                })()}
               </div>;
             })}
           </div>

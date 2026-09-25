@@ -362,7 +362,7 @@ export default function Home() {
           {estimate.error && <Panel className="mt-4 p-5 text-sm text-[#c0392b]">{estimate.error.message}</Panel>}
         </>}
         {screen === "trip" && trip && <>
-          {trip.status === "negotiate" && <NegotiationPanel trip={trip} lang={uiLang} busy={busy} newCap={newCap} setNewCap={setNewCap} onChoose={choice => negotiate.mutate({ tripId: trip.tripId, choice })} onRaise={() => negotiate.mutate({ tripId: trip.tripId, choice: "raise_cap", newCap: Number(newCap) })} />}
+          {trip.status === "negotiate" && <NegotiationPanel trip={trip} lang={uiLang} busy={busy} newCap={newCap} setNewCap={setNewCap} onChoose={choice => negotiate.mutate({ tripId: trip.tripId, choice })} onFix={fixId => negotiate.mutate({ tripId: trip.tripId, choice: "apply_fix", fixId })} onRaise={() => negotiate.mutate({ tripId: trip.tripId, choice: "raise_cap", newCap: Number(newCap) })} />}
           {trip.status === "select_flight" && <>
             <ScreenHeader title={copy("chooseFlight")} sub={`${trip.origin} → ${tr(trip.destination)} · ${trip.departDate} · ${trip.flightNote ? tr(trip.flightNote) : trip.flightSource === "serpapi" ? copy("srcGoogle") : trip.flightSource}`} onBack={back} backLabel={copy("back")} />
             {trip.flightInsights?.typicalRange && <div className="mb-3 flex items-center gap-2 rounded-xl bg-[#eef6ff] px-4 py-2.5 text-xs text-[#0b1f3a]"><Sparkles className="h-4 w-4 text-[#0b6bcb]" />{copy("typicalFare")}: <strong>{money(trip.flightInsights.typicalRange[0])}–{money(trip.flightInsights.typicalRange[1])}</strong> · {copy("priceLevel")}: <strong className="uppercase">{trip.flightInsights.priceLevel}</strong></div>}

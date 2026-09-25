@@ -66,7 +66,7 @@ export type Trip = {
   flightNote?: string;
   flightInsights?: { lowestPrice?: number; typicalRange?: [number, number]; priceLevel?: string };
   negotiationOptions: { choice: string; amount?: number; item_label: string; label: string }[];
-  pending: { amount: number; label: string; retryStatus: TripStatus; advanceStatus: TripStatus; patch: Partial<Trip> } | null;
+  pending: { amount: number; label: string; retryStatus: TripStatus; advanceStatus: TripStatus; patch: Partial<Trip>; total?: number; overage?: number; fixes?: BudgetFix[] } | null;
   booking?: { bookingId: string; reference: string; itineraryId?: string } | null;
   /** users.user_id of the traveller (canonical trips.owner_user_id / bookings.user_id). */
   userId: string;
@@ -219,6 +219,8 @@ function snapshot(trip: Trip) {
   const hotel = trip.packageComponents.find(component => component.type === "hotel" && component.included);
   return {
     ...trip,
+    // Budget fixes go out without their internal patches (the server re-applies them by id).
+    pending: trip.pending ? { ...trip.pending, fixes: (trip.pending.fixes ?? []).map(({ patch: _patch, ...fix }) => fix) } : null,
     priceBreakdown: breakdown,
     packagePrice: breakdown.packageTotal,
     chosenHotel: hotel ? { id: hotel.id, name: hotel.label, rating: Number(hotel.detail.match(/(\d)★/)?.[1] || 0), detail: hotel.detail, total: hotel.price } : null,
@@ -255,18 +257,108 @@ function commit(trip: Trip, label: string, patch: Partial<Trip>, advanceTo: Trip
     log(trip, "decision", `${label} — ${delta >= 0 ? "+" : "−"}${inr(Math.abs(delta))}, total now ${inr(total)}`);
     return true;
   }
-  const overage = total - trip.budgetCap;
+  const overage = Math.round((total - trip.budgetCap) * 100) / 100;
   const retryStatus = trip.status === "negotiate" ? (trip.pending?.retryStatus ?? "select_flight") : trip.status;
   trip.status = "negotiate";
-  trip.pending = { amount: total - trip.runningTotal, label, retryStatus, advanceStatus: advanceTo, patch };
+  const fixes = budgetFixes({ ...trip, ...patch }, trip.budgetCap);
+  trip.pending = { amount: total - trip.runningTotal, label, retryStatus, advanceStatus: advanceTo, patch, total, overage, fixes };
+  // Declining puts the plan back as it was; on the very first flight + package pick that means choosing another flight.
+  const declineLabel = retryStatus === "select_flight" ? "Choose a different flight" : "Keep the plan as it was";
   trip.negotiationOptions = [
     { choice: "approve_overage", amount: overage, item_label: label, label: `Approve the extra ${inr(overage)} for ${label}` },
-    { choice: "swap_cheaper", item_label: label, label: `Keep the plan as it was and pick something cheaper` },
-    { choice: "remove_item", item_label: label, label: `Drop ${label} and keep the rest` },
+    { choice: "swap_cheaper", item_label: label, label: declineLabel },
     { choice: "raise_cap", item_label: label, label: "Raise my overall trip budget" },
   ];
-  log(trip, "decision", `${label} would exceed your budget by ${inr(overage)}`);
+  log(trip, "decision", `${label} would exceed your budget by ${inr(overage)}${fixes.length ? `; ${fixes.length} ways to fit it offered` : ""}`);
   return false;
+}
+
+/** A concrete change that brings an over-budget plan down, priced by re-running the whole plan. */
+export type BudgetFix = {
+  id: string;
+  kind: "auto" | "flight" | "hotel" | "experience" | "transfer" | "meal" | "entry_ticket" | "addon" | "guide" | "days";
+  from?: string;
+  to?: string;
+  saving: number;
+  newTotal: number;
+  fits: boolean;
+  steps?: { kind: BudgetFix["kind"]; from?: string; to?: string }[];
+  patch: Partial<Trip>;
+};
+
+type FixCandidate = Omit<BudgetFix, "saving" | "newTotal" | "fits">;
+
+/** Every single change that makes the plan cheaper: cheaper flights, cheaper alternatives in each swap group, dropping add-ons or guides, one day less. */
+function fixCandidates(plan: Trip): FixCandidate[] {
+  const out: FixCandidate[] = [];
+  const flight = plan.chosenFlight;
+  if (flight) {
+    for (const option of plan.flightOptions.filter(item => item.price < flight.price)) {
+      out.push({ id: `flight:${option.id}`, kind: "flight", from: `${flight.airline} ${flight.depart}`, to: `${option.airline} ${option.depart}`, patch: { chosenFlight: option } });
+    }
+  }
+  if (plan.package) {
+    for (const component of plan.packageComponents.filter(item => item.included)) {
+      const cheaper = getAlternatives(plan.package, component.id).filter(item => item.price < component.price).sort((a, b) => a.price - b.price);
+      for (const option of cheaper.slice(0, 2)) {
+        const next: TripComponent = { ...option, included: component.included, defaultId: component.defaultId, defaultPrice: component.defaultPrice };
+        out.push({ id: `swap:${component.id}:${option.id}`, kind: (component.type as BudgetFix["kind"]) ?? "experience", from: component.label, to: option.label, patch: { packageComponents: plan.packageComponents.map(item => item.id === component.id ? next : item) } });
+      }
+      if (component.optional) {
+        out.push({ id: `addon:${component.id}`, kind: "addon", from: component.label, patch: { packageComponents: plan.packageComponents.map(item => item.id === component.id ? { ...item, included: false } : item) } });
+      }
+    }
+    const guides = allGuides(plan);
+    for (const guide of guides) {
+      out.push({ id: `guide:${guide.id}`, kind: "guide", from: guide.name, patch: { ...guideFields(guides.filter(item => item.id !== guide.id)), guideAvailabilityIssue: null } });
+    }
+    // One day shorter (only without guides, whose dates would need re-checking), never below 2 days.
+    if (!guides.length && plan.durationDays > 2) {
+      out.push({ id: `days:${plan.durationDays - 1}`, kind: "days", from: String(plan.durationDays), to: String(plan.durationDays - 1), patch: { durationDays: plan.durationDays - 1, returnDate: addDays(plan.departDate, plan.durationDays - 1) } });
+    }
+  }
+  return out;
+}
+
+/**
+ * Ways to bring an over-budget plan back under the cap, best first: a combined "fit my budget" plan (the smallest set of cuts
+ * that fits), then single changes — the ones that fit with the least given up first, then the biggest savings.
+ */
+function budgetFixes(plan: Trip, cap: number): BudgetFix[] {
+  const total = priceBreakdown(plan).total;
+  const priced = (candidate: FixCandidate, base: Trip) => {
+    const newTotal = priceBreakdown({ ...base, ...candidate.patch }).total;
+    return { ...candidate, newTotal, saving: Math.round((priceBreakdown(base).total - newTotal) * 100) / 100, fits: newTotal <= cap };
+  };
+  const singles = fixCandidates(plan).map(candidate => priced(candidate, plan)).filter(fix => fix.saving > 0);
+  // Per kind keep the most useful options: the gentlest one that fits, and the biggest saving.
+  const byKind = new Map<string, BudgetFix[]>();
+  for (const fix of singles) byKind.set(fix.kind, [...(byKind.get(fix.kind) ?? []), fix]);
+  const shortlisted: BudgetFix[] = [];
+  byKind.forEach(fixes => {
+    const gentlestFit = fixes.filter(fix => fix.fits).sort((a, b) => a.saving - b.saving)[0];
+    const biggest = [...fixes].sort((a, b) => b.saving - a.saving)[0];
+    for (const fix of [gentlestFit, biggest]) if (fix && !shortlisted.includes(fix)) shortlisted.push(fix);
+  });
+  shortlisted.sort((a, b) => Number(b.fits) - Number(a.fits) || (a.fits ? a.saving - b.saving : b.saving - a.saving));
+
+  // Greedy combination: keep applying the change that fits with the least saving, else the biggest saving, until under the cap.
+  let current = plan;
+  const steps: { kind: BudgetFix["kind"]; from?: string; to?: string }[] = [];
+  for (let round = 0; round < 6 && priceBreakdown(current).total > cap; round++) {
+    const options = fixCandidates(current).map(candidate => priced(candidate, current)).filter(fix => fix.saving > 0 && !steps.some(step => step.kind === fix.kind && step.from === fix.from));
+    if (!options.length) break;
+    const pick = options.filter(fix => fix.fits).sort((a, b) => a.saving - b.saving)[0] ?? options.sort((a, b) => b.saving - a.saving)[0];
+    current = { ...current, ...pick.patch };
+    steps.push({ kind: pick.kind, from: pick.from, to: pick.to });
+  }
+  const combinedTotal = priceBreakdown(current).total;
+  const fixes = shortlisted.slice(0, 6);
+  if (steps.length > 1 && combinedTotal < total) {
+    const patch: Partial<Trip> = { chosenFlight: current.chosenFlight, packageComponents: current.packageComponents, chosenGuide: current.chosenGuide, extraGuides: current.extraGuides, durationDays: current.durationDays, returnDate: current.returnDate, guideAvailabilityIssue: current.guideAvailabilityIssue };
+    fixes.unshift({ id: "auto", kind: "auto", steps, saving: Math.round((total - combinedTotal) * 100) / 100, newTotal: combinedTotal, fits: combinedTotal <= cap, patch });
+  }
+  return fixes;
 }
 
 function loadPackage(trip: Trip) {
@@ -538,10 +630,18 @@ export function removeGuide(tripId: string, guideId?: string) {
 // Budget negotiation, navigation, confirmation
 // ---------------------------------------------------------------------------
 
-export async function negotiate(tripId: string, choice: string, newCap?: number) {
+export async function negotiate(tripId: string, choice: string, newCap?: number, fixId?: string) {
   const trip = need(tripId);
   if (!trip.pending) throw new Error("Nothing to negotiate right now");
   const pending = trip.pending;
+  if (choice === "apply_fix") {
+    // Apply the change together with the chosen fix; it is priced again and, if still over, negotiation continues with fresh fixes.
+    const fix = pending.fixes?.find(item => item.id === fixId);
+    if (!fix) throw new Error("That budget option is no longer available");
+    commit(trip, pending.label, { ...pending.patch, ...fix.patch }, pending.advanceStatus);
+    if (trip.status !== "negotiate") log(trip, "decision", `Fitted the budget: ${fix.kind === "auto" ? (fix.steps ?? []).map(step => step.to ? `${step.from} → ${step.to}` : `without ${step.from}`).join(", ") : fix.to ? `${fix.from} → ${fix.to}` : `without ${fix.from}`}`);
+    return snapshot(trip);
+  }
   if (choice === "approve_overage" || choice === "raise_cap") {
     if (choice === "raise_cap") {
       if (!newCap || newCap <= trip.budgetCap) throw new Error("new_cap must be greater than the current cap");

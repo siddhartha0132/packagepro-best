@@ -47,7 +47,7 @@ A trip moves `select_flight → select_package ⇄ negotiate → review → conf
 | `trip.bookGuideDays` | mutation | `{ tripId, guideId, dates[] }` | **Day-by-day plan**: book a guide only on the picked dates (checked individually, refused with named dates + substitutes on a clash); other guides keep their other days |
 | `trip.removeGuide` | mutation | `{ tripId, guideId? }` | Remove one guide (or all) |
 | `trip.skipGuide` / `trip.continuePackage` | mutation | `{ tripId }` | Move to review |
-| `trip.negotiate` | mutation | `{ tripId, choice, newCap? }` | `approve_overage` · `swap_cheaper` · `remove_item` · `raise_cap` |
+| `trip.negotiate` | mutation | `{ tripId, choice, newCap?, fixId? }` | `apply_fix` (one of `pending.fixes`: cheaper flight / stay / activity / transfer, drop an add-on or guide, one day shorter, or the combined `auto` plan — each priced on the whole plan) · `approve_overage` · `swap_cheaper` (keep the plan as it was) · `raise_cap` |
 | `trip.goBack` | mutation | `{ tripId }` | One stage back |
 | `trip.setLanguage` | mutation | `{ tripId, language }` | Change the guide language |
 | `trip.confirm` | mutation | `{ tripId, email?, phone?, idempotencyKey? }` | Re-checks guide capacity, writes canonical itinerary/items/booking in one transaction; idempotent |
