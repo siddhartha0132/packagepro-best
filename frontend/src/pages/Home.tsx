@@ -139,8 +139,17 @@ export default function Home() {
     if (destinationPicked) return;
     try {
       const best = await utils.packagepro.recommend.fetch({ query: value, language: form.language, budget: form.budgetCap || undefined });
-      const code = cities.data?.destinations.find(item => item.city === best.packages[0]?.city)?.code;
-      if (code) update("destination", code);
+      const pkg = packageList.find(item => item.id === (best.moodMatches[0] ?? best.packages[0]?.id));
+      const code = cities.data?.destinations.find(item => item.city === pkg?.city)?.code;
+      if (!pkg || !code) return;
+      update("destination", code);
+      // Keep the party legal for the new package (tour_packages.min/max_group_size) so the next screen is never blocked.
+      const party = Math.min(pkg.maxGroupSize, Math.max(pkg.minGroupSize, form.travelers));
+      if (party !== form.travelers) {
+        update("travelers", party);
+        const range = pkg.minGroupSize === pkg.maxGroupSize ? `${pkg.minGroupSize}` : `${pkg.minGroupSize}–${pkg.maxGroupSize}`;
+        toast.info(`${tr(pkg.city)}: ${copy("groupSizeLabel")} ${range} ${copy("travellersWord")} → ${party}`);
+      }
     } catch { /* keep the current destination */ }
   }
   function changeGuideLanguage(value: string) { update("language", value); if (tripId && trip && trip.status !== "confirmed") setTripLanguage.mutate({ tripId, language: value }); }
@@ -349,7 +358,7 @@ export default function Home() {
         {demoMode && destinationCity === DEMO.city && trip?.status !== "confirmed" && <div className="mb-4 flex items-start gap-3 rounded-xl border border-[#b9d7fb] bg-[#eef6ff] px-4 py-3 text-xs leading-5 text-[#0b1f3a]"><Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#0b6bcb]" /><span className="flex-1">{copy("demoHint")}</span><button onClick={() => setDemoMode(false)} className="text-[#5f6b7a] hover:text-[#0b1f3a]"><X className="h-4 w-4" /></button></div>}
         {screen === "reality" && <>
           <ScreenHeader title={`${tr(cities.data?.origins.find(item => item.code === form.origin)?.city) || form.origin} → ${tr(destinationCity)}`} sub={`${form.departDate} → ${form.returnDate} · ${form.travelers} ${copy("travelers").toLowerCase()} · ${copy("guideLanguage")}: ${GUIDE_LANGS.find(lang => lang.value === form.language)?.native}`} onBack={back} backLabel={copy("back")} />
-          <EstimateView estimate={estimate.data} loading={estimate.isLoading} lang={uiLang} onFixParty={travelers => update("travelers", travelers)} continuing={createTrip.isPending} onContinue={() => createTrip.mutate({ ...form, budgetCap: form.budgetCap || 1, userId: travellerId ?? undefined })} />
+          <EstimateView estimate={estimate.data} loading={estimate.isLoading} lang={uiLang} onFixParty={travelers => update("travelers", travelers)} continuing={createTrip.isPending} onContinue={travelers => { if (travelers) update("travelers", travelers); createTrip.mutate({ ...form, travelers: travelers ?? form.travelers, budgetCap: form.budgetCap || 1, userId: travellerId ?? undefined }); }} />
           {estimate.error && <Panel className="mt-4 p-5 text-sm text-[#c0392b]">{estimate.error.message}</Panel>}
         </>}
         {screen === "trip" && trip && <>
