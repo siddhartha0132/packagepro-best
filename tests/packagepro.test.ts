@@ -131,6 +131,32 @@ describe("master trip flow", () => {
     }
   });
 
+  it("recommends upgrades that fit, and supports undo and discarding back to the recommended package", async () => {
+    const api = caller();
+    const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 900000, language: "ta" });
+    const loaded = await api.trip.selectFlight({ tripId: draft.tripId, flightId: [...draft.flightOptions].sort((a, b) => a.price - b.price)[0].id });
+    expect(loaded.canUndo).toBe(false);
+    expect(loaded.suggestions.length).toBeGreaterThan(0);
+    for (const item of loaded.suggestions) {
+      expect(item.direction).toBe("upgrade");
+      expect(item.fits).toBe(true);
+      expect(item.newTotal).toBeGreaterThan(loaded.runningTotal);
+    }
+    const pick = loaded.suggestions[0];
+    const applied = await api.trip.applySuggestion({ tripId: draft.tripId, suggestionId: pick.id });
+    expect(applied.runningTotal).toBeCloseTo(pick.newTotal, 1);
+    expect(applied.canUndo).toBe(true);
+    const undone = await api.trip.undo({ tripId: draft.tripId });
+    expect(undone.runningTotal).toBeCloseTo(loaded.runningTotal, 1);
+    // Several changes, then discard: back to the package's recommended components.
+    await api.trip.applySuggestion({ tripId: draft.tripId, suggestionId: (await api.trip.get({ tripId: draft.tripId })).suggestions[0].id });
+    await api.trip.setDuration({ tripId: draft.tripId, days: 2 });
+    const discarded = await api.trip.discardChanges({ tripId: draft.tripId });
+    expect(discarded.durationDays).toBe(loaded.durationDays);
+    expect(discarded.packageComponents.map(item => item.id)).toEqual(loaded.packageComponents.map(item => item.id));
+    expect(discarded.runningTotal).toBeCloseTo(loaded.runningTotal, 1);
+  });
+
   it("suggests a cheaper flight as the gentlest fix for an expensive fare", async () => {
     const api = caller();
     const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 1, language: "ta" });

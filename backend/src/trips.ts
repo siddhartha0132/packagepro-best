@@ -73,6 +73,10 @@ export type Trip = {
   /** Canonical bookings.channel: web app, or mobile_app for the Telegram bot. */
   channel: "web" | "mobile_app";
   trace: { kind: string; text: string }[];
+  /** Plan states before each applied change (newest last), for Undo. */
+  history?: PlanState[];
+  /** Trip length as first planned, for "Discard changes". */
+  plannedDays?: number;
 };
 
 const trips = new Map<string, Trip>();
@@ -221,6 +225,9 @@ function snapshot(trip: Trip) {
     ...trip,
     // Budget fixes go out without their internal patches (the server re-applies them by id).
     pending: trip.pending ? { ...trip.pending, fixes: (trip.pending.fixes ?? []).map(({ patch: _patch, ...fix }) => fix) } : null,
+    suggestions: suggestionsFor(trip).map(({ patch: _patch, ...item }) => item),
+    canUndo: Boolean(trip.history?.length),
+    history: undefined,
     priceBreakdown: breakdown,
     packagePrice: breakdown.packageTotal,
     chosenHotel: hotel ? { id: hotel.id, name: hotel.label, rating: Number(hotel.detail.match(/(\d)★/)?.[1] || 0), detail: hotel.detail, total: hotel.price } : null,
@@ -251,6 +258,7 @@ function commit(trip: Trip, label: string, patch: Partial<Trip>, advanceTo: Trip
   const noDearer = trip.runningTotal > 0 && trip.package != null && total <= trip.runningTotal;
   if (total <= trip.budgetCap || noDearer) {
     const delta = total - trip.runningTotal;
+    remember(trip);
     Object.assign(trip, patch);
     trip.runningTotal = total;
     trip.status = advanceTo;
@@ -365,6 +373,97 @@ function budgetFixes(plan: Trip, cap: number): BudgetFix[] {
   return fixes;
 }
 
+/** The parts of a trip that customising changes — what Undo restores. */
+type PlanState = Pick<Trip, "chosenFlight" | "chosenTransport" | "packageComponents" | "chosenGuide" | "extraGuides" | "durationDays" | "returnDate" | "guideAvailabilityIssue">;
+
+/** Save the plan before an applied change (only once a package is loaded: the first flight + package pick has nothing to undo). */
+function remember(trip: Trip) {
+  if (!trip.package) return;
+  const state: PlanState = { chosenFlight: trip.chosenFlight, chosenTransport: trip.chosenTransport, packageComponents: trip.packageComponents, chosenGuide: trip.chosenGuide, extraGuides: trip.extraGuides ?? [], durationDays: trip.durationDays, returnDate: trip.returnDate, guideAvailabilityIssue: trip.guideAvailabilityIssue };
+  trip.history = [...(trip.history ?? []), state].slice(-15);
+}
+
+/**
+ * Worthwhile upgrades that still fit the budget: a better-rated stay, a dearer alternative for an activity or transfer,
+ * a recommended add-on, or one more day (up to the package's own length).
+ */
+function upgradeCandidates(plan: Trip): FixCandidate[] {
+  const out: FixCandidate[] = [];
+  if (!plan.package) return out;
+  const stars = (item: PackageComponent) => Number(item.detail.match(/(\d)★/)?.[1] || 0);
+  for (const component of plan.packageComponents.filter(item => item.included)) {
+    const dearer = getAlternatives(plan.package, component.id).filter(item => item.price > component.price);
+    // Hotels: the best-rated step up; other components: the next step up.
+    const pick = component.type === "hotel"
+      ? dearer.filter(item => stars(item) > stars(component)).sort((a, b) => stars(b) - stars(a) || a.price - b.price)[0]
+      : dearer.sort((a, b) => a.price - b.price)[0];
+    if (!pick) continue;
+    const next: TripComponent = { ...pick, included: component.included, defaultId: component.defaultId, defaultPrice: component.defaultPrice };
+    out.push({ id: `swap:${component.id}:${pick.id}`, kind: (component.type as BudgetFix["kind"]) ?? "experience", from: component.label, to: pick.label, patch: { packageComponents: plan.packageComponents.map(item => item.id === component.id ? next : item) } });
+  }
+  for (const addOn of plan.packageComponents.filter(item => item.optional && !item.included)) {
+    out.push({ id: `addon-in:${addOn.id}`, kind: "addon", to: addOn.label, patch: { packageComponents: plan.packageComponents.map(item => item.id === addOn.id ? { ...item, included: true } : item) } });
+  }
+  if (!allGuides(plan).length && plan.durationDays < plan.package.duration) {
+    out.push({ id: `days:${plan.durationDays + 1}`, kind: "days", from: String(plan.durationDays), to: String(plan.durationDays + 1), patch: { durationDays: plan.durationDays + 1, returnDate: addDays(plan.departDate, plan.durationDays + 1) } });
+  }
+  return out;
+}
+
+export type Suggestion = Omit<BudgetFix, "patch"> & { direction: "save" | "upgrade" };
+
+/** What to recommend on the customise screen: over the cap, the best ways back under it; within it, upgrades that still fit. */
+function suggestionsFor(trip: Trip): (Suggestion & { patch: Partial<Trip> })[] {
+  if (!trip.package || !EDITABLE.includes(trip.status)) return [];
+  const total = priceBreakdown(trip).total;
+  if (total > trip.budgetCap) return budgetFixes(trip, trip.budgetCap).slice(0, 4).map(fix => ({ ...fix, direction: "save" as const }));
+  const priced = upgradeCandidates(trip).map(candidate => {
+    const newTotal = priceBreakdown({ ...trip, ...candidate.patch }).total;
+    return { ...candidate, newTotal, saving: Math.round((total - newTotal) * 100) / 100, fits: newTotal <= trip.budgetCap, direction: "upgrade" as const };
+  }).filter(item => item.fits && item.newTotal > total);
+  // Most visible upgrades first (stay, extra day, add-ons), then the rest; cheapest within each kind.
+  const rank: Record<string, number> = { hotel: 0, days: 1, addon: 2, experience: 3, meal: 4, transfer: 5, entry_ticket: 6 };
+  return priced.sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9) || a.newTotal - b.newTotal).slice(0, 4);
+}
+
+/** Apply a suggestion shown on the customise screen (re-derived from the current plan, so it is never stale). */
+export function applySuggestion(tripId: string, suggestionId: string) {
+  const trip = need(tripId);
+  editable(trip, "apply a suggestion");
+  const suggestion = suggestionsFor(trip).find(item => item.id === suggestionId);
+  if (!suggestion) throw new Error("That suggestion no longer applies to this plan");
+  const describe = (item: { from?: string; to?: string }) => item.to && item.from ? `${item.from} → ${item.to}` : item.to ? `adding ${item.to}` : `without ${item.from}`;
+  const label = suggestion.kind === "auto" ? `fitting the budget (${(suggestion.steps ?? []).map(describe).join(", ")})` : describe(suggestion);
+  commit(trip, label, suggestion.patch);
+  return snapshot(trip);
+}
+
+/** Undo the last applied change. */
+export function undoChange(tripId: string) {
+  const trip = need(tripId);
+  editable(trip, "undo");
+  const previous = trip.history?.pop();
+  if (!previous) throw new Error("Nothing to undo");
+  Object.assign(trip, previous);
+  trip.runningTotal = priceBreakdown(trip).total;
+  log(trip, "decision", `Undid the last change — total ${inr(trip.runningTotal)}`);
+  return snapshot(trip);
+}
+
+/** Discard every customisation: the package's recommended components and the trip length first planned (flight kept). */
+export function discardChanges(tripId: string) {
+  const trip = need(tripId);
+  editable(trip, "discard changes");
+  const days = trip.plannedDays ?? trip.durationDays;
+  const patch: Partial<Trip> = { packageComponents: loadPackage(trip).packageComponents };
+  if (days !== trip.durationDays) {
+    // A different length would move guide dates, so guides are cleared with it; otherwise they stay.
+    Object.assign(patch, { durationDays: days, returnDate: addDays(trip.departDate, days), chosenGuide: null, extraGuides: [], guideAvailabilityIssue: null });
+  }
+  commit(trip, "discarding your changes (recommended package)", patch);
+  return snapshot(trip);
+}
+
 function loadPackage(trip: Trip) {
   const pkg = packageForCity(trip.destination);
   if (!pkg) throw new Error(`No package found for ${trip.destination}`);
@@ -418,7 +517,7 @@ export async function createTrip(input: { origin: string; destination: string; d
     flightOptions: liveFlights.flights, chosenFlight: null, chosenTransport: null,
     package: null, packageComponents: [], chosenGuide: null, guideAvailabilityIssue: null,
     flightSource: liveFlights.source, flightNote: liveFlights.note, flightInsights: liveFlights.insights,
-    negotiationOptions: [], pending: null, trace: [],
+    negotiationOptions: [], pending: null, trace: [], plannedDays: durationDays,
   };
   log(trip, "reasoning", `Planning ${durationDays}-day trip to ${place.city}, cap ${inr(trip.budgetCap)}`);
   log(trip, "tool_result", `Found ${trip.flightOptions.length} flight options via ${liveFlights.source}`);
@@ -651,6 +750,7 @@ export async function negotiate(tripId: string, choice: string, newCap?: number,
       if (!newCap || newCap <= trip.budgetCap) throw new Error("new_cap must be greater than the current cap");
       trip.budgetCap = newCap;
     }
+    remember(trip);
     Object.assign(trip, pending.patch);
     trip.runningTotal = priceBreakdown(trip).total;
     trip.status = pending.advanceStatus;

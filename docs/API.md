@@ -45,6 +45,9 @@ A trip moves `select_flight → select_package ⇄ negotiate → review → conf
 | `trip.guides` | query | `{ tripId, specialisation? }` | Guides in the trip language with a per-date live calendar |
 | `trip.selectGuide` | mutation | `{ tripId, guideId, days }` | **Availability check**: book, or refuse with named dates + same-language/specialisation substitutes and repriced totals |
 | `trip.bookGuideDays` | mutation | `{ tripId, guideId, dates[] }` | **Day-by-day plan**: book a guide only on the picked dates (checked individually, refused with named dates + substitutes on a clash); other guides keep their other days |
+| `trip.applySuggestion` | mutation | `{ tripId, suggestionId }` | Apply one of `suggestions` (over budget: priced budget fixes; within budget: upgrades that still fit — better-rated stay, add-on, one more day) |
+| `trip.undo` | mutation | `{ tripId }` | Revert the last applied change |
+| `trip.discardChanges` | mutation | `{ tripId }` | Back to the package's recommended components and the trip length first planned (flight kept) |
 | `trip.removeGuide` | mutation | `{ tripId, guideId? }` | Remove one guide (or all) |
 | `trip.skipGuide` / `trip.continuePackage` | mutation | `{ tripId }` | Move to review |
 | `trip.negotiate` | mutation | `{ tripId, choice, newCap?, fixId? }` | `apply_fix` (one of `pending.fixes`: cheaper flight / stay / activity / transfer, drop an add-on or guide, one day shorter, or the combined `auto` plan — each priced on the whole plan) · `approve_overage` · `swap_cheaper` (keep the plan as it was) · `raise_cap` |

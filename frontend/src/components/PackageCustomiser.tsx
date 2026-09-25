@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
-import { ArrowLeftRight, Check, Minus, Plus, Star, X } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, BedDouble, CalendarMinus, CalendarPlus, Car, Check, Minus, Plus, RotateCcw, Sparkles, Star, Ticket, Undo2, UtensilsCrossed, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,18 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
   const toggleAddOn = trpc.trip.toggleAddOn.useMutation(refresh);
   const setDuration = trpc.trip.setDuration.useMutation(refresh);
   const removeGuide = trpc.trip.removeGuide.useMutation(refresh);
-  const loading = busy || swap.isPending || toggleAddOn.isPending || setDuration.isPending || removeGuide.isPending;
+  const applySuggestion = trpc.trip.applySuggestion.useMutation(refresh);
+  const undo = trpc.trip.undo.useMutation({ ...refresh, onSuccess: () => { refresh.onSuccess(); toast.success(copy("undone")); } });
+  const discard = trpc.trip.discardChanges.useMutation({ ...refresh, onSuccess: () => { refresh.onSuccess(); toast.success(copy("changesDiscarded")); } });
+  const loading = busy || swap.isPending || toggleAddOn.isPending || setDuration.isPending || removeGuide.isPending || applySuggestion.isPending || undo.isPending || discard.isPending;
+  const suggestions = trip.suggestions ?? [];
+  const overCap = trip.runningTotal > trip.budgetCap;
+  const SUGGESTION_ICON: Record<string, ReactNode> = {
+    auto: <Wand2 className="h-4 w-4" />, flight: <ArrowRight className="h-4 w-4" />, hotel: <BedDouble className="h-4 w-4" />, experience: <Sparkles className="h-4 w-4" />,
+    transfer: <Car className="h-4 w-4" />, meal: <UtensilsCrossed className="h-4 w-4" />, entry_ticket: <Ticket className="h-4 w-4" />, guide: <X className="h-4 w-4" />,
+  };
+  const icon = (kind: string, direction: string) => kind === "addon" ? (direction === "upgrade" ? <Plus className="h-4 w-4" /> : <X className="h-4 w-4" />) : kind === "days" ? (direction === "upgrade" ? <CalendarPlus className="h-4 w-4" /> : <CalendarMinus className="h-4 w-4" />) : SUGGESTION_ICON[kind];
+  const changeText = (item: { kind: string; from?: string; to?: string }) => item.kind === "days" ? `${item.from} → ${item.to} ${copy("days").toLowerCase()}` : item.from && item.to ? `${tr(item.from)} → ${tr(item.to)}` : tr(item.to ?? item.from ?? "");
   const pkg = trip.package!;
   const alternativesFor = (componentId: string) => {
     const current = pkg.components.find(item => item.id === componentId);
@@ -64,9 +75,35 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
             <Button size="icon" variant="outline" className="h-8 w-8" disabled={loading || trip.durationDays >= 21} onClick={() => setDuration.mutate({ tripId: trip.tripId, days: trip.durationDays + 1 })}><Plus className="h-3 w-3" /></Button>
           </div>
           <div className="mt-1 text-[11px] text-[#5f6b7a]">{trip.departDate} → {trip.returnDate}</div>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button size="sm" variant="outline" className="h-8 rounded-full text-xs" disabled={loading || !trip.canUndo} onClick={() => undo.mutate({ tripId: trip.tripId })}><Undo2 className="mr-1 h-3.5 w-3.5" />{copy("undo")}</Button>
+            <Button size="sm" variant="outline" className="h-8 rounded-full text-xs text-[#ad4738]" disabled={loading || !trip.canUndo} onClick={() => { if (window.confirm(copy("discardConfirm"))) discard.mutate({ tripId: trip.tripId }); }}><RotateCcw className="mr-1 h-3.5 w-3.5" />{copy("discardChanges")}</Button>
+          </div>
         </div>
       </div>
     </div>
+
+    {/* Recommendations: over budget, the best ways back in; within budget, upgrades that still fit. One tap applies (Undo reverts). */}
+    {suggestions.length > 0 && <div className={`rounded-xl border p-4 ${overCap ? "border-[#f3c1b8] bg-[#fff6f4]" : "border-[#dcd0fb] bg-[#f7f3ff]"}`}>
+      <div className="flex items-center gap-2 text-sm font-extrabold text-[#0b1f3a]"><Sparkles className="h-4 w-4 text-[#7c3aed]" />{copy("recoTitle")}</div>
+      <p className="mt-0.5 text-xs text-[#5f6b7a]">{copy(overCap ? "recoSubOver" : "recoSubUnder")}</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {suggestions.map(item => {
+          const delta = item.newTotal - trip.runningTotal;
+          return <div key={item.id} className="flex flex-col rounded-lg border border-white bg-white p-3 shadow-[0_1px_2px_rgba(16,24,40,.06)]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 text-sm font-bold"><span className={`grid h-7 w-7 place-items-center rounded-lg ${item.kind === "auto" ? "bg-[#7c3aed] text-white" : item.direction === "save" ? "bg-[#e7f8f0] text-[#0e8a5f]" : "bg-[#efe8ff] text-[#6d28d9]"}`}>{icon(item.kind, item.direction)}</span>{copy(`${item.direction === "save" ? "fix" : "up"}_${item.kind}` as CopyKey)}</span>
+              {item.fits && <span className="flex items-center gap-0.5 rounded-full bg-[#e7f8f0] px-2 py-0.5 text-[10px] font-bold text-[#0e8a5f]"><Check className="h-3 w-3" />{copy("fitsBudget")}</span>}
+            </div>
+            <div className="mt-1.5 text-xs leading-5 text-[#5f6b7a]">{item.kind === "auto" ? (item.steps ?? []).map((step, index) => <div key={index}>{changeText(step)}</div>) : changeText(item)}</div>
+            <div className="mt-auto flex items-center justify-between gap-2 border-t border-[#eef2f7] pt-2 text-xs">
+              <span><b className={delta > 0 ? "text-[#6d28d9]" : "text-[#0e8a5f]"}>{signed(delta)}</b> <span className="text-[#5f6b7a]">→ {money(item.newTotal)}</span></span>
+              <Button size="sm" disabled={loading} onClick={() => applySuggestion.mutate({ tripId: trip.tripId, suggestionId: item.id })} className="h-7 rounded-full bg-[#0b1f3a] px-3 text-xs text-white">{copy("applyReco")}</Button>
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>}
 
     {/* Itinerary */}
     <div>
