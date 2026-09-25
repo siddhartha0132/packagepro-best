@@ -150,7 +150,7 @@ A pnpm workspace (`pnpm-workspace.yaml`). `frontend/` and `backend/` are workspa
 | `backend/shared/`, `backend/drizzle/` | Template auth/session helpers (not used by PackagePro's flows) |
 | `data-model/` | `DATA_MODEL.md` (tables used, additions, rules), generated `schema.sql`, `seed/` (PS-04 dataset + DDL + enums + starter queries + demo caches) |
 | `ai/` | AI pipeline (`pipeline.ts`: model calls, trip parser, package builder, agent) and `prompts/` (every system prompt) |
-| `docs/` | `ARCHITECTURE.md` (9 diagrams), `diagrams/*.svg`, `API.md`, `DEMO_SCRIPT.md` |
+| `docs/` | `ARCHITECTURE.md` (9 diagrams), `diagrams/*.svg`, `API.md`, `DEMO_SCRIPT.md`, `pitch/PackagePro-PS04.pptx` (9-slide pitch deck; rebuilt by `pitch/build_deck.py`) |
 | `tests/` | Automated tests, including the hard-proof `hardProof.guideAvailability.test.ts` and `conformance.test.ts` |
 | `tools/` | Organisers' `validate_conformance.py` |
 | `scripts/` | `conformance.mjs`, `show-bookings.mjs`, `dump-schema.mjs` |

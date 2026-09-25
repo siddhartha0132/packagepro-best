@@ -118,3 +118,6 @@ data/packagepro-app.db*
 
 # The PS-04 dataset is required to run the app and is safe to commit (fully synthetic, per the organisers).
 !data-model/seed/PS-04.db
+
+# Python virtualenvs (docs/pitch/build_deck.py)
+.venv/
