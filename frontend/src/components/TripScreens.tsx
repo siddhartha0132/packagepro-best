@@ -179,7 +179,7 @@ const FIX_ICON: Record<string, ReactNode> = {
  * add-on or guide, one day less, or a combined "fit my budget" plan). One tap applies a fix; the plan is re-priced and, if still
  * over, fresh options appear. Approving the extra, declining or raising the budget remain available.
  */
-export function NegotiationPanel({ trip, lang, busy, newCap, setNewCap, onChoose, onFix, onRaise }: { trip: TripView; lang: Lang; busy: boolean; newCap: string; setNewCap: (value: string) => void; onChoose: (choice: "approve_overage" | "swap_cheaper" | "remove_item") => void; onFix: (fixId: string) => void; onRaise: () => void }) {
+export function NegotiationPanel({ trip, lang, busy, newCap, setNewCap, onChoose, onFix, onRaise, onRaiseTo }: { trip: TripView; lang: Lang; busy: boolean; newCap: string; setNewCap: (value: string) => void; onChoose: (choice: "approve_overage" | "swap_cheaper" | "remove_item") => void; onFix: (fixId: string) => void; onRaise: () => void; onRaiseTo: (cap: number, fixId?: string) => void }) {
   const copy = (key: CopyKey) => t(lang, key);
   const tr = useTr(lang);
   const pending = trip.pending;
@@ -188,6 +188,10 @@ export function NegotiationPanel({ trip, lang, busy, newCap, setNewCap, onChoose
   const overage = pending?.overage ?? Math.max(0, total - trip.budgetCap);
   const fillPct = Math.min(100, (trip.budgetCap / Math.max(1, total)) * 100);
   const decline = trip.negotiationOptions.find(option => option.choice === "swap_cheaper");
+  const applied = pending?.applied ?? [];
+  const nothingFits = !fixes.some(fix => fix.fits);
+  const lowest = Math.ceil(pending?.lowestTotal ?? total);
+  const lowestFix = [...fixes].sort((a, b) => a.newTotal - b.newTotal)[0];
   const change = (fix: { from?: string; to?: string; kind: string }) => fix.kind === "days" ? `${fix.from} → ${fix.to} ${copy("days").toLowerCase()}` : fix.to ? <>{tr(fix.from ?? "")} <ArrowRight className="inline h-3 w-3" /> {tr(fix.to)}</> : tr(fix.from ?? "");
   const card = (fix: BudgetFix) => <button key={fix.id} disabled={busy} onClick={() => onFix(fix.id)} className={`group flex w-full flex-col rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md disabled:opacity-50 ${fix.kind === "auto" ? "border-[#7c3aed] bg-[#f7f3ff]" : fix.fits ? "border-[#b7ebd3] bg-white" : "border-[#e6ebf2] bg-white"}`}>
     <div className="flex items-center justify-between gap-2">
@@ -201,7 +205,8 @@ export function NegotiationPanel({ trip, lang, busy, newCap, setNewCap, onChoose
     </div>
   </button>;
   return <Panel className="border border-[#f3c1b8] p-5">
-    <SectionTitle icon={<CircleAlert className="h-4 w-4 text-[#c0392b]" />} title={copy("overBudget")} sub={copy("overBudgetSub")} />
+    <SectionTitle icon={<CircleAlert className="h-4 w-4 text-[#c0392b]" />} title={copy("overBudget")} sub={applied.length ? undefined : copy("overBudgetSub")} />
+    {applied.length > 0 && <div className="mt-2 rounded-lg bg-[#e7f8f0] px-3 py-2 text-xs text-[#0e8a5f]"><b>{copy("appliedSoFar")}:</b> {applied.map((step, index) => <span key={index}>{index ? " · " : ""}{step.kind === "days" ? `${step.from} → ${step.to} ${copy("days").toLowerCase()}` : step.to ? `${tr(step.from ?? "")} → ${tr(step.to)}` : `− ${tr(step.from ?? "")}`}</span>)}</div>}
     {/* Budget vs the plan with this change */}
     <div className="mt-4 rounded-xl bg-[#fff6f4] p-4">
       <div className="flex flex-wrap items-end justify-between gap-2"><div><div className="text-[10px] font-bold uppercase tracking-[.16em] text-[#7a3b2e]">{tr(pending?.label ?? "")}</div><div className="mt-1 text-2xl font-black text-[#0b1f3a]">{money(total)} <span className="text-sm font-semibold text-[#5f6b7a]">{copy("of")} {money(trip.budgetCap)}</span></div></div><div className="rounded-full bg-[#c0392b] px-3 py-1 text-xs font-extrabold text-white">+{money(overage)} {copy("overBudgetBy")}</div></div>
@@ -211,6 +216,11 @@ export function NegotiationPanel({ trip, lang, busy, newCap, setNewCap, onChoose
       <div className="text-sm font-extrabold text-[#0b1f3a]">{copy("fitWays")}</div>
       <p className="mt-0.5 text-xs text-[#5f6b7a]">{copy("fitWaysSub")}</p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">{fixes.map(card)}</div>
+    </div>}
+    {/* Nothing can fit: say what the minimum is and offer it as the budget in one tap. */}
+    {nothingFits && <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#fde2b8] bg-[#fff8ec] p-4 text-sm text-[#7a4a0b]">
+      <span className="flex-1">{copy("lowestPossible")} <b className="text-[#0b1f3a]">{money(lowest)}</b>{fixes.length ? ` ${copy("lowestWithCuts")}` : ""}.</span>
+      <Button disabled={busy} onClick={() => onRaiseTo(lowest, lowestFix && lowestFix.newTotal < total ? lowestFix.id : undefined)} className="rounded-full bg-[#0b1f3a] text-white">{copy("setBudgetTo")} {money(lowest)}</Button>
     </div>}
     <div className="mt-5 text-[10px] font-bold uppercase tracking-[.16em] text-[#5f6b7a]">{copy("orDecide")}</div>
     <div className="mt-2 grid gap-2 sm:grid-cols-2">

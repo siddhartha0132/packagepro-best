@@ -181,6 +181,29 @@ describe("master trip flow", () => {
     for (const line of short.packageComponents.filter(item => item.included)) expect(shown.has(line.id)).toBe(true);
   });
 
+  it("when nothing can fit, records cuts already applied and offers the lowest possible budget in one step", async () => {
+    const api = caller();
+    const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 1000, language: "ta" });
+    const over = await api.trip.selectFlight({ tripId: draft.tripId, flightId: [...draft.flightOptions].sort((a, b) => a.price - b.price)[0].id });
+    expect(over.status).toBe("negotiate");
+    const pending = over.pending!;
+    expect(pending.fixes.some(fix => fix.fits)).toBe(false);
+    expect(pending.lowestTotal).toBeCloseTo(Math.min(pending.total!, ...pending.fixes.map(fix => fix.newTotal)), 2);
+    const single = pending.fixes.find(fix => fix.kind !== "auto");
+    if (single) {
+      const partly = await api.trip.negotiate({ tripId: draft.tripId, choice: "apply_fix", fixId: single.id });
+      expect(partly.status).toBe("negotiate");
+      expect(partly.pending!.applied).toEqual([{ kind: single.kind, from: single.from, to: single.to }]);
+    }
+    const now = (await api.trip.get({ tripId: draft.tripId })).pending!;
+    const lowestFix = [...now.fixes].sort((a, b) => a.newTotal - b.newTotal)[0];
+    const cap = Math.ceil(now.lowestTotal!);
+    const fitted = await api.trip.negotiate({ tripId: draft.tripId, choice: "raise_cap", newCap: cap, fixId: lowestFix?.id });
+    expect(fitted.status).toBe("select_package");
+    expect(fitted.budgetCap).toBe(cap);
+    expect(fitted.runningTotal).toBeLessThanOrEqual(cap);
+  });
+
   it("suggests a cheaper flight as the gentlest fix for an expensive fare", async () => {
     const api = caller();
     const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 1, language: "ta" });

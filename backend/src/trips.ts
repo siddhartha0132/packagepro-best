@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { fromPaise, toPaise } from "./catalogue";
-import { CITIES, GUIDES, LANGUAGE_TAGS, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, isGuideFree, liveAvailability, packageForCity, realityCheck, withLiveAvailability, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
+import { CITIES, GUIDES, LANGUAGE_TAGS, PACKAGES, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, isGuideFree, liveAvailability, packageForCity, realityCheck, withLiveAvailability, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
 import { DESTINATIONS, ORIGINS, searchFlightsLive, sendConfirmation } from "./integrations";
 import { GuideSlotTakenError, loadTrip, recordBooking, saveTrip, type CanonicalItem, type CanonicalTrip } from "./appStore";
 import { DEFAULT_TRAVELLER_ID, getTraveller } from "./travellers";
@@ -66,7 +66,7 @@ export type Trip = {
   flightNote?: string;
   flightInsights?: { lowestPrice?: number; typicalRange?: [number, number]; priceLevel?: string };
   negotiationOptions: { choice: string; amount?: number; item_label: string; label: string }[];
-  pending: { amount: number; label: string; retryStatus: TripStatus; advanceStatus: TripStatus; patch: Partial<Trip>; total?: number; overage?: number; fixes?: BudgetFix[] } | null;
+  pending: { amount: number; label: string; retryStatus: TripStatus; advanceStatus: TripStatus; patch: Partial<Trip>; total?: number; overage?: number; fixes?: BudgetFix[]; applied?: FixStep[]; lowestTotal?: number } | null;
   booking?: { bookingId: string; reference: string; itineraryId?: string } | null;
   /** users.user_id of the traveller (canonical trips.owner_user_id / bookings.user_id). */
   userId: string;
@@ -100,12 +100,22 @@ function addDays(start: string, days: number) {
   return datesBetween(start, days + 1)[days];
 }
 
+/** A saved trip carries copies of catalogue records; refresh them so descriptions match the current catalogue (prices and choices stay as saved). */
+function refreshCatalogue(trip: Trip): Trip {
+  const pkg = trip.package ? PACKAGES.find(item => item.id === trip.package!.id) : undefined;
+  if (!pkg) return trip;
+  const fresh = new Map(pkg.components.map(item => [item.id, item]));
+  trip.package = pkg;
+  trip.packageComponents = trip.packageComponents.map(line => ({ ...line, detail: fresh.get(line.id)?.detail ?? line.detail }));
+  return trip;
+}
+
 /** In-memory working copy, backed by the app database so trips survive restarts and share links resolve. */
 function need(tripId: string) {
   let trip = trips.get(tripId);
   if (!trip) {
     trip = loadTrip<Trip>(tripId) ?? undefined;
-    if (trip) trips.set(tripId, trip);
+    if (trip) trips.set(tripId, refreshCatalogue(trip));
   }
   if (!trip) throw new Error("Trip not found");
   return trip;
@@ -276,7 +286,9 @@ function commit(trip: Trip, label: string, patch: Partial<Trip>, advanceTo: Trip
   const retryStatus = trip.status === "negotiate" ? (trip.pending?.retryStatus ?? "select_flight") : trip.status;
   trip.status = "negotiate";
   const fixes = budgetFixes({ ...trip, ...patch }, trip.budgetCap);
-  trip.pending = { amount: total - trip.runningTotal, label, retryStatus, advanceStatus: advanceTo, patch, total, overage, fixes };
+  // The lowest this plan can reach with the cuts on offer — the honest minimum budget when nothing fits.
+  const lowestTotal = Math.min(total, ...fixes.map(fix => fix.newTotal));
+  trip.pending = { amount: total - trip.runningTotal, label, retryStatus, advanceStatus: advanceTo, patch, total, overage, fixes, lowestTotal };
   // Declining puts the plan back as it was; on the very first flight + package pick that means choosing another flight.
   const declineLabel = retryStatus === "select_flight" ? "Choose a different flight" : "Keep the plan as it was";
   trip.negotiationOptions = [
@@ -287,6 +299,8 @@ function commit(trip: Trip, label: string, patch: Partial<Trip>, advanceTo: Trip
   log(trip, "decision", `${label} would exceed your budget by ${inr(overage)}${fixes.length ? `; ${fixes.length} ways to fit it offered` : ""}`);
   return false;
 }
+
+type FixStep = { kind: BudgetFix["kind"]; from?: string; to?: string };
 
 /** A concrete change that brings an over-budget plan down, priced by re-running the whole plan. */
 export type BudgetFix = {
@@ -760,17 +774,22 @@ export async function negotiate(tripId: string, choice: string, newCap?: number,
     // Apply the change together with the chosen fix; it is priced again and, if still over, negotiation continues with fresh fixes.
     const fix = pending.fixes?.find(item => item.id === fixId);
     if (!fix) throw new Error("That budget option is no longer available");
+    const appliedBefore = pending.applied ?? [];
     commit(trip, pending.label, { ...pending.patch, ...fix.patch }, pending.advanceStatus);
+    // Still over: keep a visible record of the cuts already accepted.
+    if (trip.status === "negotiate" && trip.pending) trip.pending.applied = [...appliedBefore, ...(fix.kind === "auto" ? fix.steps ?? [] : [{ kind: fix.kind, from: fix.from, to: fix.to }])];
     if (trip.status !== "negotiate") log(trip, "decision", `Fitted the budget: ${fix.kind === "auto" ? (fix.steps ?? []).map(step => step.to ? `${step.from} → ${step.to}` : `without ${step.from}`).join(", ") : fix.to ? `${fix.from} → ${fix.to}` : `without ${fix.from}`}`);
     return snapshot(trip);
   }
   if (choice === "approve_overage" || choice === "raise_cap") {
+    // Raising the budget can come with a fix: "set my budget to the lowest this trip can go" applies those cuts too.
+    const fix = choice === "raise_cap" && fixId ? pending.fixes?.find(item => item.id === fixId) : undefined;
     if (choice === "raise_cap") {
       if (!newCap || newCap <= trip.budgetCap) throw new Error("new_cap must be greater than the current cap");
       trip.budgetCap = newCap;
     }
     remember(trip);
-    Object.assign(trip, pending.patch);
+    Object.assign(trip, pending.patch, fix?.patch ?? {});
     trip.runningTotal = priceBreakdown(trip).total;
     trip.status = pending.advanceStatus;
     log(trip, "decision", choice === "raise_cap" ? `Raised cap to ${inr(trip.budgetCap)} and applied ${pending.label}` : `Approved the overage for ${pending.label}`);

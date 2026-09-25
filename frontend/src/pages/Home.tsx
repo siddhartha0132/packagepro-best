@@ -75,7 +75,10 @@ export default function Home() {
   const recommendations = trpc.packagepro.recommend.useQuery({ query: form.interests, language: form.language, destination: destinationCity, budget: form.budgetCap || undefined });
   const estimate = trpc.packagepro.estimate.useQuery({ origin: form.origin, destination: form.destination, departDate: form.departDate, returnDate: form.returnDate, travelers: form.travelers, budget: form.budgetCap || 1, language: form.language, interests: form.interests, uiLanguage: uiLang }, { enabled: screen === "reality" && Boolean(form.destination), staleTime: 5 * 60 * 1000 });
 
-  const onError = (error: { message: string }) => toast.error(error.message);
+  const onError = (error: { message: string }) => {
+    if (/trip not found/i.test(error.message)) { setTripId(null); setScreen("intake"); toast.error(copy("tripExpired")); return; }
+    toast.error(error.message);
+  };
   const refresh = () => utils.trip.get.invalidate();
   const createTrip = trpc.trip.create.useMutation({ onSuccess: data => { setTripId(data.tripId); setScreen("trip"); toast.success(copy("started")); }, onError });
   const autoBuild = trpc.trip.autoBuild.useMutation({ onSuccess: data => { setTripId(data.tripId); setScreen("trip"); toast.success(copy("packageReady")); }, onError });
@@ -362,7 +365,7 @@ export default function Home() {
           {estimate.error && <Panel className="mt-4 p-5 text-sm text-[#c0392b]">{estimate.error.message}</Panel>}
         </>}
         {screen === "trip" && trip && <>
-          {trip.status === "negotiate" && <NegotiationPanel trip={trip} lang={uiLang} busy={busy} newCap={newCap} setNewCap={setNewCap} onChoose={choice => negotiate.mutate({ tripId: trip.tripId, choice })} onFix={fixId => negotiate.mutate({ tripId: trip.tripId, choice: "apply_fix", fixId })} onRaise={() => negotiate.mutate({ tripId: trip.tripId, choice: "raise_cap", newCap: Number(newCap) })} />}
+          {trip.status === "negotiate" && <NegotiationPanel trip={trip} lang={uiLang} busy={busy} newCap={newCap} setNewCap={setNewCap} onChoose={choice => negotiate.mutate({ tripId: trip.tripId, choice })} onFix={fixId => negotiate.mutate({ tripId: trip.tripId, choice: "apply_fix", fixId })} onRaiseTo={(cap, fixId) => negotiate.mutate({ tripId: trip.tripId, choice: "raise_cap", newCap: cap, fixId })} onRaise={() => negotiate.mutate({ tripId: trip.tripId, choice: "raise_cap", newCap: Number(newCap) })} />}
           {trip.status === "select_flight" && <>
             <ScreenHeader title={copy("chooseFlight")} sub={`${trip.origin} → ${tr(trip.destination)} · ${trip.departDate} · ${trip.flightNote ? tr(trip.flightNote) : trip.flightSource === "serpapi" ? copy("srcGoogle") : trip.flightSource}`} onBack={back} backLabel={copy("back")} />
             {trip.flightInsights?.typicalRange && <div className="mb-3 flex items-center gap-2 rounded-xl bg-[#eef6ff] px-4 py-2.5 text-xs text-[#0b1f3a]"><Sparkles className="h-4 w-4 text-[#0b6bcb]" />{copy("typicalFare")}: <strong>{money(trip.flightInsights.typicalRange[0])}–{money(trip.flightInsights.typicalRange[1])}</strong> · {copy("priceLevel")}: <strong className="uppercase">{trip.flightInsights.priceLevel}</strong></div>}
