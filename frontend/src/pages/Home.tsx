@@ -41,6 +41,8 @@ export default function Home() {
   const [draftSaved, setDraftSaved] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [theme, setTheme] = useState<string | null>(null);
+  // Once the traveller picks a destination themselves, mood chips stop moving it.
+  const [destinationPicked, setDestinationPicked] = useState(false);
   const [defaultsReady, setDefaultsReady] = useState(false);
   const utils = trpc.useUtils();
   const copy = (key: CopyKey) => t(uiLang, key);
@@ -117,12 +119,30 @@ export default function Home() {
     })();
     return () => { cancelled = true; };
   }, [printing]);
-  const filtered = useMemo(() => packageList.filter(pkg => !theme || pkg.tags.includes(theme)), [packageList, theme]);
+  const activeMood = MOODS.find(mood => mood.value === form.interests);
+  const moodMatches = activeMood ? recommendations.data?.moodMatches ?? [] : [];
+  const filtered = useMemo(() => {
+    const list = packageList.filter(pkg => !theme || pkg.tags.includes(theme));
+    if (!moodMatches.length) return list;
+    const rank = (id: string) => { const index = moodMatches.indexOf(id); return index < 0 ? Number.MAX_SAFE_INTEGER : index; };
+    return [...list].sort((a, b) => rank(a.id) - rank(b.id));
+  }, [packageList, theme, moodMatches.join(",")]);
   const topBooked = new Set([...packageList].sort((a, b) => b.popularity.bookings - a.popularity.bookings).slice(0, 3).map(pkg => pkg.id));
   const heroImage = packageList.find(pkg => pkg.city === destinationCity && pkg.image.startsWith("http"))?.image || packageList.find(pkg => pkg.image.startsWith("http"))?.image;
   const detail = packageList.find(pkg => pkg.id === detailId);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) { setForm(current => ({ ...current, [key]: value })); }
+  /** A mood chip re-plans the page: interests change, and (until the traveller picks one) the destination moves to the best fit. */
+  async function chooseMood(value: string) {
+    update("interests", value);
+    setTheme(null);
+    if (destinationPicked) return;
+    try {
+      const best = await utils.packagepro.recommend.fetch({ query: value, language: form.language, budget: form.budgetCap || undefined });
+      const code = cities.data?.destinations.find(item => item.city === best.packages[0]?.city)?.code;
+      if (code) update("destination", code);
+    } catch { /* keep the current destination */ }
+  }
   function changeGuideLanguage(value: string) { update("language", value); if (tripId && trip && trip.status !== "confirmed") setTripLanguage.mutate({ tripId, language: value }); }
   function choosePackage(pkg: { city: string; duration: number; minGroupSize?: number; maxGroupSize?: number }) {
     const match = cities.data?.destinations.find(item => item.city === pkg.city);
@@ -236,7 +256,7 @@ export default function Home() {
                 <div className="truncate text-[11px] text-[#5f6b7a]">{form.origin}, {tr(cities.data?.origins.find(item => item.code === form.origin)?.airport)}</div>
               </FieldCell>
               <FieldCell label={copy("to")}>
-                <select value={form.destination} onChange={event => update("destination", event.target.value)} className="absolute inset-0 cursor-pointer opacity-0">{(cities.data?.destinations || []).map(item => <option key={item.code} value={item.code}>{tr(item.city)} · {tr(item.label.split("·")[1]?.trim())}</option>)}</select>
+                <select value={form.destination} onChange={event => { setDestinationPicked(true); update("destination", event.target.value); }} className="absolute inset-0 cursor-pointer opacity-0">{(cities.data?.destinations || []).map(item => <option key={item.code} value={item.code}>{tr(item.city)} · {tr(item.label.split("·")[1]?.trim())}</option>)}</select>
                 <div className="truncate text-2xl font-black">{tr(destinationCity)}</div>
                 <div className="truncate text-[11px] text-[#5f6b7a]">{destination?.airport ? `${destination.airport} · ` : ""}{tr(destination?.label.split("·")[1]?.trim())}</div>
               </FieldCell>
@@ -254,7 +274,7 @@ export default function Home() {
             </div>
             <div className="flex flex-wrap items-center gap-2 px-3 pt-3">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#5f6b7a]">{copy("feel")}</span>
-              {MOODS.map(mood => <button key={mood.key} type="button" onClick={() => update("interests", mood.value)} className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${form.interests === mood.value ? "bg-[#0b6bcb] text-white" : "bg-[#eef3fa] text-[#0b1f3a] hover:bg-[#dfe9f7]"}`}>{copy(mood.key)}</button>)}
+              {MOODS.map(mood => <button key={mood.key} type="button" onClick={() => void chooseMood(mood.value)} className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${form.interests === mood.value ? "bg-[#0b6bcb] text-white" : "bg-[#eef3fa] text-[#0b1f3a] hover:bg-[#dfe9f7]"}`}>{copy(mood.key)}</button>)}
               <input value={form.interests} onChange={event => update("interests", event.target.value)} className="min-w-40 flex-1 rounded-full border border-[#e6ebf2] px-3 py-1 text-xs outline-none focus:border-[#0b6bcb]" />
             </div>
             <Button type="submit" className="absolute -bottom-6 left-1/2 h-12 -translate-x-1/2 rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] px-12 text-base font-black uppercase tracking-wider text-white shadow-[0_10px_24px_rgba(6,90,243,.45)] hover:opacity-95"><Search className="mr-2 h-5 w-5" />{copy("searchPackages")}</Button>
@@ -282,7 +302,7 @@ export default function Home() {
 
         {/* ---------- Package listing ---------- */}
         <section>
-          <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-2xl font-black tracking-tight">{copy("popularPackages")}</h2><p className="mt-1 text-sm text-[#5f6b7a]">{copy("popularSub")}</p></div><span className="text-xs font-semibold text-[#5f6b7a]">{filtered.length} {copy("routes")}</span></div>
+          <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-2xl font-black tracking-tight">{copy("popularPackages")}</h2><p className="mt-1 text-sm text-[#5f6b7a]">{activeMood && moodMatches.length ? <><Sparkles className="mr-1 inline h-3.5 w-3.5 text-[#7c3aed]" />{copy("moodSorted")}: <b className="text-[#0b1f3a]">{copy(activeMood.key)}</b></> : copy("popularSub")}</p></div><span className="text-xs font-semibold text-[#5f6b7a]">{filtered.length} {copy("routes")}</span></div>
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
             {[null, ...THEMES].map(item => <button key={item ?? "all"} onClick={() => setTheme(item)} className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold transition ${theme === item ? "bg-[#0b1f3a] text-white shadow" : "bg-white text-[#0b1f3a] shadow-sm ring-1 ring-[#e6ebf2] hover:ring-[#0b6bcb]"}`}>{item ? copy(`theme_${item}` as CopyKey) : copy("allThemes")}</button>)}
           </div>
@@ -290,11 +310,13 @@ export default function Home() {
             {filtered.slice(0, 12).map(pkg => {
               const hot = topBooked.has(pkg.id);
               const inLang = pkg.languagesOffered.includes(form.language);
+              const fits = moodMatches.includes(pkg.id);
               return <article key={pkg.id} className="group flex flex-col overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(16,24,40,.08),0_8px_24px_rgba(16,24,40,.06)] transition hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(16,24,40,.14)]">
                 <button onClick={() => setDetailId(pkg.id)} className="relative h-48 overflow-hidden bg-[#dfe8f4] text-left">
                   <SmartImage src={pkg.image} fallback={pkg.fallbackImage} alt={pkg.city} className="group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                   <span className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-[#0b1f3a]">{copy(`theme_${pkg.tags[0]}` as CopyKey)}</span>
+                  {fits && <span className="absolute left-3 top-10 flex items-center gap-1 rounded-full bg-[#7c3aed] px-2.5 py-1 text-[10px] font-extrabold text-white"><Sparkles className="h-3 w-3" />{copy("fitsMood")}</span>}
                   {hot && <span className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-[#ff5a1f] px-2.5 py-1 text-[10px] font-extrabold text-white"><Flame className="h-3 w-3" />{copy("mostBooked")}</span>}
                   <div className="absolute bottom-3 left-3 flex items-center gap-1.5 text-white"><MapPin className="h-3.5 w-3.5" /><span className="text-sm font-bold">{tr(pkg.city)}</span></div>
                   <span className="absolute bottom-3 right-3 rounded-md bg-black/55 px-2 py-0.5 text-[11px] font-bold text-white">{pkg.durationNights}N/{pkg.duration}D</span>

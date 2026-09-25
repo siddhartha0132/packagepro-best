@@ -40,6 +40,9 @@ describe("packagepro catalogue", () => {
     expect(new Set([beaches, mountains, pilgrimage].map(result => result.packages[0].city)).size).toBe(3);
     expect(beaches.packages.map(pkg => pkg.city)).not.toContain("Jaipur");
     expect(beaches.packages[0].matchReasons).toContain("fit beach");
+    // The home grid reorders by this list: every package that fits the mood, best first.
+    expect(beaches.moodMatches[0]).toBe(beaches.packages[0].id);
+    expect(beaches.moodMatches.length).toBeGreaterThan(3);
     expect(mountains.packages[0].matchReasons).toContain("fit mountains");
     expect(pilgrimage.packages[0].tags[0]).toBe("pilgrimage");
     // A mood that fits the destination still puts it on the shortlist.

@@ -335,7 +335,7 @@ export function packageForCity(city: string) {
  * and to the catalogue cities known for it — the dataset's descriptions are templated, so theme + place carry the signal.
  */
 const INTERESTS: { key: string; words: RegExp; themes: string[]; cities: string[] }[] = [
-  { key: "heritage", words: /heritage|histor|fort|palace|monument|museum|culture|architect|haveli|royal|विरासत|किला|பாரம்பரிய|వారసత్వ/i, themes: ["heritage"], cities: ["Agra", "Jaipur", "Jodhpur", "Udaipur", "Jaisalmer", "Hampi", "Aurangabad", "New Delhi", "Lucknow", "Hyderabad", "Thanjavur", "Bhuj", "Madurai"] },
+  { key: "heritage", words: /heritage|histor|fort|palace|monument|museum|culture|architect|haveli|royal|विरासत|किला|பாரம்பரிய|వారసత్వ/i, themes: ["heritage"], cities: ["Agra", "Varanasi", "Jaipur", "Jodhpur", "Udaipur", "Jaisalmer", "Hampi", "Aurangabad", "New Delhi", "Lucknow", "Hyderabad", "Thanjavur", "Bhuj", "Madurai"] },
   { key: "temples", words: /temple|pilgrim|spiritual|religio|ritual|aarti|ghat|dawn|darshan|shrine|sacred|मंदिर|तीर्थ|கோயில்|கோவில்|ఆలయ|గుడి/i, themes: ["pilgrimage"], cities: ["Varanasi", "Tirupati", "Madurai", "Thanjavur", "Puri", "Amritsar", "Rishikesh", "Hampi", "Bhubaneswar"] },
   { key: "beach", words: /beach|sea\b|seaside|coast|island|backwater|surf|sand|ocean|समुद्र|बीच|கடற்கரை|బీచ్|సముద్ర/i, themes: [], cities: ["Panaji", "Gokarna", "Puri", "Pondicherry", "Alleppey", "Kochi", "Visakhapatnam", "Thiruvananthapuram", "Chennai", "Mumbai"] },
   { key: "food", words: /food|cuisine|street|eat|culinar|dining|bazaar|market|spice|खाना|भोजन|உணவு|ఆహార/i, themes: ["food_trail"], cities: ["Lucknow", "Hyderabad", "Amritsar", "Kolkata", "Chennai", "Mumbai", "New Delhi", "Pune"] },
@@ -374,6 +374,7 @@ export function recommendPackages(query: string, language: string, destination?:
     const budgetScore = budget && pkg.basePrice <= budget ? 4 : budget ? -Math.min(8, Math.ceil((pkg.basePrice - budget) / 10000)) : 0;
     return {
       ...pkg,
+      fitsMood: fits.some(fit => fit.core > 0),
       score: interestScore + destinationScore + languageScore + budgetScore,
       matchReasons: [
         ...fits.filter(fit => fit.core > 0).slice(0, 2).map(fit => `fit ${fit.key}`),
@@ -389,7 +390,9 @@ export function recommendPackages(query: string, language: string, destination?:
   for (const pkg of packages) if (picked.length < 3 && !picked.some(item => item.city === pkg.city || item.theme === pkg.theme)) picked.push(pkg);
   for (const pkg of packages) if (picked.length < 3 && !picked.includes(pkg)) picked.push(pkg);
   const guides = GUIDES.filter(guide => guide.languages.includes(language) && (!city || guide.city.toLowerCase() === city)).sort((a, b) => b.rating - a.rating);
-  return { packages: picked, guides: guides.slice(0, 3) };
+  // Every package that truly fits the mood, best first — the home grid uses it to reorder the catalogue.
+  const moodMatches = packages.filter(pkg => pkg.fitsMood).map(pkg => pkg.id);
+  return { packages: picked, guides: guides.slice(0, 3), moodMatches };
 }
 
 export function realityCheck(destination: string, budget: number, duration: number) {
