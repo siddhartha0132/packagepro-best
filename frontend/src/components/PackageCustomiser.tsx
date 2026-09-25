@@ -45,10 +45,8 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
   const icon = (kind: string, direction: string) => kind === "addon" ? (direction === "upgrade" ? <Plus className="h-4 w-4" /> : <X className="h-4 w-4" />) : kind === "days" ? (direction === "upgrade" ? <CalendarPlus className="h-4 w-4" /> : <CalendarMinus className="h-4 w-4" />) : SUGGESTION_ICON[kind];
   const changeText = (item: { kind: string; from?: string; to?: string }) => item.kind === "days" ? `${item.from} → ${item.to} ${copy("days").toLowerCase()}` : item.from && item.to ? `${tr(item.from)} → ${tr(item.to)}` : tr(item.to ?? item.from ?? "");
   const pkg = trip.package!;
-  const alternativesFor = (componentId: string) => {
-    const current = pkg.components.find(item => item.id === componentId);
-    return current?.swapGroup ? pkg.components.filter(item => item.swapGroup === current.swapGroup && item.id !== componentId) : [];
-  };
+  // The engine decides which alternatives fit this trip (e.g. transfers from where you actually arrive).
+  const alternativesFor = (componentId: string) => (trip.swapOptions?.[componentId] ?? []).map(id => pkg.components.find(item => item.id === id)).filter((item): item is (typeof pkg.components)[number] => Boolean(item));
   const addOns = trip.packageComponents.filter(item => item.optional);
   // Unit prices scale with the party: per room for hotels (2 per room), per vehicle for transfers (4 each), per person otherwise; guides per group.
   const party = trip.priceBreakdown.party;
@@ -120,7 +118,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-3">
                     <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${KIND_TONE[item.kind] ?? "bg-[#eef2f7]"}`}>{slotLabel(lang, item.slot)}</span>
-                    <div className="min-w-0"><div className="text-sm font-medium">{tr(item.label)}</div><div className="mt-0.5 text-xs text-[#5f6b7a]">{tr(item.detail)}</div></div>
+                    <div className="min-w-0"><div className="text-sm font-medium">{tr(item.label)}</div>{item.detail && <div className="mt-0.5 text-xs text-[#5f6b7a]">{tr(item.detail)}</div>}</div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {item.price != null && <span className="text-sm">{item.price < 0 ? signed(item.price) : money(item.price)}{unitsOf(item.kind) > 1 && <span className="ml-1 text-[10px] text-[#5f6b7a]">×{unitsOf(item.kind)}</span>}</span>}
@@ -136,7 +134,10 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
                   const options = [current, ...swappable].sort((a, b) => a.price - b.price);
                   const cheapestId = options[0]?.id;
                   const topRated = item.kind === "hotel" ? [...options].sort((a, b) => stars(b.detail) - stars(a.detail))[0] : undefined;
-                  return <div className="mt-3 grid gap-2 rounded-lg bg-[#f6f8fb] p-2 sm:grid-cols-2">
+                  const when = item.kind === "hotel" ? `${copy("swapAllNights")} (${trip.durationDays})` : item.kind === "transfer" && day.day === 1 ? copy("swapOnArrival") : `${copy("day")} ${day.day} · ${slotLabel(lang, item.slot)}`;
+                  return <div className="mt-3 rounded-lg bg-[#f6f8fb] p-2">
+                  <div className="px-1 pb-2 text-[11px] text-[#5f6b7a]">{copy("swapReplacing")} <b className="text-[#0b1f3a]">{tr(current.label)}</b> · {when} — {copy("swapKeepsSlot")}</div>
+                  <div className="grid gap-2 sm:grid-cols-2">
                     {options.map(option => {
                       const isCurrent = option.id === current.id;
                       const delta = (option.price - current.price) * factorOf(option.type);
@@ -149,13 +150,14 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
                           {topRated && option.id === topRated.id && stars(option.detail) > 0 && <span className="flex items-center gap-0.5 rounded bg-[#fff4e0] px-1.5 py-0.5 text-[9px] font-bold uppercase text-[#b45309]"><Star className="h-2.5 w-2.5" />{copy("swapTopRated")}</span>}
                         </div>
                         <span className="mt-1 font-semibold">{tr(option.label)}</span>
-                        <span className="text-xs text-[#5f6b7a]">{tr(option.detail)}</span>
+                        {option.detail && <span className="text-xs text-[#5f6b7a]">{tr(option.detail)}</span>}
                         <span className="mt-2 flex items-end justify-between gap-2 border-t border-[#eef2f7] pt-2 text-xs">
                           <span>{option.price < 0 ? signed(option.price * factorOf(option.type)) : money(option.price * factorOf(option.type))}{!isCurrent && <span className={`ml-1 font-bold ${delta > 0 ? "text-[#ad4738]" : "text-[#0e8a5f]"}`}>{signed(delta)}</span>}</span>
                           {!isCurrent && <span className="text-right text-[#5f6b7a]">{copy("total")} <b className="text-[#0b1f3a]">{money(newTotal)}</b> <span className={`ml-1 inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-bold ${fits ? "bg-[#e7f8f0] text-[#0e8a5f]" : "bg-[#fff4e0] text-[#b45309]"}`}>{fits ? <><Check className="h-2.5 w-2.5" />{copy("fitsBudget")}</> : <>+{money(newTotal - trip.budgetCap)} {copy("overBudgetBy")}</>}</span></span>}
                         </span>
                       </button>;
                     })}
+                  </div>
                   </div>;
                 })()}
               </div>;

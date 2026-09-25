@@ -166,6 +166,17 @@ export const GUIDES: GuideRecord[] = (() => {
   }));
 })();
 
+/** Slots that match what a component is: dinner in the evening, monument tickets in the daytime, activities not "overnight". */
+function contextSlot(type: PackageComponent["type"], title: string, slot: string) {
+  if (type === "meal") return /breakfast/i.test(title) ? "morning" : /lunch/i.test(title) ? "afternoon" : /dinner|supper/i.test(title) ? "evening" : slot;
+  if (type === "entry_ticket" && (slot === "overnight" || slot === "evening")) return "afternoon";
+  if (type === "experience" && slot === "overnight") return "evening";
+  return slot;
+}
+
+/** Where a traveller arrives: transfer alternatives must start here (an airport transfer is never swapped for a port-to-business-park ferry). */
+const ARRIVAL_POINTS = ["Airport", "Railway station"];
+
 export const PACKAGES: PackageRecord[] = data.packages.map(row => {
   const city = cityName(row.city_id);
   const rows = data.components.filter(component => component.package_id === row.package_id);
@@ -175,15 +186,18 @@ export const PACKAGES: PackageRecord[] = data.packages.map(row => {
     if (component.component_type === "guide") continue; // guides are booked through the availability-checked guide step
     const type: PackageComponent["type"] = component.component_type === "poi" ? "experience" : component.component_type as PackageComponent["type"];
     const hotel = type === "hotel" ? data.hotels.find(item => item.hotel_id === component.entity_id) : undefined;
+    const arrivalTransfer = type === "transfer" && /airport|arrival|station/i.test(component.title);
     components.push({
       id: component.component_id,
       type,
       label: component.title,
-      detail: [`Day ${component.day_index} · ${component.slot}`, hotel ? hotelDetail(hotel) : null, component.is_optional ? "optional" : null].filter(Boolean).join(" · "),
+      // Day and slot are shown by the itinerary itself; the detail says what the thing is.
+      detail: hotel ? hotelDetail(hotel) : arrivalTransfer ? "private cab · arrival point → your hotel" : "",
       price: rupees(component.price_delta),
       swapGroup: component.swap_group || (type === "transfer" ? `transfer_${row.package_id.slice(-4)}` : undefined),
-      dayIndex: component.day_index,
-      slot: component.slot,
+      // The arrival transfer belongs on day 1, straight after landing.
+      dayIndex: arrivalTransfer ? 1 : component.day_index,
+      slot: arrivalTransfer ? "morning" : contextSlot(type, component.title, component.slot),
       optional: component.is_optional === 1,
       entityId: component.entity_id || undefined,
       isDefault: !component.swap_group || !seenGroups.has(component.swap_group),
@@ -206,10 +220,10 @@ export const PACKAGES: PackageRecord[] = data.packages.map(row => {
     }
   }
 
-  // Transfer swap: the city's transfer legs from the transfers table.
+  // Transfer swap: the city's legs from the transfers table that start where a traveller arrives (airport or railway station).
   const includedTransfer = components.find(component => component.type === "transfer");
   if (includedTransfer) {
-    const legs = data.transfers.filter(item => item.city_id === row.city_id).sort((a, b) => toPaise(a.cost) - toPaise(b.cost)).slice(0, 4);
+    const legs = data.transfers.filter(item => item.city_id === row.city_id && ARRIVAL_POINTS.includes(item.from_label)).sort((a, b) => toPaise(a.cost) - toPaise(b.cost));
     for (const leg of legs) {
       components.push({
         id: leg.transfer_id, type: "transfer", label: `${leg.from_label} → ${leg.to_label}`,

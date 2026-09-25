@@ -157,6 +157,30 @@ describe("master trip flow", () => {
     expect(discarded.runningTotal).toBeCloseTo(loaded.runningTotal, 1);
   });
 
+  it("keeps swaps in context: same day and slot, transfers from where you arrive, nothing dropped off a shorter trip", async () => {
+    const api = caller();
+    const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 900000, language: "ta" });
+    const trip = await api.trip.selectFlight({ tripId: draft.tripId, flightId: [...draft.flightOptions].sort((a, b) => a.price - b.price)[0].id });
+    const labelOf = (id: string) => trip.package!.components.find(item => item.id === id)!.label;
+    // Arriving by air: every transfer alternative starts at the airport.
+    for (const [componentId, options] of Object.entries(trip.swapOptions)) {
+      const line = trip.packageComponents.find(item => item.id === componentId)!;
+      if (line.type === "transfer") for (const id of options) expect(labelOf(id)).toMatch(/^Airport →/);
+    }
+    // A swapped activity takes the replaced one's day and slot.
+    const activity = trip.packageComponents.find(item => item.type === "experience" && trip.swapOptions[item.id]?.length);
+    if (activity) {
+      const swapped = await api.trip.swap({ tripId: draft.tripId, fromId: activity.id, toId: trip.swapOptions[activity.id][0] });
+      const line = swapped.packageComponents.find(item => item.id === trip.swapOptions[activity.id][0])!;
+      expect([line.dayIndex, line.slot]).toEqual([activity.dayIndex, activity.slot]);
+      await api.trip.undo({ tripId: draft.tripId });
+    }
+    // Every included, priced line appears in the itinerary even after the trip is shortened.
+    const short = await api.trip.setDuration({ tripId: draft.tripId, days: 2 });
+    const shown = new Set(short.itinerary.flatMap(day => day.items).map(item => item.componentId).filter(Boolean));
+    for (const line of short.packageComponents.filter(item => item.included)) expect(shown.has(line.id)).toBe(true);
+  });
+
   it("suggests a cheaper flight as the gentlest fix for an expensive fare", async () => {
     const api = caller();
     const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 1, language: "ta" });

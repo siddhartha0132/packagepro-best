@@ -204,14 +204,15 @@ function itinerary(trip: Trip) {
     }
     for (const component of lines) {
       if (component.type === "hotel") continue;
-      if ((component.dayIndex ?? 1) !== day) continue;
+      // Lines planned beyond a shortened trip move to its last day — they are still part of the plan and the price.
+      if (Math.min(component.dayIndex ?? 1, dates.length) !== day) continue;
       items.push({ kind: component.type, slot: component.slot ?? "morning", label: component.label, detail: component.detail, price: componentCharge(trip, component), componentId: component.id });
     }
     const dayGuide = allGuides(trip).find(guide => guide.bookedDates.includes(date));
     if (dayGuide) {
       items.push({ kind: "guide", slot: "morning", label: `Guide: ${dayGuide.name}`, detail: `${dayGuide.specialisation} · ${dayGuide.languages.join(", ")}`, price: guideCost(dayGuide, [date]), guideId: dayGuide.id });
     }
-    if (hotel) items.push({ kind: "hotel", slot: "overnight", label: day === 1 ? `Check in: ${hotel.label}` : `Stay: ${hotel.label}`, detail: hotel.detail.replace(/^Day \d+ · \w+ · /, ""), price: day === 1 ? componentCharge(trip, hotel) : undefined, componentId: hotel.id });
+    if (hotel) items.push({ kind: "hotel", slot: "overnight", label: day === 1 ? `Check in: ${hotel.label}` : `Stay: ${hotel.label}`, detail: hotel.detail, price: day === 1 ? componentCharge(trip, hotel) : undefined, componentId: hotel.id });
     items.sort((a, b) => (SLOT_ORDER[a.slot] ?? 9) - (SLOT_ORDER[b.slot] ?? 9));
     return { day, date, items };
   });
@@ -227,6 +228,8 @@ function snapshot(trip: Trip) {
     pending: trip.pending ? { ...trip.pending, fixes: (trip.pending.fixes ?? []).map(({ patch: _patch, ...fix }) => fix) } : null,
     suggestions: suggestionsFor(trip).map(({ patch: _patch, ...item }) => item),
     canUndo: Boolean(trip.history?.length),
+    /** For each line on the plan, the alternatives it can be swapped for on this trip. */
+    swapOptions: Object.fromEntries(trip.package ? trip.packageComponents.map(component => [component.id, swapOptions(trip, component.id).map(option => option.id)]) : []),
     history: undefined,
     priceBreakdown: breakdown,
     packagePrice: breakdown.packageTotal,
@@ -311,9 +314,9 @@ function fixCandidates(plan: Trip): FixCandidate[] {
   }
   if (plan.package) {
     for (const component of plan.packageComponents.filter(item => item.included)) {
-      const cheaper = getAlternatives(plan.package, component.id).filter(item => item.price < component.price).sort((a, b) => a.price - b.price);
+      const cheaper = swapOptions(plan, component.id).filter(item => item.price < component.price).sort((a, b) => a.price - b.price);
       for (const option of cheaper.slice(0, 2)) {
-        const next: TripComponent = { ...option, included: component.included, defaultId: component.defaultId, defaultPrice: component.defaultPrice };
+        const next = replacement(component, option);
         out.push({ id: `swap:${component.id}:${option.id}`, kind: (component.type as BudgetFix["kind"]) ?? "experience", from: component.label, to: option.label, patch: { packageComponents: plan.packageComponents.map(item => item.id === component.id ? next : item) } });
       }
       if (component.optional) {
@@ -392,13 +395,13 @@ function upgradeCandidates(plan: Trip): FixCandidate[] {
   if (!plan.package) return out;
   const stars = (item: PackageComponent) => Number(item.detail.match(/(\d)★/)?.[1] || 0);
   for (const component of plan.packageComponents.filter(item => item.included)) {
-    const dearer = getAlternatives(plan.package, component.id).filter(item => item.price > component.price);
+    const dearer = swapOptions(plan, component.id).filter(item => item.price > component.price);
     // Hotels: the best-rated step up; other components: the next step up.
     const pick = component.type === "hotel"
       ? dearer.filter(item => stars(item) > stars(component)).sort((a, b) => stars(b) - stars(a) || a.price - b.price)[0]
       : dearer.sort((a, b) => a.price - b.price)[0];
     if (!pick) continue;
-    const next: TripComponent = { ...pick, included: component.included, defaultId: component.defaultId, defaultPrice: component.defaultPrice };
+    const next = replacement(component, pick);
     out.push({ id: `swap:${component.id}:${pick.id}`, kind: (component.type as BudgetFix["kind"]) ?? "experience", from: component.label, to: pick.label, patch: { packageComponents: plan.packageComponents.map(item => item.id === component.id ? next : item) } });
   }
   for (const addOn of plan.packageComponents.filter(item => item.optional && !item.included)) {
@@ -462,6 +465,22 @@ export function discardChanges(tripId: string) {
   }
   commit(trip, "discarding your changes (recommended package)", patch);
   return snapshot(trip);
+}
+
+/** The alternative takes over the replaced line's place in the day (same day and slot), so a swap never moves the plan around. */
+function replacement(current: TripComponent, option: PackageComponent): TripComponent {
+  return { ...option, dayIndex: current.dayIndex, slot: current.slot, included: current.included, defaultId: current.defaultId, defaultPrice: current.defaultPrice };
+}
+
+/**
+ * Alternatives that make sense for this trip: the package's swap group, with transfers limited to legs that start where the
+ * traveller actually arrives (the airport after a flight, the railway station after a train).
+ */
+function swapOptions(trip: Pick<Trip, "package" | "chosenFlight" | "chosenTransport">, componentId: string) {
+  if (!trip.package) return [];
+  const options = getAlternatives(trip.package, componentId);
+  const arrival = trip.chosenTransport ? (trip.chosenTransport.mode === "train" ? "Railway station" : null) : trip.chosenFlight ? "Airport" : null;
+  return arrival ? options.filter(option => option.type !== "transfer" || option.label.startsWith(`${arrival} →`)) : options;
 }
 
 function loadPackage(trip: Trip) {
@@ -551,9 +570,9 @@ export function swapComponent(tripId: string, fromId: string, toId: string) {
   const trip = need(tripId);
   editable(trip, "swap components");
   const from = trip.packageComponents.find(item => item.id === fromId);
-  const target = getAlternatives(trip.package!, fromId).find(item => item.id === toId);
+  const target = swapOptions(trip, fromId).find(item => item.id === toId);
   if (!from || !target) throw new Error("Not a valid swap target");
-  const next: TripComponent = { ...target, included: from.included, defaultId: from.defaultId, defaultPrice: from.defaultPrice };
+  const next = replacement(from, target);
   commit(trip, `swapping ${from.label} for ${target.label}`, { packageComponents: trip.packageComponents.map(item => item.id === fromId ? next : item) });
   return snapshot(trip);
 }
@@ -604,7 +623,7 @@ export function swapHotel(tripId: string, target: string) {
   editable(trip, "swap the hotel");
   const current = trip.packageComponents.find(item => item.type === "hotel");
   if (!current) throw new Error("There is no hotel in this package");
-  const options = [current, ...getAlternatives(trip.package!, current.id)];
+  const options = [current, ...swapOptions(trip, current.id)];
   const needle = target.toLowerCase();
   const terms = needle.split(/[^a-z0-9]+/).filter(term => term.length > 3 && !["the", "with", "from", "stay", "hotel"].includes(term));
   const stars = (item: PackageComponent) => Number(item.detail.match(/(\d)★/)?.[1] || 0);
