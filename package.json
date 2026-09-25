@@ -15,7 +15,8 @@
     "db:show": "node scripts/show-bookings.mjs",
     "conformance": "node scripts/conformance.mjs",
     "db:schema": "node scripts/dump-schema.mjs",
-    "db:reset": "node scripts/reset-db.mjs"
+    "db:reset": "node scripts/reset-db.mjs",
+    "voice:eval": "tsx scripts/voice-eval.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

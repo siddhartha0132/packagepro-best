@@ -134,6 +134,19 @@ function findPlace(text: string, places: CataloguePlace[], excludeCity?: string)
   return places.find(place => place.city !== excludeCity && placeNames(place).some(name => new RegExp(`(^|[^a-z])${escapeRe(name)}($|[^a-z])`).test(lower)));
 }
 
+// Spoken and typed lengths: "3 days", "3-day", "three nights", "a couple of days", "a week", "weekend".
+const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14 };
+function parseDuration(lower: string): number | undefined {
+  const digits = lower.match(/(\d+)\s*-?\s*(?:day|days|night|nights)\b/);
+  if (digits) return Number(digits[1]);
+  const words = lower.match(new RegExp(`\\b(${Object.keys(NUMBER_WORDS).join("|")})\\s*-?\\s*(?:days?|nights?)\\b`));
+  if (words) return NUMBER_WORDS[words[1]];
+  if (/\b(?:a )?couple of (?:days?|nights?)\b/.test(lower)) return 2;
+  const weeks = lower.match(/\b(a|one|two|\d+)\s*-?\s*weeks?\b/);
+  if (weeks) return 7 * (weeks[1] === "a" || weeks[1] === "one" ? 1 : weeks[1] === "two" ? 2 : Number(weeks[1]));
+  return /\b(?:weekend|short break|quick getaway)\b/.test(lower) ? 2 : undefined;
+}
+
 export function parseTripRequest(text: string, context?: Record<string, unknown>): TripRequest | null {
   const lower = text.toLowerCase();
   const destinations = Array.isArray(context?.availableDestinations) ? context!.availableDestinations as CataloguePlace[] : [];
@@ -142,10 +155,8 @@ export function parseTripRequest(text: string, context?: Record<string, unknown>
   const destinationSegment = lower.match(/(?:\bto|\bin|\bvisit(?:ing)?|\btrip to|\bholiday in)\s+([a-z][a-z\s-]{2,30}?)(?=\s+(?:next|this|on|for|from|in|with|under)\b|[,.!?]|$)/)?.[1];
   const origin = (originSegment ? findPlace(originSegment, origins) : undefined) || findPlace(lower.replace(destinationSegment ?? "\u0000", " "), origins);
   const destination = (destinationSegment ? findPlace(destinationSegment, destinations, origin?.city) : undefined) || findPlace(lower.replace(originSegment ?? "\u0000", " "), destinations, origin?.city);
-  const durationMatch = lower.match(/(\d+)\s*(?:day|days|night|nights)\b/);
-  const wordDuration = /\b(?:a couple of|couple of|two|2)\s+(?:days?|nights?)\b/.test(lower) ? 2 : /\b(?:three|3)\s+(?:days?|nights?)\b/.test(lower) ? 3 : undefined;
-  const durationDays = durationMatch ? Number(durationMatch[1]) : wordDuration || (/\b(?:weekend|short break|quick getaway)\b/.test(lower) ? 2 : undefined);
-  const isPlanningRequest = Boolean(destination && (durationDays || /\b(plan|make|create|build|trip|travel|visit|itinerary|holiday|vacation|getaway|break|book|spend)\b/.test(lower)));
+  const durationDays = parseDuration(lower);
+  const isPlanningRequest = Boolean(destination && (durationDays || /\b(plan|make|create|build|trip|travel|visit|itinerary|holiday|vacation|getaway|break|book|spend|go|going|tour|stay)\b/.test(lower)));
   if (!isPlanningRequest) return null;
 
   const request: TripRequest = { origin, destination, durationDays };

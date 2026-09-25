@@ -15,6 +15,23 @@ describe("AI transparent explanation endpoint", () => {
     expect(request?.returnDate).toBeTruthy();
   });
 
+  it("reads trip lengths the way people say them (voice transcripts included)", () => {
+    const places = { availableOrigins: [{ code: "DEL", city: "New Delhi" }, { code: "BOM", city: "Mumbai" }], availableDestinations: [{ code: "TJV", city: "Thanjavur" }, { code: "GOI", city: "Panaji" }, { code: "KUU", city: "Manali" }] };
+    const cases: [string, string, number][] = [
+      ["Plan a three-day trip to Thanjavur.", "Thanjavur", 3],
+      ["I want to go from Delhi to Goa for five days", "Panaji", 5],
+      ["Plan a 4-day trip to Thanjavur", "Thanjavur", 4],
+      ["Trip to Manali for a week", "Manali", 7],
+      ["a couple of days in Goa", "Panaji", 2],
+    ];
+    for (const [text, city, days] of cases) {
+      const request = parseTripRequest(text, places);
+      expect(request?.destination?.city, text).toBe(city);
+      expect(request?.durationDays, text).toBe(days);
+    }
+    expect(parseTripRequest("I want to go from Delhi to Goa for five days", places)?.origin?.city).toBe("New Delhi");
+  });
+
   it("answers transparency questions with model attribution or graceful fallback", async () => {
     const caller = appRouter.createCaller({ req: {} as any, res: {} as any, user: null });
     const reply = await caller.packagepro.explain({

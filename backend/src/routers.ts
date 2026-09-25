@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_VOICE_SECONDS, hear, speak, speakable, voiceEnabled } from "./voice";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -28,6 +29,18 @@ function withMedia<T extends (typeof PACKAGES)[number]>(pkg: T) {
 }
 
 export const appRouter = router({
+  // Voice: a short clip (base64, ≤ ~3 MB) → what was said, its English meaning and the language; text → an MP3 reply.
+  voice: router({
+    status: publicProcedure.query(() => ({ enabled: voiceEnabled(), maxSeconds: MAX_VOICE_SECONDS })),
+    hear: publicProcedure.input(z.object({ audio: z.string().min(1).max(4_000_000), mime: z.string().max(80) })).mutation(async ({ input }) => {
+      if (!voiceEnabled()) throw new Error("Voice needs the speech service, which isn't set up here — please type instead.");
+      return hear(new Uint8Array(Buffer.from(input.audio, "base64")), input.mime.split(";")[0]);
+    }),
+    speak: publicProcedure.input(z.object({ text: z.string().min(1).max(4000), language: z.string().max(10) })).mutation(async ({ input }) => {
+      const audio = voiceEnabled() ? await speak(speakable(input.text), input.language) : null;
+      return audio ? { audio: Buffer.from(audio).toString("base64"), mime: "audio/mpeg" } : null;
+    }),
+  }),
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),

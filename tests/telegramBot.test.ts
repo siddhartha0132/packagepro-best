@@ -3,6 +3,7 @@ import { handleUpdate } from "../backend/src/telegramBot";
 import { clearGuideBookingsForTests, loadBotSession } from "../backend/src/appStore";
 import { PACKAGES } from "../backend/src/packagepro";
 import * as trips from "../backend/src/trips";
+import { setVoiceBackendForTests } from "../backend/src/voice";
 
 // Drives the Telegram bot end to end with a fake Telegram API: every message and button the bot would send is recorded
 // and checked against Telegram's limits. No network: flights fall back to the catalogue and the LLM is off under vitest.
@@ -18,8 +19,14 @@ beforeAll(() => {
   process.env.TELEGRAM_BOT_TOKEN = "test-token";
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL, init?: RequestInit) => {
     const href = String(url);
+    if (/api\.telegram\.org\/file\/bot/.test(href)) return new Response(new Uint8Array([79, 103, 103, 83]));
     const method = href.match(/api\.telegram\.org\/bot[^/]+\/(\w+)$/)?.[1];
     if (!method) throw new Error(`offline test: blocked ${href}`);
+    if (init?.body instanceof FormData) {
+      sent.push({ method, chatId: String(init.body.get("chat_id")), text: "", buttons: [] });
+      return new Response(JSON.stringify({ ok: true, result: { message_id: nextMessageId++ } }), { headers: { "content-type": "application/json" } });
+    }
+    if (method === "getFile") return new Response(JSON.stringify({ ok: true, result: { file_path: "voice/note.oga" } }), { headers: { "content-type": "application/json" } });
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     if (["sendMessage", "sendPhoto", "editMessageText", "editMessageReplyMarkup"].includes(method)) {
       sent.push({
@@ -37,6 +44,7 @@ beforeEach(() => { sent = []; clearGuideBookingsForTests(); });
 const say = (chatId: number, text: string, languageCode = "en") => handleUpdate({ update_id: updateId++, message: { message_id: updateId, chat: { id: chatId }, from: { language_code: languageCode }, text } });
 const tap = (chatId: number, data: string) => handleUpdate({ update_id: updateId++, callback_query: { id: `cb${updateId}`, data, message: { message_id: 1, chat: { id: chatId } } } });
 const last = () => sent[sent.length - 1];
+const voice = (chatId: number, duration = 4) => handleUpdate({ update_id: updateId++, message: { message_id: updateId, chat: { id: chatId }, from: { language_code: "en" }, voice: { file_id: `f${updateId}`, duration, mime_type: "audio/ogg" } } });
 const allText = () => sent.map(message => message.text).join("\n");
 const buttonData = () => sent.flatMap(message => message.buttons.map(button => button.data)).filter(Boolean) as string[];
 const tripOf = (chatId: number) => loadBotSession<{ tripId?: string }>(String(chatId))?.tripId;
@@ -58,6 +66,43 @@ async function planThanjavur(chatId: number) {
 }
 
 describe("telegram bot", () => {
+  it("answers a Tamil voice note in Tamil: shows what it heard, plans the trip, and speaks the reply back", async () => {
+    let spoken: { text: string; language: string } | null = null;
+    setVoiceBackendForTests({
+      hear: async () => ({ native: "தஞ்சாவூருக்கு மூன்று நாள் பயணம் திட்டமிடுங்கள்", english: "Plan a three-day trip to Thanjavur.", language: "ta" }),
+      speak: async (text, language) => { spoken = { text, language }; return new Uint8Array([1, 2, 3]); },
+    });
+    try {
+      await say(9101, "/start");
+      await tap(9101, "L:en-IN");
+      sent = [];
+      await voice(9101);
+      expect(allText()).toContain("தஞ்சாவூருக்கு மூன்று நாள்"); // what was heard, in the traveller's script
+      expect(loadBotSession<{ lang: string; draft: { city?: string; days?: number } }>("9101")).toMatchObject({ lang: "ta", draft: { city: "Thanjavur", days: 3 } });
+      expect(sent.some(message => message.method === "sendVoice")).toBe(true);
+      expect(spoken).toMatchObject({ language: "ta" });
+      expect(spoken!.text).not.toMatch(/<|>|🎙/); // plain words only: no HTML or emoji read aloud
+    } finally {
+      setVoiceBackendForTests(null);
+    }
+  });
+
+  it("refuses long voice notes, and asks to type when no speech service is set up", async () => {
+    setVoiceBackendForTests({ hear: async () => null, speak: async () => null });
+    try {
+      await say(9102, "/start");
+      await tap(9102, "L:en-IN");
+      await voice(9102, 45);
+      expect(last().text).toContain("under 30 seconds");
+      await voice(9102, 3);
+      expect(last().text).toContain("couldn't make that out");
+    } finally {
+      setVoiceBackendForTests(null);
+    }
+    await voice(9102, 3); // no backend and no key under vitest
+    expect(last().text).toContain("please type instead");
+  });
+
   it("greets new users with a language picker and localises the menu", async () => {
     await say(9001, "hello");
     expect(last().text).toContain("Welcome to PackagePro");

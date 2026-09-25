@@ -9,6 +9,7 @@ import { PACKAGES, getAlternatives } from "./packagepro";
 import * as trips from "./trips";
 import { travellerForLanguage } from "./travellers";
 import { unitsFor } from "./trips";
+import { MAX_VOICE_SECONDS, hear, speak, speakable, voiceEnabled } from "./voice";
 
 // PackagePro on Telegram: the same engine as the web app (live fares, PS-04 packages, per-date guide checks with
 // same-language substitutes, budget negotiation, bookings), driven by inline buttons and free-text AI in 4 languages.
@@ -18,10 +19,11 @@ type TripView = Awaited<ReturnType<typeof trips.getTrip>>;
 type Draft = { cityId?: string; city?: string; origin?: string; departDate?: string; days?: number; travelers?: number; budget?: number; language?: string };
 type Session = { lang: Lang; step?: "origin" | "budget" | "raiseCap"; draft: Draft; tripId?: string; history: { role: "user" | "assistant"; content: string }[] };
 type Button = { text: string; data?: string; url?: string };
+type VoiceNote = { file_id: string; duration: number; mime_type?: string };
 type Rows = Button[][];
 type Update = {
   update_id: number;
-  message?: { message_id: number; chat: { id: number }; from?: { language_code?: string }; text?: string };
+  message?: { message_id: number; chat: { id: number }; from?: { language_code?: string }; text?: string; voice?: VoiceNote; audio?: VoiceNote };
   callback_query?: { id: string; data?: string; from?: { language_code?: string }; message?: { message_id: number; chat: { id: number } } };
 };
 
@@ -48,7 +50,18 @@ async function tg<T = unknown>(method: string, body: Record<string, unknown> = {
 
 const markup = (rows?: Rows) => rows && { inline_keyboard: rows.map(row => row.map(button => button.url ? { text: button.text, url: button.url } : { text: button.text, callback_data: button.data ?? "x" })) };
 
+// While a voice note is being answered, the bot's replies to that chat are collected so the first one can be spoken back.
+const spokenReplies = new Map<string, string[]>();
+
+/** Multipart upload (voice replies); the JSON helper above covers every other call. */
+async function tgUpload(method: string, form: FormData, timeoutMs = 30000) {
+  const response = await fetch(`https://api.telegram.org/bot${token()}/${method}`, { method: "POST", body: form, signal: AbortSignal.timeout(timeoutMs) });
+  const json = await response.json() as { ok: boolean; description?: string };
+  if (!json.ok) throw new Error(`Telegram ${method}: ${json.description}`);
+}
+
 function send(chatId: string, text: string, rows?: Rows) {
+  spokenReplies.get(chatId)?.push(text);
   return tg<{ message_id: number }>("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: markup(rows) });
 }
 
@@ -62,6 +75,7 @@ async function edit(chatId: string, messageId: number, text: string, rows?: Rows
 
 async function sendPhoto(chatId: string, photo: string | undefined, caption: string, rows?: Rows) {
   if (photo?.startsWith("http")) {
+    spokenReplies.get(chatId)?.push(caption);
     try { return await tg("sendPhoto", { chat_id: chatId, photo, caption, parse_mode: "HTML", reply_markup: markup(rows) }, 20000); } catch { /* fall back to text */ }
   }
   return send(chatId, caption, rows);
@@ -634,6 +648,40 @@ async function onFreeText(chatId: string, s: Session, text: string) {
   return send(chatId, richText(result.text).slice(0, 4000), current ? [[{ text: say(s.lang, "btnTrip"), data: "M:trip" }]] : [[{ text: say(s.lang, "btnBrowse"), data: "M:browse" }]]);
 }
 
+/**
+ * A voice note in any of the four languages: Sarvam hears it (the words as spoken + their English meaning + the language),
+ * the bot switches to that language, shows what it heard, answers exactly as if the English meaning had been typed, and
+ * reads the first reply back as a voice note. Without the speech service it asks the traveller to type.
+ */
+async function onVoice(chatId: string, s: Session, note: VoiceNote) {
+  if (!voiceEnabled()) return send(chatId, say(s.lang, "voiceOff"));
+  if (note.duration > MAX_VOICE_SECONDS) return send(chatId, say(s.lang, "voiceTooLong"));
+  await tg("sendChatAction", { chat_id: chatId, action: "record_voice" }).catch(() => undefined);
+  const file = await tg<{ file_path?: string }>("getFile", { file_id: note.file_id });
+  if (!file.file_path) return send(chatId, say(s.lang, "voiceNotHeard"));
+  const download = await fetch(`https://api.telegram.org/file/bot${token()}/${file.file_path}`, { signal: AbortSignal.timeout(20000) });
+  const heard = await hear(new Uint8Array(await download.arrayBuffer()), note.mime_type ?? "audio/ogg");
+  if (!heard?.english) return send(chatId, say(s.lang, "voiceNotHeard"));
+  // Reply in the language the traveller spoke (the app's four languages; others keep the current one).
+  if (LANGS.some(lang => lang.value === heard.language)) s.lang = heard.language as Lang;
+  await send(chatId, `${say(s.lang, "voiceHeard")} <i>${esc(heard.native)}</i>${heard.native !== heard.english ? `\n<i>(${esc(heard.english)})</i>` : ""}`);
+  spokenReplies.set(chatId, []);
+  try {
+    await onText(chatId, s, heard.english);
+  } finally {
+    const replies = spokenReplies.get(chatId) ?? [];
+    spokenReplies.delete(chatId);
+    const text = speakable(replies[0] ?? "");
+    const audio = text ? await speak(text, s.lang) : null;
+    if (audio) {
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      form.append("voice", new Blob([new Uint8Array(audio)], { type: "audio/mpeg" }), "reply.mp3");
+      await tgUpload("sendVoice", form).catch(error => console.warn("[telegram] voice reply failed:", (error as Error).message));
+    }
+  }
+}
+
 /** Process one Telegram update (used by long polling; also callable from a webhook or a test harness). */
 export function handleUpdate(update: Update) {
   const callback = update.callback_query;
@@ -646,6 +694,8 @@ export function handleUpdate(update: Update) {
       if (callback) {
         void tg("answerCallbackQuery", { callback_query_id: callback.id }).catch(() => undefined);
         await onCallback(chatId, session, callback.data ?? "x", callback.message?.message_id);
+      } else if (update.message?.voice || update.message?.audio) {
+        await onVoice(chatId, session, (update.message.voice ?? update.message.audio)!);
       } else if (update.message?.text) {
         if (fresh && !update.message.text.startsWith("/")) await showWelcome(chatId);
         else await onText(chatId, session, update.message.text.trim());

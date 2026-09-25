@@ -10,7 +10,7 @@ Start from a curated package, reshape it piece by piece, and watch it reprice li
 |---|---|
 | Mandatory guide availability check | Enforced in the backend, proven by [`tests/hardProof.guideAvailability.test.ts`](tests/hardProof.guideAvailability.test.ts) |
 | Shared data model | Canonical tables read and written; organisers' validator **PASS** (`pnpm conformance`) |
-| Tests | 63 offline tests (`pnpm verify`) + 4 live-key checks — `npx vitest run` → 67 passed |
+| Tests | 66 offline tests (`pnpm verify`) + 4 live-key checks — `npx vitest run` → 70 passed · voice: 20/20 (`pnpm voice:eval`) |
 | Guided tour for judges | `/how-it-works`: every PS-04 requirement, where it is in the code, and a live demo |
 | Brief | [HACKATHON.md](HACKATHON.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](data-model/DATA_MODEL.md) · [AI](ai/README.md) · [API](docs/API.md) · [Demo script](docs/DEMO_SCRIPT.md) |
 
@@ -74,6 +74,7 @@ Full mapping, rules R1–R8 and where each is enforced: [data-model/DATA_MODEL.m
 | Transparent agent ("why was Meera refused?") | Sarvam chat | Live trip context: the refusal dates, substitutes and new totals; "never invent inventory or prices" |
 | Estimate insight | Grounded 3-bullet completion | Only the live facts: fares, package, guides, past-traveller popularity |
 | Multilingual content | Sarvam `mayura:v1` translation (cached) + native-language replies | Dataset strings; names never translated; contractual text hand-written |
+| **Voice planning** (Telegram voice notes + web mic) | Sarvam `saarika:v2.5` (words as spoken) + `saaras:v2.5` (English meaning + language) in; `bulbul:v3` MP3 voice reply out (`backend/src/voice.ts`) | The English meaning goes through the same trip planner (catalogue cities only), the reply is in the detected language; **20/20 in English, Hindi, Tamil, Telugu, 0 invented destinations, median 1.7 s** ([docs/VOICE_EVAL.md](docs/VOICE_EVAL.md)) |
 
 Details, prompts and how we know each works: [ai/README.md](ai/README.md).
 
@@ -107,13 +108,15 @@ The terminal outcome: **a customised package, booked, with the guide rule shown*
 6. **Language:** pick **Travelling as → Anita Bhat**. The app switches to Tamil, the guide language to `ta`, and her interests and past trips drive "Picked for you".
 7. **AI:** in *Plan it with AI*, type "beach honeymoon under 40k" (or in Hindi or Tamil), then tap **Build this package**.
 8. **Telegram:** send `/demo` to **@wayypoint_Bot** → Build my trip → pick a flight → Add a guide → Meera Novak. You get the same refusal, date strips and substitute.
+9. **Voice:** send @wayypoint_Bot a voice note in Tamil, Hindi, Telugu or English ("Plan a three-day trip to Thanjavur"). It shows what it heard, answers in that language and replies with a voice note. On the web, tap 🎙 in *Ask why PackagePro chose this* and speak.
 
 ## Tests / proof
 
 ```bash
-pnpm verify                                                   # type check + 63 offline tests + production build (also runs before every push)
-npx vitest run                                                # everything: 63 offline + 4 live-key checks (reads .env) → 67 passed
+pnpm verify                                                   # type check + 66 offline tests + production build (also runs before every push)
+npx vitest run                                                # everything: 66 offline + 4 live-key checks (reads .env) → 70 passed
 npx vitest run tests/hardProof.guideAvailability.test.ts     # the PS-04 hard proof
+pnpm voice:eval                                               # 20 spoken requests in 4 languages through the real voice pipeline → docs/VOICE_EVAL.md (needs SARVAM_API_KEY)
 pnpm conformance                                              # organisers' validator on dataset + our rows → PASS
 ```
 
