@@ -41,6 +41,9 @@ export default function Home() {
   const [draftSaved, setDraftSaved] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [theme, setTheme] = useState<string | null>(null);
+  // Until the traveller types a budget, it follows the live estimate (typical + ~10%, rounded) instead of an old value.
+  const [budgetTyped, setBudgetTyped] = useState(false);
+  const [autoBudget, setAutoBudget] = useState(false);
   // Once the traveller picks a destination themselves, mood chips stop moving it.
   const [destinationPicked, setDestinationPicked] = useState(false);
   const [defaultsReady, setDefaultsReady] = useState(false);
@@ -74,6 +77,14 @@ export default function Home() {
   const destinationCity = destination?.city || "Jaipur";
   const recommendations = trpc.packagepro.recommend.useQuery({ query: form.interests, language: form.language, destination: destinationCity, budget: form.budgetCap || undefined });
   const estimate = trpc.packagepro.estimate.useQuery({ origin: form.origin, destination: form.destination, departDate: form.departDate, returnDate: form.returnDate, travelers: form.travelers, budget: form.budgetCap || 1, language: form.language, interests: form.interests, uiLanguage: uiLang }, { enabled: screen === "reality" && Boolean(form.destination), staleTime: 5 * 60 * 1000 });
+
+  // An untouched budget takes the live estimate's typical total (+10%, rounded up to ₹5,000) once it arrives.
+  useEffect(() => {
+    if (!autoBudget || !estimate.data || screen !== "reality") return;
+    setAutoBudget(false);
+    const suggested = Math.ceil((estimate.data.typical * 1.1) / 5000) * 5000;
+    if (suggested > 0 && suggested !== form.budgetCap) update("budgetCap", suggested);
+  }, [autoBudget, estimate.data, screen]);
 
   const onError = (error: { message: string }) => {
     if (/trip not found/i.test(error.message)) { setTripId(null); setScreen("intake"); toast.error(copy("tripExpired")); return; }
@@ -159,7 +170,10 @@ export default function Home() {
   function choosePackage(pkg: { city: string; duration: number; minGroupSize?: number; maxGroupSize?: number }) {
     const match = cities.data?.destinations.find(item => item.city === pkg.city);
     // Start inside the package's group size (tour_packages.min_group_size … max_group_size); the backend rejects anything else.
-    setForm(current => ({ ...current, destination: match?.code || current.destination, returnDate: addDays(current.departDate, pkg.duration), travelers: Math.min(pkg.maxGroupSize ?? 20, Math.max(pkg.minGroupSize ?? 1, current.travelers)) }));
+    // A party and guide language left over from the one-tap demo start again from the package's smallest group and the profile's language.
+    setForm(current => ({ ...current, destination: match?.code || current.destination, returnDate: addDays(current.departDate, pkg.duration), travelers: Math.min(pkg.maxGroupSize ?? 20, Math.max(pkg.minGroupSize ?? 1, demoMode ? 1 : current.travelers)), language: demoMode ? (traveller?.guideLanguage || "en-IN") : current.language }));
+    if (!budgetTyped) setAutoBudget(true);
+    setDemoMode(false);
     setDetailId(null);
     setTripId(null);
     setScreen("reality");
@@ -276,7 +290,7 @@ export default function Home() {
               <DateCell label={copy("return")} value={form.returnDate} min={addDays(form.departDate, 1)} onChange={value => update("returnDate", value)} />
               <FieldCell label={copy("travellersBudget")}>
                 <div className="flex items-baseline gap-1"><input type="text" inputMode="numeric" aria-label={copy("travelers")} value={form.travelers} onChange={event => update("travelers", Math.min(20, Math.max(1, Number(event.target.value.replace(/\D/g, "").slice(-2)) || 1)))} className="w-8 bg-transparent text-2xl font-black outline-none" /><Users className="h-4 w-4 text-[#5f6b7a]" /></div>
-                <div className="flex items-center text-[11px] text-[#5f6b7a]">₹<input type="text" inputMode="numeric" aria-label={copy("yourBudget")} value={form.budgetCap ? form.budgetCap.toLocaleString("en-IN") : ""} onChange={event => update("budgetCap", Math.min(10_000_000, Number(event.target.value.replace(/\D/g, "")) || 0))} placeholder="40,000" className="w-24 bg-transparent font-semibold text-[#0b1f3a] outline-none" /></div>
+                <div className="flex items-center text-[11px] text-[#5f6b7a]">₹<input type="text" inputMode="numeric" aria-label={copy("yourBudget")} value={form.budgetCap ? form.budgetCap.toLocaleString("en-IN") : ""} onChange={event => { setBudgetTyped(true); setAutoBudget(false); update("budgetCap", Math.min(10_000_000, Number(event.target.value.replace(/\D/g, "")) || 0)); }} placeholder="40,000" className="w-24 bg-transparent font-semibold text-[#0b1f3a] outline-none" /></div>
               </FieldCell>
               <FieldCell label={copy("guideLanguage")}>
                 <select value={form.language} onChange={event => changeGuideLanguage(event.target.value)} className="absolute inset-0 cursor-pointer opacity-0">{GUIDE_LANGS.map(lang => <option key={lang.value} value={lang.value}>{lang.native}</option>)}</select>

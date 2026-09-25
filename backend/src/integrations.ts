@@ -182,6 +182,17 @@ const fmtDuration = (minutes: number) => `${Math.floor(minutes / 60)}h ${minutes
  *  2. Sky-Scrapper (RapidAPI) — real fares when the key is subscribed.
  *  3. Aviationstack — real schedules only; fares are catalogue estimates and flagged as such.
  */
+/**
+ * Google Flights also returns long international connections on short domestic routes (an Etihad via Abu Dhabi for Delhi →
+ * Jaipur at 15× the direct fare). Keep fares within 3× the cheapest — or within 1.5× the top of Google's typical range when
+ * that is higher — cheapest first, at most 8.
+ */
+export function sensibleFares(flights: FlightRecord[], typicalRange?: [number, number]) {
+  const sorted = [...flights].sort((a, b) => a.price - b.price);
+  const ceiling = Math.max(sorted[0].price * 3, (typicalRange?.[1] ?? 0) * 1.5);
+  return sorted.filter(flight => flight.price <= ceiling).slice(0, 8);
+}
+
 export async function searchFlightsLive(origin: string, destination: string, departDate: string): Promise<FlightSearch> {
   const fallback = FLIGHTS.map(flight => ({ ...flight, route: `${origin} → ${destination}`, source: "catalogue" }));
   if (process.env.NODE_ENV === "test" || process.env.VITEST) return { flights: fallback, source: "catalogue" };
@@ -236,11 +247,12 @@ export async function searchFlightsLive(origin: string, destination: string, dep
             confidence: 0.95,
             source: "google_flights",
           });
-          if (flights.length >= 8) break;
+          if (flights.length >= 20) break;
         }
         if (flights.length) {
           const insights = body.price_insights;
-          return remember({ flights, source: "serpapi", insights: insights ? { lowestPrice: insights.lowest_price, typicalRange: insights.typical_price_range, priceLevel: insights.price_level } : undefined });
+          const sensible = sensibleFares(flights, insights?.typical_price_range);
+          return remember({ flights: sensible, source: "serpapi", insights: insights ? { lowestPrice: insights.lowest_price, typicalRange: insights.typical_price_range, priceLevel: insights.price_level } : undefined });
         }
       }
     } catch {

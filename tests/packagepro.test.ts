@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "../backend/src/routers";
 import { clearGuideBookingsForTests } from "../backend/src/appStore";
+import { sensibleFares } from "../backend/src/integrations";
 
 // PS-04 dataset: two Tamil-speaking heritage guides in Thanjavur. Arjun is unavailable on 2026-09-02; Meera is free 2–4 Sep.
 const ARJUN = "gid_ad5b7c5f";
@@ -202,6 +203,12 @@ describe("master trip flow", () => {
     expect(fitted.status).toBe("select_package");
     expect(fitted.budgetCap).toBe(cap);
     expect(fitted.runningTotal).toBeLessThanOrEqual(cap);
+  });
+
+  it("drops international connections priced far above a domestic route's fares, cheapest first", () => {
+    const fare = (id: string, price: number) => ({ id, airline: id, route: "DEL → JAI", depart: "09:00", arrive: "10:00", duration: "1h", stops: 0, via: "", price, confidence: 0.95, source: "google_flights" });
+    const kept = sensibleFares([fare("Etihad", 56835), fare("IndiGo", 3743), fare("Air India", 5247), fare("SriLankan", 48968), fare("Akasa", 9100)] as never, [3450, 5600]);
+    expect(kept.map(flight => flight.airline)).toEqual(["IndiGo", "Air India", "Akasa"]);
   });
 
   it("suggests a cheaper flight as the gentlest fix for an expensive fare", async () => {
