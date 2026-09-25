@@ -389,7 +389,7 @@ async function showGuideRefusal(chatId: string, s: Session, trip: TripView) {
 }
 
 async function showNegotiation(chatId: string, s: Session, trip: TripView) {
-  const overage = trip.negotiationOptions.find(option => option.choice === "approve_overage")?.amount ?? 0;
+  const overage = trip.pending?.overage ?? trip.negotiationOptions.find(option => option.choice === "approve_overage")?.amount ?? 0;
   const label: Record<string, BotKey> = { approve_overage: "ngApprove", swap_cheaper: "ngSwap", remove_item: "ngRemove", raise_cap: "ngRaise" };
   // Budget fixes first (priced on the whole plan), then approve / keep as it was / raise the budget.
   const fixes = (trip.pending?.fixes ?? []).slice(0, 4).map((fix, index) => [{ text: `${say(s.lang, `fx_${fix.kind}` as BotKey)} · −${money(fix.saving)}${fix.fits ? ` ✓ ${say(s.lang, "fxFits")}` : ""}`, data: `NF:${index}` }]);

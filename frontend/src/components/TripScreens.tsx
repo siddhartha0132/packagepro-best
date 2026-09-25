@@ -214,7 +214,7 @@ export function NegotiationPanel({ trip, lang, busy, newCap, setNewCap, onChoose
     </div>}
     <div className="mt-5 text-[10px] font-bold uppercase tracking-[.16em] text-[#5f6b7a]">{copy("orDecide")}</div>
     <div className="mt-2 grid gap-2 sm:grid-cols-2">
-      <button disabled={busy} onClick={() => onChoose("approve_overage")} className="rounded-xl border border-[#e6ebf2] bg-white px-4 py-3 text-left text-sm font-semibold text-[#0b1f3a] hover:border-[#0b6bcb]">{copy("ngApproveExtra")} {money(overage)}</button>
+      <button disabled={busy} onClick={() => onChoose("approve_overage")} className="rounded-xl border border-[#e6ebf2] bg-white px-4 py-3 text-left text-sm font-semibold text-[#0b1f3a] hover:border-[#0b6bcb]">{copy("ngApproveExtra")} {money(trip.negotiationOptions.find(option => option.choice === "approve_overage")?.amount ?? overage)}</button>
       {decline && <button disabled={busy} onClick={() => onChoose("swap_cheaper")} className="rounded-xl border border-[#e6ebf2] bg-white px-4 py-3 text-left text-sm font-semibold text-[#0b1f3a] hover:border-[#0b6bcb]">{copy(pending?.retryStatus === "select_flight" ? "ngDeclineFlight" : "ngDeclineKeep")}</button>}
     </div>
     <div className="mt-2 flex gap-2"><input type="number" placeholder={copy("newCap")} value={newCap} onChange={event => setNewCap(event.target.value)} className="h-11 flex-1 rounded-xl border border-[#e6ebf2] px-3 text-sm" /><Button disabled={busy || !newCap || Number(newCap) <= trip.budgetCap} onClick={onRaise} className="h-11 rounded-xl bg-[#0b1f3a] px-5 text-white">{copy("set")}</Button></div>

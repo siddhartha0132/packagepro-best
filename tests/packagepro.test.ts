@@ -102,6 +102,35 @@ describe("master trip flow", () => {
     expect(applied.chosenFlight?.id).toBe(flights[0].id);
   });
 
+  it("keeps customising after an approved overage: cheaper changes apply at once, dearer ones ask for just the new extra", async () => {
+    const api = caller();
+    const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 1000, language: "ta" });
+    const flight = [...draft.flightOptions].sort((a, b) => a.price - b.price)[0];
+    const over = await api.trip.selectFlight({ tripId: draft.tripId, flightId: flight.id });
+    expect(over.status).toBe("negotiate");
+    const approved = await api.trip.negotiate({ tripId: draft.tripId, choice: "approve_overage" });
+    expect(approved.status).toBe("select_package");
+    expect(approved.runningTotal).toBeGreaterThan(approved.budgetCap);
+    const hotel = approved.packageComponents.find(item => item.type === "hotel")!;
+    const options = approved.package!.components.filter(item => item.swapGroup === hotel.swapGroup && item.id !== hotel.id).sort((a, b) => a.price - b.price);
+    const cheaper = options.find(item => item.price < hotel.price);
+    if (cheaper) {
+      const swapped = await api.trip.swap({ tripId: draft.tripId, fromId: hotel.id, toId: cheaper.id });
+      expect(swapped.status).toBe("select_package");
+      expect(swapped.runningTotal).toBeLessThan(approved.runningTotal);
+    }
+    const current = (await api.trip.get({ tripId: draft.tripId })).packageComponents.find(item => item.type === "hotel")!;
+    const dearer = options.filter(item => item.price > current.price).pop();
+    if (dearer) {
+      const before = (await api.trip.get({ tripId: draft.tripId })).runningTotal;
+      const asked = await api.trip.swap({ tripId: draft.tripId, fromId: current.id, toId: dearer.id });
+      expect(asked.status).toBe("negotiate");
+      const extra = asked.negotiationOptions.find(option => option.choice === "approve_overage")!.amount!;
+      expect(extra).toBeCloseTo(asked.pending!.total! - before, 1);
+      expect(extra).toBeLessThan(asked.pending!.overage!);
+    }
+  });
+
   it("suggests a cheaper flight as the gentlest fix for an expensive fare", async () => {
     const api = caller();
     const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 1, language: "ta" });

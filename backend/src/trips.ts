@@ -247,7 +247,9 @@ function log(trip: Trip, kind: string, text: string) {
  */
 function commit(trip: Trip, label: string, patch: Partial<Trip>, advanceTo: TripStatus = trip.status) {
   const total = priceBreakdown({ ...trip, ...patch }).total;
-  if (total <= trip.budgetCap) {
+  // A change that doesn't raise an existing plan's total always applies — even when an approved overage leaves the plan above the cap.
+  const noDearer = trip.runningTotal > 0 && trip.package != null && total <= trip.runningTotal;
+  if (total <= trip.budgetCap || noDearer) {
     const delta = total - trip.runningTotal;
     Object.assign(trip, patch);
     trip.runningTotal = total;
@@ -258,6 +260,8 @@ function commit(trip: Trip, label: string, patch: Partial<Trip>, advanceTo: Trip
     return true;
   }
   const overage = Math.round((total - trip.budgetCap) * 100) / 100;
+  // What approving adds beyond anything already approved (a plan may already sit above the cap).
+  const newExtra = Math.round((total - Math.max(trip.budgetCap, trip.package ? trip.runningTotal : 0)) * 100) / 100;
   const retryStatus = trip.status === "negotiate" ? (trip.pending?.retryStatus ?? "select_flight") : trip.status;
   trip.status = "negotiate";
   const fixes = budgetFixes({ ...trip, ...patch }, trip.budgetCap);
@@ -265,7 +269,7 @@ function commit(trip: Trip, label: string, patch: Partial<Trip>, advanceTo: Trip
   // Declining puts the plan back as it was; on the very first flight + package pick that means choosing another flight.
   const declineLabel = retryStatus === "select_flight" ? "Choose a different flight" : "Keep the plan as it was";
   trip.negotiationOptions = [
-    { choice: "approve_overage", amount: overage, item_label: label, label: `Approve the extra ${inr(overage)} for ${label}` },
+    { choice: "approve_overage", amount: newExtra, item_label: label, label: `Approve the extra ${inr(newExtra)} for ${label}` },
     { choice: "swap_cheaper", item_label: label, label: declineLabel },
     { choice: "raise_cap", item_label: label, label: "Raise my overall trip budget" },
   ];
