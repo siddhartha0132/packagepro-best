@@ -24,12 +24,26 @@ describe("packagepro catalogue", () => {
   });
 
   it("personalizes recommendations using interests, destination, budget, and guide language", async () => {
-    const result = await caller().packagepro.recommend({ query: "local food", language: "ta", destination: "Thanjavur", budget: 50000 });
+    const result = await caller().packagepro.recommend({ query: "temples and heritage", language: "ta", destination: "Thanjavur", budget: 50000 });
     expect(result.packages[0]?.city).toBe("Thanjavur");
     expect(result.packages[0]?.matchReasons).toContain("your destination");
     expect(result.guides.every(guide => guide.city === "Thanjavur" && guide.languages.includes("ta"))).toBe(true);
     expect(result.destinationInsight?.city).toBe("Thanjavur");
     expect(result.destinationInsight?.summary).toContain("Chola");
+  });
+
+  it("changes the picks with the mood instead of always leading with the chosen destination", async () => {
+    const pick = (query: string) => caller().packagepro.recommend({ query, language: "en-IN", destination: "Jaipur", budget: 40000 });
+    const beaches = await pick("Beaches & slow food");
+    const mountains = await pick("Mountains & treks");
+    const pilgrimage = await pick("Pilgrimage & dawn rituals");
+    expect(new Set([beaches, mountains, pilgrimage].map(result => result.packages[0].city)).size).toBe(3);
+    expect(beaches.packages.map(pkg => pkg.city)).not.toContain("Jaipur");
+    expect(beaches.packages[0].matchReasons).toContain("fit beach");
+    expect(mountains.packages[0].matchReasons).toContain("fit mountains");
+    expect(pilgrimage.packages[0].tags[0]).toBe("pilgrimage");
+    // A mood that fits the destination still puts it on the shortlist.
+    expect((await pick("Heritage & living temples")).packages.map(pkg => pkg.city)).toContain("Jaipur");
   });
 });
 

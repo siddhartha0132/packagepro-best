@@ -330,23 +330,66 @@ export function packageForCity(city: string) {
   return PACKAGES.find(pkg => pkg.city.toLowerCase() === city.toLowerCase());
 }
 
+/**
+ * Interests a traveller can express (mood chips, free text, profile interests). Each maps to the dataset themes that serve it
+ * and to the catalogue cities known for it — the dataset's descriptions are templated, so theme + place carry the signal.
+ */
+const INTERESTS: { key: string; words: RegExp; themes: string[]; cities: string[] }[] = [
+  { key: "heritage", words: /heritage|histor|fort|palace|monument|museum|culture|architect|haveli|royal|विरासत|किला|பாரம்பரிய|వారసత్వ/i, themes: ["heritage"], cities: ["Agra", "Jaipur", "Jodhpur", "Udaipur", "Jaisalmer", "Hampi", "Aurangabad", "New Delhi", "Lucknow", "Hyderabad", "Thanjavur", "Bhuj", "Madurai"] },
+  { key: "temples", words: /temple|pilgrim|spiritual|religio|ritual|aarti|ghat|dawn|darshan|shrine|sacred|मंदिर|तीर्थ|கோயில்|கோவில்|ఆలయ|గుడి/i, themes: ["pilgrimage"], cities: ["Varanasi", "Tirupati", "Madurai", "Thanjavur", "Puri", "Amritsar", "Rishikesh", "Hampi", "Bhubaneswar"] },
+  { key: "beach", words: /beach|sea\b|seaside|coast|island|backwater|surf|sand|ocean|समुद्र|बीच|கடற்கரை|బీచ్|సముద్ర/i, themes: [], cities: ["Panaji", "Gokarna", "Puri", "Pondicherry", "Alleppey", "Kochi", "Visakhapatnam", "Thiruvananthapuram", "Chennai", "Mumbai"] },
+  { key: "food", words: /food|cuisine|street|eat|culinar|dining|bazaar|market|spice|खाना|भोजन|உணவு|ఆహార/i, themes: ["food_trail"], cities: ["Lucknow", "Hyderabad", "Amritsar", "Kolkata", "Chennai", "Mumbai", "New Delhi", "Pune"] },
+  { key: "mountains", words: /mountain|trek|hike|hiking|hill|himalaya|snow|adventure|climb|पहाड़|மலை|కొండ/i, themes: ["adventure"], cities: ["Manali", "Shimla", "Darjeeling", "Gangtok", "Leh", "Nainital", "Munnar", "Ooty", "Shillong", "Srinagar", "Rishikesh"] },
+  { key: "honeymoon", words: /honeymoon|romantic|romance|couple|हनीमून|தேனிலவு|హనీమూన్/i, themes: ["honeymoon"], cities: ["Udaipur", "Munnar", "Alleppey", "Manali", "Srinagar", "Gokarna"] },
+  { key: "family", words: /family|kids|children|parents|परिवार|குடும்ப|కుటుంబ/i, themes: ["family"], cities: [] },
+  { key: "wellness", words: /wellness|yoga|spa|relax|ayurved|retreat|slow|calm|योग|யோகா|యోగా/i, themes: ["wellness"], cities: ["Rishikesh", "Gokarna", "Munnar", "Alleppey", "Kochi"] },
+  { key: "wildlife", words: /wildlife|safari|tiger|elephant|bird|jungle|nature|वन्य|வனவிலங்கு|వన్యప్రాణ/i, themes: ["wildlife"], cities: ["Wayanad", "Guwahati", "Mysuru"] },
+];
+
+/** Component lines shared by most packages ("Local guide (half day)", "Dinner at a local kitchen") say nothing about fit. */
+let genericLabels: Set<string> | null = null;
+function distinctiveLabels(pkg: PackageRecord) {
+  if (!genericLabels) {
+    const counts = new Map<string, number>();
+    for (const item of PACKAGES) for (const label of Array.from(new Set(item.components.map(component => component.label)))) counts.set(label, (counts.get(label) ?? 0) + 1);
+    genericLabels = new Set(Array.from(counts).filter(([, count]) => count > PACKAGES.length / 4).map(([label]) => label));
+  }
+  return pkg.components.map(item => item.label).filter(label => !genericLabels!.has(label));
+}
+
 export function recommendPackages(query: string, language: string, destination?: string, budget?: number) {
-  const terms = query.toLowerCase().split(/[^a-z-]+/).filter(term => term.length > 2);
+  const wanted = INTERESTS.filter(interest => interest.words.test(query));
   const city = destination?.trim().toLowerCase();
   const packages = PACKAGES.map(pkg => {
-    const searchable = `${pkg.name} ${pkg.description} ${pkg.theme} ${pkg.tags.join(" ")} ${pkg.components.map(item => item.label).join(" ")}`.toLowerCase();
-    const interestScore = terms.filter(term => searchable.includes(term)).length * 5;
-    const destinationScore = city && pkg.city.toLowerCase() === city ? 12 : 0;
-    const languageScore = pkg.languagesOffered.includes(language) ? 6 : 0;
-    const budgetScore = budget && pkg.basePrice <= budget ? 5 : budget ? -Math.min(8, Math.ceil((pkg.basePrice - budget) / 10000)) : 0;
+    const labels = distinctiveLabels(pkg).join(" ");
+    const fits = wanted.map(interest => {
+      const core = (interest.themes.includes(pkg.tags[0]) ? 10 : 0) + (interest.cities.includes(pkg.city) ? 8 : 0);
+      return { key: interest.key, core, score: core + (interest.words.test(labels) ? 3 : 0) };
+    }).filter(fit => fit.score > 0).sort((a, b) => b.score - a.score);
+    const interestScore = fits.reduce((sum, fit) => sum + fit.score, 0);
+    // The chosen destination leads only when its theme or place fits the mood; otherwise it is a light tie-break.
+    const isDestination = Boolean(city && pkg.city.toLowerCase() === city);
+    const destinationScore = isDestination ? (fits.some(fit => fit.core > 0) || !wanted.length ? 12 : 2) : 0;
+    const languageScore = pkg.languagesOffered.includes(language) ? 3 : 0;
+    const budgetScore = budget && pkg.basePrice <= budget ? 4 : budget ? -Math.min(8, Math.ceil((pkg.basePrice - budget) / 10000)) : 0;
     return {
       ...pkg,
       score: interestScore + destinationScore + languageScore + budgetScore,
-      matchReasons: [interestScore ? "interest match" : "curated route", destinationScore ? "your destination" : "flexible route", languageScore ? "offered in your language" : "English delivery", budgetScore >= 0 ? "within your budget" : "stretch option"],
+      matchReasons: [
+        ...fits.filter(fit => fit.core > 0).slice(0, 2).map(fit => `fit ${fit.key}`),
+        ...(isDestination ? ["your destination"] : []),
+        ...(!fits.some(fit => fit.core > 0) && !isDestination ? [fits.length ? "interest match" : "curated route"] : []),
+        budgetScore >= 0 ? "within your budget" : "stretch option",
+        languageScore ? "offered in your language" : "English delivery",
+      ],
     };
   }).sort((a, b) => b.score - a.score || a.basePrice - b.basePrice);
+  // One card per theme where possible, so a mood shows a spread of real options rather than three near-duplicates.
+  const picked: typeof packages = [];
+  for (const pkg of packages) if (picked.length < 3 && !picked.some(item => item.city === pkg.city || item.theme === pkg.theme)) picked.push(pkg);
+  for (const pkg of packages) if (picked.length < 3 && !picked.includes(pkg)) picked.push(pkg);
   const guides = GUIDES.filter(guide => guide.languages.includes(language) && (!city || guide.city.toLowerCase() === city)).sort((a, b) => b.rating - a.rating);
-  return { packages: packages.slice(0, 3), guides: guides.slice(0, 3) };
+  return { packages: picked, guides: guides.slice(0, 3) };
 }
 
 export function realityCheck(destination: string, budget: number, duration: number) {

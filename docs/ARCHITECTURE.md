@@ -172,7 +172,7 @@ flowchart LR
   LLM --> VAL["Validation in code<br/>catalogue IDs only · budget enforced<br/>before and after the model"]
   CMD --> ENG["Trip engine reprices"]
   VAL --> OUT["Reply in the user's language<br/>+ Build this package buttons"]
-  LLM -. "no model available" .-> FB["Deterministic fallbacks<br/>keyword scoring · rule text"]
+  LLM -. "no model available" .-> FB["Deterministic fallbacks<br/>interest scoring · rule text"]
   FB --> OUT
 ```
 

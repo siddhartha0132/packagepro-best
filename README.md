@@ -67,7 +67,7 @@ Full mapping, rules R1–R8 and where each is enforced: [data-model/DATA_MODEL.m
 
 | Capability | Mechanism | Grounding |
 |---|---|---|
-| Package builder (interests, budget, booking history) | Sarvam `sarvam-105b-conversations`, JSON prompt; OpenRouter fallback | Chooses only from the 45 catalogue packages; the budget is enforced before and after the model; the traveller's `user_preferences` and past trips are attached server-side; keyword fallback |
+| Package builder (interests, budget, booking history) | Sarvam `sarvam-105b-conversations`, JSON prompt; OpenRouter fallback | Chooses only from the 45 catalogue packages; the budget is enforced before and after the model; the traveller's `user_preferences` and past trips are attached server-side; fallback: interest scoring (mood → dataset theme + places known for it, in 4 languages) |
 | Trip-request parser ("Mumbai to Goa for 3 days") | Rules with city aliases, then the model | Catalogue cities only |
 | Transparent agent ("why was Meera refused?") | Sarvam chat | Live trip context: the refusal dates, substitutes and new totals; "never invent inventory or prices" |
 | Estimate insight | Grounded 3-bullet completion | Only the live facts: fares, package, guides, past-traveller popularity |
