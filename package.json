@@ -15,7 +15,7 @@
     "db:show": "node scripts/show-bookings.mjs",
     "conformance": "node scripts/conformance.mjs",
     "db:schema": "node scripts/dump-schema.mjs",
-    "db:reset": "node -e \"for (const f of ['data/packagepro-app.db','data/packagepro-app.db-wal','data/packagepro-app.db-shm']) require('fs').rmSync(f,{force:true}); console.log('PackagePro app database cleared (trips, bookings, guide reservations, Telegram chats). PS-04 dataset untouched.')\""
+    "db:reset": "node scripts/reset-db.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
