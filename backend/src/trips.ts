@@ -214,8 +214,8 @@ function itinerary(trip: Trip) {
     }
     for (const component of lines) {
       if (component.type === "hotel") continue;
-      // Lines planned beyond a shortened trip move to its last day — they are still part of the plan and the price.
-      if (Math.min(component.dayIndex ?? 1, dates.length) !== day) continue;
+      // Same rule as the price (inTrip): a line planned after a shortened trip's last day is neither shown nor charged.
+      if ((component.dayIndex ?? 1) !== day) continue;
       items.push({ kind: component.type, slot: component.slot ?? "morning", label: component.label, detail: component.detail, price: componentCharge(trip, component), componentId: component.id });
     }
     const dayGuide = allGuides(trip).find(guide => guide.bookedDates.includes(date));
@@ -599,6 +599,21 @@ export function toggleAddOn(tripId: string, componentId: string, include: boolea
   if (!component?.optional) throw new Error("That component is not an optional add-on");
   if (component.included === include) return snapshot(trip);
   commit(trip, `${include ? "adding" : "removing"} ${component.label}`, { packageComponents: trip.packageComponents.map(item => item.id === componentId ? { ...item, included: include } : item) });
+  return snapshot(trip);
+}
+
+/**
+ * Remove a line from the plan (or add it back): any activity, transfer, meal or ticket. The stay is swapped, never removed —
+ * the package includes accommodation. Priced like every change: base + every kept component (PS-04).
+ */
+export function setComponentIncluded(tripId: string, componentId: string, include: boolean) {
+  const trip = need(tripId);
+  editable(trip, include ? "add a line back" : "remove a line");
+  const component = trip.packageComponents.find(item => item.id === componentId);
+  if (!component) throw new Error("That line is not in this package");
+  if (component.type === "hotel") throw new Error("The stay can be swapped but not removed — the package includes accommodation");
+  if (component.included === include) return snapshot(trip);
+  commit(trip, `${include ? "adding back" : "removing"} ${component.label}`, { packageComponents: trip.packageComponents.map(item => item.id === componentId ? { ...item, included: include } : item) });
   return snapshot(trip);
 }
 

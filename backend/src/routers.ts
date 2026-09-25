@@ -94,6 +94,7 @@ export const appRouter = router({
     removeGuide: publicProcedure.input(z.object({ tripId: z.string(), guideId: z.string().optional() })).mutation(({ input }) => trips.removeGuide(input.tripId, input.guideId)),
     bookGuideDays: publicProcedure.input(z.object({ tripId: z.string(), guideId: z.string(), dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1).max(21) })).mutation(({ input }) => trips.bookGuideDays(input.tripId, input.guideId, input.dates)),
     swap: publicProcedure.input(z.object({ tripId: z.string(), fromId: z.string(), toId: z.string() })).mutation(({ input }) => trips.swapComponent(input.tripId, input.fromId, input.toId)),
+    setIncluded: publicProcedure.input(z.object({ tripId: z.string(), componentId: z.string(), include: z.boolean() })).mutation(({ input }) => trips.setComponentIncluded(input.tripId, input.componentId, input.include)),
     applySuggestion: publicProcedure.input(z.object({ tripId: z.string(), suggestionId: z.string().max(200) })).mutation(({ input }) => trips.applySuggestion(input.tripId, input.suggestionId)),
     undo: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.undoChange(input.tripId)),
     discardChanges: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => trips.discardChanges(input.tripId)),

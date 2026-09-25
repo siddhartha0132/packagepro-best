@@ -176,10 +176,10 @@ describe("master trip flow", () => {
       expect([line.dayIndex, line.slot]).toEqual([activity.dayIndex, activity.slot]);
       await api.trip.undo({ tripId: draft.tripId });
     }
-    // Every included, priced line appears in the itinerary even after the trip is shortened.
+    // After shortening, the itinerary and the price agree: base + the priced itinerary lines = the package total.
     const short = await api.trip.setDuration({ tripId: draft.tripId, days: 2 });
-    const shown = new Set(short.itinerary.flatMap(day => day.items).map(item => item.componentId).filter(Boolean));
-    for (const line of short.packageComponents.filter(item => item.included)) expect(shown.has(line.id)).toBe(true);
+    const lines = short.itinerary.flatMap(day => day.items).filter(item => item.kind !== "guide" && item.kind !== "arrival" && item.price != null);
+    expect(Math.round(short.priceBreakdown.packageBase * 100) + lines.reduce((sum, item) => sum + Math.round(item.price! * 100), 0)).toBe(Math.round(short.priceBreakdown.packageTotal * 100));
   });
 
   it("when nothing can fit, records cuts already applied and offers the lowest possible budget in one step", async () => {
@@ -209,6 +209,20 @@ describe("master trip flow", () => {
     const fare = (id: string, price: number) => ({ id, airline: id, route: "DEL → JAI", depart: "09:00", arrive: "10:00", duration: "1h", stops: 0, via: "", price, confidence: 0.95, source: "google_flights" });
     const kept = sensibleFares([fare("Etihad", 56835), fare("IndiGo", 3743), fare("Air India", 5247), fare("SriLankan", 48968), fare("Akasa", 9100)] as never, [3450, 5600]);
     expect(kept.map(flight => flight.airline)).toEqual(["IndiGo", "Air India", "Akasa"]);
+  });
+
+  it("removes any line except the stay and adds it back, repricing the whole plan", async () => {
+    const api = caller();
+    const draft = await api.trip.create({ origin: "DEL", destination: "Thanjavur", departDate: "2026-09-02", returnDate: "2026-09-05", travelers: 4, budgetCap: 900000, language: "ta" });
+    const trip = await api.trip.selectFlight({ tripId: draft.tripId, flightId: [...draft.flightOptions].sort((a, b) => a.price - b.price)[0].id });
+    const line = trip.itinerary.flatMap(day => day.items).find(item => item.componentId && item.kind !== "hotel" && item.kind !== "arrival" && item.kind !== "guide")!;
+    const removed = await api.trip.setIncluded({ tripId: draft.tripId, componentId: line.componentId!, include: false });
+    expect(removed.itinerary.flatMap(day => day.items).some(item => item.componentId === line.componentId)).toBe(false);
+    expect(removed.runningTotal).toBeCloseTo(trip.runningTotal - line.price!, 1);
+    const back = await api.trip.setIncluded({ tripId: draft.tripId, componentId: line.componentId!, include: true });
+    expect(back.runningTotal).toBeCloseTo(trip.runningTotal, 1);
+    const hotel = trip.packageComponents.find(item => item.type === "hotel")!;
+    await expect(api.trip.setIncluded({ tripId: draft.tripId, componentId: hotel.id, include: false })).rejects.toThrow(/stay can be swapped/);
   });
 
   it("suggests a cheaper flight as the gentlest fix for an expensive fare", async () => {

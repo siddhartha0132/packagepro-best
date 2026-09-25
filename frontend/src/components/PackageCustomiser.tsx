@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
-import { ArrowLeftRight, ArrowRight, BedDouble, CalendarMinus, CalendarPlus, Car, Check, Minus, Plus, RotateCcw, Sparkles, Star, Ticket, Undo2, UtensilsCrossed, Wand2, X } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, BedDouble, CalendarMinus, CalendarPlus, Car, Check, Minus, Plus, RotateCcw, Sparkles, Star, Ticket, Trash2, Undo2, UtensilsCrossed, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,9 +33,12 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
   const setDuration = trpc.trip.setDuration.useMutation(refresh);
   const removeGuide = trpc.trip.removeGuide.useMutation(refresh);
   const applySuggestion = trpc.trip.applySuggestion.useMutation(refresh);
+  const setIncluded = trpc.trip.setIncluded.useMutation(refresh);
   const undo = trpc.trip.undo.useMutation({ ...refresh, onSuccess: () => { refresh.onSuccess(); toast.success(copy("undone")); } });
   const discard = trpc.trip.discardChanges.useMutation({ ...refresh, onSuccess: () => { refresh.onSuccess(); toast.success(copy("changesDiscarded")); } });
-  const loading = busy || swap.isPending || toggleAddOn.isPending || setDuration.isPending || removeGuide.isPending || applySuggestion.isPending || undo.isPending || discard.isPending;
+  const loading = busy || swap.isPending || toggleAddOn.isPending || setDuration.isPending || removeGuide.isPending || applySuggestion.isPending || undo.isPending || discard.isPending || setIncluded.isPending;
+  // Package lines the traveller removed (add-ons have their own section below); only those inside the trip's days.
+  const removed = trip.packageComponents.filter(item => !item.included && !item.optional && item.type !== "hotel" && (item.dayIndex ?? 1) <= trip.durationDays);
   const suggestions = trip.suggestions ?? [];
   const overCap = trip.runningTotal > trip.budgetCap;
   const SUGGESTION_ICON: Record<string, ReactNode> = {
@@ -127,6 +130,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
                       return <Button variant="ghost" size="sm" className={`h-7 px-2 text-xs ${openSwap === key ? "bg-[#e8f1fd] text-[#0b6bcb]" : "text-[#0b6bcb]"}`} onClick={() => setOpenSwap(openSwap === key ? null : key)}><ArrowLeftRight className="mr-1 h-3 w-3" />{copy("swap")}{bestSaving > 0 && <span className="ml-1 rounded bg-[#e7f8f0] px-1 text-[10px] font-bold text-[#0e8a5f]">−{money(bestSaving)}</span>}</Button>;
                     })()}
                     {item.kind === "guide" && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-[#ad4738]" disabled={loading} onClick={() => removeGuide.mutate({ tripId: trip.tripId, guideId: item.guideId })}><X className="mr-1 h-3 w-3" />{copy("remove")}</Button>}
+                    {current && item.kind !== "hotel" && item.kind !== "guide" && <Button variant="ghost" size="sm" title={copy("removeLine")} className="h-7 px-2 text-xs text-[#ad4738]" disabled={loading} onClick={() => setIncluded.mutate({ tripId: trip.tripId, componentId: current.id, include: false })}><Trash2 className="mr-1 h-3 w-3" />{copy("remove")}</Button>}
                   </div>
                 </div>
                 {openSwap === key && current && (() => {
@@ -166,6 +170,17 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
         </div>)}
       </div>
     </div>
+
+    {/* Lines the traveller removed, with one tap to add each back */}
+    {removed.length > 0 && <div className="rounded-md border border-dashed border-[#d6dde8] bg-[#fafbfd] p-4">
+      <div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#5f6b7a]">{copy("removedTitle")}</div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {removed.map(item => <div key={item.id} className="flex items-center justify-between gap-3 rounded-md border border-[#e6ebf2] bg-white p-3">
+          <div className="min-w-0"><div className="text-sm font-medium text-[#5f6b7a] line-through decoration-[#9aa7b8]">{tr(item.label)}</div><div className="text-xs text-[#5f6b7a]">{copy("day")} {item.dayIndex ?? 1} · {slotLabel(lang, item.slot)}</div></div>
+          <Button size="sm" variant="outline" disabled={loading} onClick={() => setIncluded.mutate({ tripId: trip.tripId, componentId: item.id, include: true })}><Plus className="mr-1 h-3 w-3" />{copy("addBack")} {item.price * factorOf(item.type) >= 0 ? "+" : "−"}{money(Math.abs(item.price * factorOf(item.type)))}</Button>
+        </div>)}
+      </div>
+    </div>}
 
     {/* Add-ons */}
     {addOns.length > 0 && <div>
