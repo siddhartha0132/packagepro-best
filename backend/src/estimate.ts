@@ -1,4 +1,4 @@
-import { all, rupees } from "./catalogue";
+import { all } from "./catalogue";
 import { estimateAnalystPrompt } from "../../ai/prompts";
 import { defaultComponentsTotal, partyUnits, unitsFor } from "./trips";
 import { completeGrounded, languageName } from "../../ai/pipeline";

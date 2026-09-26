@@ -113,7 +113,7 @@ The terminal outcome: **a customised package, booked, with the guide rule shown*
 ## Tests / proof
 
 ```bash
-pnpm verify                                                   # type check + 70 offline tests + production build (also runs before every push)
+pnpm verify                                                   # type check + lint + 70 offline tests + production build (also runs before every push)
 npx vitest run                                                # everything: 70 offline + 4 live-key checks (reads .env) → 74 passed
 npx vitest run tests/hardProof.guideAvailability.test.ts     # the PS-04 hard proof
 pnpm voice:eval                                               # 20 spoken requests in 4 languages through the real voice pipeline → docs/VOICE_EVAL.md (needs SARVAM_API_KEY)
@@ -143,7 +143,7 @@ Only one running instance may poll a Telegram token, so by default only the depl
 
 ### Useful commands
 
-`pnpm db:show` shows bookings, guide dates and slot usage. `pnpm db:reset` clears the app database. `pnpm db:schema` regenerates `data-model/schema.sql`. `pnpm conformance` runs the organisers' validator.
+`pnpm lint` runs ESLint (errors fail `pnpm verify`). `pnpm db:show` shows bookings, guide dates and slot usage. `pnpm db:reset` clears the app database. `pnpm db:schema` regenerates `data-model/schema.sql`. `pnpm conformance` runs the organisers' validator.
 
 ### Repository layout
 

@@ -982,7 +982,7 @@ export async function autoBuildTrip(input: { origin: string; destination: string
 
   if (input.hotelTier && input.hotelTier !== "boutique") {
     built = swapHotel(trip.tripId, input.hotelTier);
-    if (built.status === "negotiate") built = await negotiate(trip.tripId, "remove_item");
+    if (built.status === "negotiate") await negotiate(trip.tripId, "remove_item");
   }
 
   const guides = listGuides(trip.tripId);
@@ -991,9 +991,9 @@ export async function autoBuildTrip(input: { origin: string; destination: string
     built = selectGuide(trip.tripId, preferredGuide.id, durationDays);
     if (!built.chosenGuide && built.guideAvailabilityIssue?.replacement) built = selectGuide(trip.tripId, built.guideAvailabilityIssue.replacement.id, durationDays);
     // The guide is optional: if it doesn't fit the auto-built budget, leave it out instead of stalling in negotiation.
-    if (built.status === "negotiate") built = await negotiate(trip.tripId, "remove_item");
+    if (built.status === "negotiate") await negotiate(trip.tripId, "remove_item");
   }
-  built = continueFromPackage(trip.tripId);
+  continueFromPackage(trip.tripId);
   log(trip, "reasoning", `Auto-built the ${durationDays}-day ${destination} package from the chat request`);
   return getTrip(trip.tripId);
 }
