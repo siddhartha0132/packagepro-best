@@ -10,6 +10,7 @@ import * as trips from "./trips";
 import { travellerForLanguage } from "./travellers";
 import { unitsFor } from "./trips";
 import { MAX_VOICE_SECONDS, hear, speak, speakable, voiceEnabled } from "./voice";
+import { takeToken } from "./rateLimit";
 
 // PackagePro on Telegram: the same engine as the web app (live fares, PS-04 packages, per-date guide checks with
 // same-language substitutes, budget negotiation, bookings), driven by inline buttons and free-text AI in 4 languages.
@@ -602,6 +603,7 @@ async function onText(chatId: string, s: Session, text: string) {
 
 /** Free text → the same agent as the web chat: trip requests, interest-based package picks, trip edits, or grounded answers. */
 async function onFreeText(chatId: string, s: Session, text: string) {
+  if (takeToken("ai", `tg:${chatId}`)) return send(chatId, say(s.lang, "slowDown"));
   await typing(chatId);
   let current: TripView | undefined;
   try { current = s.tripId ? trips.getTrip(s.tripId) : undefined; } catch { current = undefined; }
@@ -656,6 +658,7 @@ async function onFreeText(chatId: string, s: Session, text: string) {
 async function onVoice(chatId: string, s: Session, note: VoiceNote) {
   if (!voiceEnabled()) return send(chatId, say(s.lang, "voiceOff"));
   if (note.duration > MAX_VOICE_SECONDS) return send(chatId, say(s.lang, "voiceTooLong"));
+  if (takeToken("voiceHear", `tg:${chatId}`)) return send(chatId, say(s.lang, "slowDown"));
   await tg("sendChatAction", { chat_id: chatId, action: "record_voice" }).catch(() => undefined);
   const file = await tg<{ file_path?: string }>("getFile", { file_id: note.file_id });
   if (!file.file_path) return send(chatId, say(s.lang, "voiceNotHeard"));
@@ -672,7 +675,8 @@ async function onVoice(chatId: string, s: Session, note: VoiceNote) {
     const replies = spokenReplies.get(chatId) ?? [];
     spokenReplies.delete(chatId);
     const text = speakable(replies[0] ?? "");
-    const audio = text ? await speak(text, s.lang) : null;
+    // Spoken replies share the credit guard; when over it the text reply alone is enough.
+    const audio = text && !takeToken("voiceSpeak", `tg:${chatId}`) ? await speak(text, s.lang) : null;
     if (audio) {
       const form = new FormData();
       form.append("chat_id", chatId);
@@ -726,8 +730,22 @@ const COMMANDS: Record<Lang, [string, string][]> = {
 let running = false;
 
 /** Start long polling when TELEGRAM_BOT_TOKEN is set (disable with TELEGRAM_BOT_DISABLED=true, e.g. locally once deployed). */
+/**
+ * Only one process may poll a bot token. The deployed server (NODE_ENV=production, i.e. Railway) polls by default; a local
+ * dev server only when TELEGRAM_BOT_DISABLED=false is set explicitly, so running `pnpm dev` never steals the live bot.
+ */
+function botWanted() {
+  const flag = process.env.TELEGRAM_BOT_DISABLED?.trim().toLowerCase();
+  if (flag === "true") return false;
+  if (flag === "false") return true;
+  return process.env.NODE_ENV === "production";
+}
+
 export function startTelegramBot() {
-  if (running || !token() || process.env.VITEST || process.env.TELEGRAM_BOT_DISABLED === "true") return;
+  if (running || !token() || process.env.VITEST || !botWanted()) {
+    if (!running && token() && !process.env.VITEST) console.log("[telegram] bot not started here (the deployed server runs it; set TELEGRAM_BOT_DISABLED=false to run it locally)");
+    return;
+  }
   running = true;
   void (async () => {
     try {

@@ -155,6 +155,8 @@ flowchart LR
 
 ```mermaid
 flowchart LR
+  VOICE["Voice note / web mic<br/>any of 4 languages"] --> HEAR["Sarvam saarika + saaras<br/>words as spoken + English meaning<br/>+ detected language"]
+  HEAR --> TXT
   TXT["Free text<br/>any of 4 languages"] --> ROUTE{"what is it?"}
   ROUTE -- "names a city" --> PARSE["Trip parser<br/>rules + model<br/>prompts/tripParser.ts"]
   ROUTE -- "interests, budget, vibe" --> BUILD["Package builder<br/>prompts/packageBuilder.ts"]
@@ -174,7 +176,17 @@ flowchart LR
   VAL --> OUT["Reply in the user's language<br/>+ Build this package buttons"]
   LLM -. "no model available" .-> FB["Deterministic fallbacks<br/>interest scoring · rule text"]
   FB --> OUT
+  OUT -. "after a voice note" .-> SPEAK["Sarvam bulbul:v3<br/>spoken reply (MP3)"]
 ```
+
+**Voice** (`backend/src/voice.ts`): one clip is heard twice in parallel — `saarika:v2.5` gives the words as spoken (shown back
+to the traveller), `saaras:v2.5` gives the English meaning and the language. The English meaning goes through the same planner
+as typed text, the reply comes in the detected language, and the first reply is read back with `bulbul:v3`. Notes over 30 s
+are refused; without a key the traveller is asked to type. Measured by `pnpm voice:eval` → [VOICE_EVAL.md](VOICE_EVAL.md).
+
+**Cost guard** (`backend/src/rateLimit.ts`): speech, spoken replies, translation and AI answers are rate limited per client (IP
+on the web, chat on Telegram) in a 10-minute window and by a daily total across everyone, so a public URL can't drain the
+AI credit.
 
 ## 7 · Data model — what we read, write and add
 

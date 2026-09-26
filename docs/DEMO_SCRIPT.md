@@ -27,6 +27,15 @@ Every fact below comes from the PS-04 dataset. The package is *Thanjavur Honeymo
 3. Send `/demo`, then **Build my trip** → pick a flight → **Add a guide → Meera Novak**. You get the same refusal, with the date strip `28 ❌ · 29 ✅ · 30 ✅` and the substitute.
 4. Book the substitute → Confirm → booking reference.
 
+### Voice (30 seconds)
+
+5. Send **@wayypoint_Bot** a voice note in Tamil: *"தஞ்சாவூருக்கு மூன்று நாள் பயணம் திட்டமிடுங்கள்"* ("plan a three-day trip to
+   Thanjavur"). The bot shows what it heard, switches to Tamil, starts planning, and replies with a **voice note**.
+6. On the web, open *Ask why PackagePro chose this*, tap 🎙, say "Plan a two-day trip from Mumbai to Jaipur", tap again.
+   The request is heard, the trip is built, and the answer is read aloud.
+7. Line for the judges: *"20 out of 20 spoken requests in four languages understood, zero invented destinations, 1.7 s median"* —
+   from `pnpm voice:eval` (docs/VOICE_EVAL.md).
+
 ## 3 · Proof (30 seconds)
 
 - Run `npx vitest run tests/hardProof.guideAvailability.test.ts`. It tests the mandatory rule in the statement's own words.

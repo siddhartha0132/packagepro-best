@@ -27,6 +27,18 @@ curl -s -X POST http://localhost:3000/api/trpc/trip.create -H 'content-type: app
 | `packagepro.translate` | mutation | `{ texts[], language }` | Cached Sarvam translations of dataset content |
 | `packagepro.explain` | mutation | `{ messages[], context? }` | The AI agent: parses trip requests, builds packages from interests (+ traveller history via `context.userId`), edits the trip, or answers grounded questions |
 
+## Voice — `voice.*`
+
+| Procedure | Type | Input | Returns |
+|---|---|---|---|
+| `voice.status` | query | — | `{ enabled, maxSeconds }` — whether speech is set up (a Sarvam key) and the longest clip accepted (30 s) |
+| `voice.hear` | mutation | `{ audio (base64, ≤ ~3 MB), mime }` | `{ native, english, language }` — the words as spoken, their English meaning, the detected language (`en-IN`, `hi`, `ta`, `te`, …) |
+| `voice.speak` | mutation | `{ text, language }` | `{ audio (base64 MP3), mime }` or `null` — a short spoken version of the text |
+
+**Rate limits** (`backend/src/rateLimit.ts`) — per client in a 10-minute window, and a daily total across all clients:
+`voice.hear` 20 / 500, `voice.speak` 40 / 1,000, `packagepro.translate` 120 / 5,000, `packagepro.explain` 40 / 2,000.
+Over a limit the call fails with `TOO_MANY_REQUESTS` and a plain-language message; the Telegram bot applies the same limits per chat.
+
 ## Trip engine — `trip.*`
 
 A trip moves `select_flight → select_package ⇄ negotiate → review → confirmed`. Every mutation returns the full trip snapshot

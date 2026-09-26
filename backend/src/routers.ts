@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MAX_VOICE_SECONDS, hear, speak, speakable, voiceEnabled } from "./voice";
+import { clientOf, enforceLimit } from "./rateLimit";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -32,11 +33,13 @@ export const appRouter = router({
   // Voice: a short clip (base64, ≤ ~3 MB) → what was said, its English meaning and the language; text → an MP3 reply.
   voice: router({
     status: publicProcedure.query(() => ({ enabled: voiceEnabled(), maxSeconds: MAX_VOICE_SECONDS })),
-    hear: publicProcedure.input(z.object({ audio: z.string().min(1).max(4_000_000), mime: z.string().max(80) })).mutation(async ({ input }) => {
+    hear: publicProcedure.input(z.object({ audio: z.string().min(1).max(4_000_000), mime: z.string().max(80) })).mutation(async ({ input, ctx }) => {
       if (!voiceEnabled()) throw new Error("Voice needs the speech service, which isn't set up here — please type instead.");
+      enforceLimit("voiceHear", clientOf(ctx.req));
       return hear(new Uint8Array(Buffer.from(input.audio, "base64")), input.mime.split(";")[0]);
     }),
-    speak: publicProcedure.input(z.object({ text: z.string().min(1).max(4000), language: z.string().max(10) })).mutation(async ({ input }) => {
+    speak: publicProcedure.input(z.object({ text: z.string().min(1).max(4000), language: z.string().max(10) })).mutation(async ({ input, ctx }) => {
+      enforceLimit("voiceSpeak", clientOf(ctx.req));
       const audio = voiceEnabled() ? await speak(speakable(input.text), input.language) : null;
       return audio ? { audio: Buffer.from(audio).toString("base64"), mime: "audio/mpeg" } : null;
     }),
@@ -84,11 +87,17 @@ export const appRouter = router({
     travellers: publicProcedure.query(() => DEMO_TRAVELLERS.map(profile => ({ ...travellerSummary(profile), userId: profile.userId, locale: profile.locale, segment: profile.segment, recentTrips: profile.history.slice(0, 3).map(item => ({ city: item.city, startDate: item.startDate })) }))),
     recommend: publicProcedure.input(z.object({ query: z.string().default(""), language: languageSchema, destination: z.string().optional(), budget: z.number().positive().optional() })).query(async ({ input }) => ({ ...recommendPackages(input.query, input.language, input.destination, input.budget), destinationInsight: input.destination ? await getDestinationInsight(input.destination) : null, groundedIn: ["PackagePro package catalogue", "guide availability records", "language preferences", "cached destination insight"] })),
     estimate: publicProcedure.input(z.object({ origin: z.string(), destination: z.string(), departDate: z.string(), returnDate: z.string(), travelers: z.number().int().min(1).max(20), budget: z.number().positive(), language: languageSchema, interests: z.string().optional(), uiLanguage: z.string().max(10).optional() })).query(({ input }) => estimateTrip(input)),
-    translate: publicProcedure.input(z.object({ texts: z.array(z.string()).max(40), language: languageSchema })).mutation(({ input }) => translateMany(input.texts, input.language)),
+    translate: publicProcedure.input(z.object({ texts: z.array(z.string()).max(40), language: languageSchema })).mutation(({ input, ctx }) => {
+      enforceLimit("translate", clientOf(ctx.req));
+      return translateMany(input.texts, input.language);
+    }),
     explain: publicProcedure.input(z.object({
       messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().min(1).max(2000) })),
       context: z.record(z.string(), z.unknown()).optional(),
-    })).mutation(({ input }) => explainWithFreeOpenRouter(input.messages, input.context)),
+    })).mutation(({ input, ctx }) => {
+      enforceLimit("ai", clientOf(ctx.req));
+      return explainWithFreeOpenRouter(input.messages, input.context);
+    }),
   }),
   trip: router({
     create: publicProcedure.input(z.object({

@@ -10,7 +10,7 @@ Start from a curated package, reshape it piece by piece, and watch it reprice li
 |---|---|
 | Mandatory guide availability check | Enforced in the backend, proven by [`tests/hardProof.guideAvailability.test.ts`](tests/hardProof.guideAvailability.test.ts) |
 | Shared data model | Canonical tables read and written; organisers' validator **PASS** (`pnpm conformance`) |
-| Tests | 66 offline tests (`pnpm verify`) + 4 live-key checks — `npx vitest run` → 70 passed · voice: 20/20 (`pnpm voice:eval`) |
+| Tests | 70 offline tests (`pnpm verify`, also on every push via GitHub Actions) + 4 live-key checks — `npx vitest run` → 74 passed · voice: 20/20 (`pnpm voice:eval`) |
 | Guided tour for judges | `/how-it-works`: every PS-04 requirement, where it is in the code, and a live demo |
 | Brief | [HACKATHON.md](HACKATHON.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](data-model/DATA_MODEL.md) · [AI](ai/README.md) · [API](docs/API.md) · [Demo script](docs/DEMO_SCRIPT.md) |
 
@@ -113,8 +113,8 @@ The terminal outcome: **a customised package, booked, with the guide rule shown*
 ## Tests / proof
 
 ```bash
-pnpm verify                                                   # type check + 66 offline tests + production build (also runs before every push)
-npx vitest run                                                # everything: 66 offline + 4 live-key checks (reads .env) → 70 passed
+pnpm verify                                                   # type check + 70 offline tests + production build (also runs before every push)
+npx vitest run                                                # everything: 70 offline + 4 live-key checks (reads .env) → 74 passed
 npx vitest run tests/hardProof.guideAvailability.test.ts     # the PS-04 hard proof
 pnpm voice:eval                                               # 20 spoken requests in 4 languages through the real voice pipeline → docs/VOICE_EVAL.md (needs SARVAM_API_KEY)
 pnpm conformance                                              # organisers' validator on dataset + our rows → PASS
@@ -139,7 +139,7 @@ The tests run offline: the LLM and live fares are off under test, so every fallb
 2. **Volume:** add one at `/data`. The dataset ships in the repo under `data-model/seed/`.
 3. **Domain:** generate one.
 
-Only one running instance may poll a Telegram token: set `TELEGRAM_BOT_DISABLED=true` locally once Railway runs the bot. Keep a single instance, because active trips are cached in memory in front of SQLite.
+Only one running instance may poll a Telegram token, so by default only the deployed server (`NODE_ENV=production`) runs the bot; set `TELEGRAM_BOT_DISABLED=false` to run it from a local `pnpm dev` instead. Keep a single instance, because active trips are cached in memory in front of SQLite.
 
 ### Useful commands
 
