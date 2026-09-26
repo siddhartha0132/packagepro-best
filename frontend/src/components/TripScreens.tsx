@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
-import { ArrowLeft, ArrowRight, BadgeCheck, BedDouble, Bot, CalendarMinus, Car, Check, CircleAlert, Clock, Compass, Heart, Loader2, MapPin, Plane, Sparkles, Ticket, TrendingUp, Users, UtensilsCrossed, Wand2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BadgeCheck, BedDouble, Bot, CalendarMinus, Car, Check, CircleAlert, Clock, Compass, FileText, Heart, Hourglass, Loader2, MapPin, Plane, Sparkles, Ticket, TrendingUp, Users, UtensilsCrossed, Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { type CopyKey, type Lang, t } from "@/i18n";
 import type { AppRouter } from "../../../backend/src/routers";
 import type { TripView } from "./PackageCustomiser";
 import { useTr } from "@/lib/translate";
+import { ItineraryDays } from "./Itinerary";
+import { packageTitle } from "@/lib/itinerary";
 
 export const slotLabel = (lang: Lang, slot?: string) => (slot && ["morning", "afternoon", "evening", "overnight"].includes(slot) ? t(lang, `slot_${slot}` as CopyKey) : slot ?? "");
 export const specLabel = (lang: Lang, spec: string) => t(lang, `spec_${spec}` as CopyKey) || spec;
@@ -277,26 +279,70 @@ export function NegotiationPanel({ trip, lang, busy, newCap, setNewCap, onChoose
   </Panel>;
 }
 
-export function ReviewPanel({ trip, lang, busy, email, phone, setEmail, setPhone, onConfirm, onEdit, onWhatsApp, onStartOver }: { trip: TripView; lang: Lang; busy: boolean; email: string; phone: string; setEmail: (v: string) => void; setPhone: (v: string) => void; onConfirm: () => void; onEdit: () => void; onWhatsApp: () => void; onStartOver: () => void }) {
+/** Travel-desk actions on the review screen (when bookings go through a travel agent). */
+export type ApprovalActions = { required: boolean; onRequest: () => void; onAccept: () => void; onDecline: () => void; billUrl?: string | null };
+
+type Counter = NonNullable<NonNullable<TripView["approval"]>["counter"]>;
+
+/** The agent's counter-offer: what changes, what it does to the total, and one tap to accept (booked at once) or keep the original. */
+function CounterCard({ counter, lang, busy, onAccept, onDecline }: { counter: Counter; lang: Lang; busy: boolean; onAccept: () => void; onDecline: () => void }) {
+  const copy = (key: CopyKey) => t(lang, key);
+  const tr = useTr(lang);
+  const signed = (value: number) => `${value >= 0 ? "+" : "−"}${money(Math.abs(value))}`;
+  const what = (change: Counter["changes"][number]) => change.kind === "swap" ? <>{tr(change.from ?? "")} <ArrowRight className="inline h-3 w-3" /> <b>{tr(change.to ?? "")}</b></>
+    : change.kind === "addon_on" ? <>{copy("chAdd")} <b>{tr(change.to ?? "")}</b></> : change.kind === "addon_off" ? <>{copy("chRemove")} <b>{tr(change.to ?? "")}</b></>
+      : <b>{copy(change.delta < 0 ? "agentDiscount" : "agentSurcharge")}</b>;
+  return <div className="mt-4 rounded-xl border border-[#d7c9ff] bg-white p-4">
+    <div className="flex items-center gap-2 text-sm font-extrabold text-[#6d28d9]"><Sparkles className="h-4 w-4" />{copy("counterTitle")}</div>
+    {counter.note && <p className="mt-2 rounded-lg bg-[#f7f3ff] px-3 py-2 text-sm italic text-[#3b2a63]">“{counter.note}” <span className="not-italic text-xs text-[#6b5b95]">— {counter.proposedBy}</span></p>}
+    <ul className="mt-3 space-y-1.5 text-sm">{counter.changes.map((change, index) => <li key={index} className="flex items-center justify-between gap-3"><span className="text-[#334155]">{what(change)}</span><span className={`shrink-0 text-xs font-bold ${change.delta > 0 ? "text-[#ad4738]" : "text-[#0e8a5f]"}`}>{signed(change.delta)}</span></li>)}</ul>
+    <div className="mt-3 flex items-end justify-between border-t border-[#eef2f7] pt-3"><span className="text-xs text-[#5f6b7a]">{copy("counterWas")} <s>{money(counter.oldTotal)}</s></span><span className="text-2xl font-black text-[#0b1f3a]">{money(counter.newTotal)}</span></div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      <Button variant="outline" disabled={busy} onClick={onDecline} className="h-11 rounded-full">{copy("counterDecline")}</Button>
+      <Button disabled={busy} onClick={onAccept} className="h-11 rounded-full bg-[#6d28d9] font-bold text-white hover:bg-[#5b21b6]">{copy("counterAccept")} · {money(counter.newTotal)}</Button>
+    </div>
+  </div>;
+}
+
+export function ReviewPanel({ trip, lang, busy, email, phone, setEmail, setPhone, onConfirm, onEdit, onWhatsApp, onStartOver, approval }: { trip: TripView; lang: Lang; busy: boolean; email: string; phone: string; setEmail: (v: string) => void; setPhone: (v: string) => void; onConfirm: () => void; onEdit: () => void; onWhatsApp: () => void; onStartOver: () => void; approval?: ApprovalActions }) {
   const copy = (key: CopyKey) => t(lang, key);
   const tr = useTr(lang);
   const confirmed = trip.status === "confirmed";
+  const waiting = trip.status === "awaiting_approval";
   const leg = trip.chosenFlight;
+  const guides = [trip.chosenGuide, ...(trip.extraGuides ?? [])].filter((guide): guide is NonNullable<typeof guide> => Boolean(guide));
+  const counter = trip.approval?.counter;
+  const rejected = trip.status === "review" && trip.approval?.decision === "rejected";
+  const nights = trip.durationDays;
+  const shortDay = (iso: string) => { const date = prettyDate(iso); return `${date.day} ${date.rest}`; };
   return <div className="space-y-4">
-    {confirmed && <Panel className="flex items-center gap-3 border border-[#b7ebd3] bg-[#e7f8f0] p-5 text-[#0e8a5f]"><Check className="h-6 w-6" /><div className="flex-1"><div className="font-extrabold">{copy("confirmed")}</div><div className="text-xs">{copy("final")} {money(trip.runningTotal)} {copy("of")} {money(trip.budgetCap)}</div></div>{trip.booking && <div className="rounded-xl bg-white px-4 py-2 text-right"><div className="text-[10px] font-bold uppercase tracking-wider text-[#5f6b7a]">PNR</div><div className="font-mono text-lg font-black text-[#0b1f3a]">{trip.booking.reference}</div></div>}</Panel>}
-    {leg && <Panel className="p-5"><SectionTitle icon={<Plane className="h-4 w-4 text-[#0b6bcb]" />} title={copy("flight")} sub={trip.departDate} /><div className="mt-3"><FlightRow flight={leg} lang={lang} travelers={trip.travelers} /></div></Panel>}
+    {confirmed && <Panel className="border border-[#b7ebd3] bg-[#e7f8f0] p-5 text-[#0e8a5f]">
+      <div className="flex items-center gap-3"><Check className="h-6 w-6" /><div className="flex-1"><div className="font-extrabold">{copy("confirmed")}</div><div className="text-xs">{copy("final")} {money(trip.runningTotal)} {copy("of")} {money(trip.budgetCap)}{trip.approval?.decision === "approved" && trip.approval.decidedBy ? ` · ${copy("approvedBy")} ${trip.approval.decidedBy}` : ""}</div></div>{trip.booking && <div className="rounded-xl bg-white px-4 py-2 text-right"><div className="text-[10px] font-bold uppercase tracking-wider text-[#5f6b7a]">PNR</div><div className="font-mono text-lg font-black text-[#0b1f3a]">{trip.booking.reference}</div></div>}</div>
+      {approval?.billUrl && <a href={approval.billUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-[#0b1f3a] shadow-sm hover:bg-[#f6f8fb]"><FileText className="h-3.5 w-3.5" />{copy("downloadBill")}</a>}
+    </Panel>}
+    {waiting && <Panel className="border border-[#fde2b8] bg-[#fff8ec] p-5">
+      <div className="flex items-start gap-3"><Hourglass className="mt-0.5 h-5 w-5 shrink-0 animate-pulse text-[#b45309]" /><div className="flex-1"><div className="font-extrabold text-[#7a4a0b]">{copy("awaitingTitle")}</div><div className="mt-0.5 text-xs leading-5 text-[#7a4a0b]">{copy("awaitingSub")}</div></div>{trip.booking && <div className="rounded-xl bg-white px-3 py-1.5 text-right"><div className="text-[10px] font-bold uppercase tracking-wider text-[#5f6b7a]">Ref</div><div className="font-mono text-sm font-black text-[#0b1f3a]">{trip.booking.reference}</div></div>}</div>
+      {counter?.status === "open" && approval && <CounterCard counter={counter} lang={lang} busy={busy} onAccept={approval.onAccept} onDecline={approval.onDecline} />}
+      {counter?.status === "declined" && <p className="mt-3 text-xs text-[#7a4a0b]">{copy("counterDeclined")}</p>}
+    </Panel>}
+    {rejected && <Panel className="flex items-start gap-3 border border-[#f3c1b8] bg-[#fff6f4] p-5"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-[#c0392b]" /><div><div className="font-extrabold text-[#7a2e22]">{copy("rejectedTitle")}</div>{trip.approval?.reason && <div className="mt-1 text-sm text-[#7a2e22]">“{tr(trip.approval.reason)}”</div>}<div className="mt-1 text-xs text-[#7a3b2e]">{copy("rejectedSub")}</div></div></Panel>}
+    {leg && <Panel className="p-5"><SectionTitle icon={<Plane className="h-4 w-4 text-[#0b6bcb]" />} title={copy("flight")} sub={shortDay(trip.departDate)} /><div className="mt-3"><FlightRow flight={leg} lang={lang} travelers={trip.travelers} /></div></Panel>}
     {trip.chosenTransport && <Panel className="p-5"><SectionTitle icon={<Clock className="h-4 w-4 text-[#0b6bcb]" />} title={trip.chosenTransport.operator} sub={`${trip.chosenTransport.route} · ${trip.chosenTransport.depart} · ${trip.chosenTransport.duration}`} right={<span className="font-bold">{money(trip.chosenTransport.price)}</span>} /></Panel>}
     <Panel className="p-5">
-      <SectionTitle icon={<MapPin className="h-4 w-4 text-[#0b6bcb]" />} title={trip.package ? tr(trip.package.name) : copy("yourPackage")} sub={`${trip.departDate} → ${trip.returnDate} · ${trip.durationDays} ${copy("days")}`} right={<span className="text-lg font-extrabold">{money(trip.priceBreakdown.packageTotal)}</span>} />
-      <div className="mt-4 space-y-3">{trip.itinerary.map(day => <div key={day.date} className="flex gap-3"><div className="w-14 shrink-0 text-center"><div className="rounded-lg bg-[#e8f1fd] py-1 text-[10px] font-bold uppercase text-[#0b6bcb]">{copy("day")} {day.day}</div><div className="mt-1 text-[10px] text-[#5f6b7a]">{day.date.slice(5)}</div></div><div className="flex-1 space-y-1 border-l-2 border-dashed border-[#dde3ec] pl-3">{day.items.map((item, index) => <div key={index} className="text-sm"><span className="mr-2 text-[10px] font-bold uppercase text-[#9aa7b8]">{slotLabel(lang, item.slot)}</span>{tr(item.label)}</div>)}</div></div>)}</div>
+      <SectionTitle icon={<MapPin className="h-4 w-4 text-[#0b6bcb]" />} title={trip.package ? tr(packageTitle(trip.package.name)) : copy("yourPackage")} sub={`${shortDay(trip.departDate)} → ${shortDay(trip.returnDate)} · ${nights} ${copy("nightsWord")} / ${nights + 1} ${copy("days")} · ${trip.travelers} ${copy("travelers").toLowerCase()}`} right={<span className="text-lg font-extrabold">{money(trip.priceBreakdown.packageTotal)}</span>} />
+      <div className="mt-4"><ItineraryDays trip={trip} lang={lang} /></div>
     </Panel>
-    {trip.chosenGuide && <Panel className="p-5"><SectionTitle icon={<Compass className="h-4 w-4 text-[#0b6bcb]" />} title={`${copy("guide")}: ${trip.chosenGuide.name}`} sub={`${specLabel(lang, trip.chosenGuide.specialisation)} · ${trip.chosenGuide.languages.join(", ")} · ${trip.chosenGuide.bookedDates.join(", ")}`} right={<span className="font-bold">{money(trip.chosenGuide.totalCost)}</span>} /></Panel>}
-    {!confirmed ? <Panel className="p-5">
+    {guides.length > 0 && <Panel className="p-5">
+      <SectionTitle icon={<Compass className="h-4 w-4 text-[#0b6bcb]" />} title={copy("guidesOnPlan")} />
+      <div className="mt-3 space-y-2">{guides.map(guide => <div key={guide.id} className="flex items-center justify-between gap-3 rounded-lg bg-[#f6f8fb] px-3 py-2"><div className="min-w-0"><div className="text-sm font-bold text-[#0b1f3a]">{guide.name} <span className="text-[11px] font-normal text-[#5f6b7a]">★ {guide.rating} · {specLabel(lang, guide.specialisation)} · {guide.languages.join(", ")}</span></div><div className="text-[11px] text-[#5f6b7a]">{guide.bookedDates.map(shortDay).join(" · ")}</div></div><span className="shrink-0 font-bold">{money(guide.totalCost)}</span></div>)}</div>
+    </Panel>}
+    {trip.status === "review" ? <Panel className="p-5">
+      {approval?.required && <p className="mb-3 text-xs leading-5 text-[#5f6b7a]">{copy("requestAgentSub")}</p>}
       <div className="grid gap-3 sm:grid-cols-2"><input placeholder={copy("email")} value={email} onChange={event => setEmail(event.target.value)} type="email" className="h-11 rounded-xl border border-[#e6ebf2] px-3 text-sm" /><input placeholder={copy("phone")} value={phone} onChange={event => setPhone(event.target.value)} className="h-11 rounded-xl border border-[#e6ebf2] px-3 text-sm" /></div>
       <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_1.4fr]">
         <Button variant="outline" className="h-12 rounded-full" disabled={busy} onClick={onEdit}>{copy("editPackage")}</Button>
         <Button variant="outline" className="h-12 rounded-full border-[#25d366] text-[#128c4a]" onClick={onWhatsApp}>{copy("whatsapp")}</Button>
-        <Button disabled={busy} onClick={onConfirm} className="h-12 rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg">{copy("confirmTrip")}</Button>
+        <Button disabled={busy} onClick={approval?.required ? approval.onRequest : onConfirm} className="h-12 rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg">{approval?.required ? (rejected ? copy("requestAgain") : copy("requestAgent")) : copy("confirmTrip")}</Button>
       </div>
     </Panel> : <div className="grid gap-2 sm:grid-cols-2"><Button variant="outline" className="h-12 rounded-full border-[#25d366] text-[#128c4a]" onClick={onWhatsApp}>{copy("whatsapp")}</Button><Button variant="outline" className="h-12 rounded-full" onClick={onStartOver}>{copy("another")}</Button></div>}
   </div>;

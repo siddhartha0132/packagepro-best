@@ -4,7 +4,7 @@ import { clientOf, enforceLimit } from "./rateLimit";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, router, travelDeskProcedure } from "./_core/trpc";
 import { GUIDES, PACKAGES, datesBetween, getAlternatives, guideCheck, guideCost, realityCheck, recommendPackages, withLiveAvailability } from "./packagepro";
 import { DESTINATIONS, ORIGINS, prewarmTranslations, translateMany } from "./integrations";
 import { explainWithFreeOpenRouter } from "../../ai/pipeline";
@@ -12,7 +12,10 @@ import { cityImage, getDestinationInsight, warmCityImages } from "./insights";
 import { PACKAGE_POPULARITY, estimateTrip } from "./estimate";
 import * as trips from "./trips";
 import { listBookings } from "./appStore";
-import { DEMO_TRAVELLERS, travellerSummary } from "./travellers";
+import { DEMO_TRAVELLERS, getTraveller, travellerSummary } from "./travellers";
+import { REJECT_REASONS, approvalRequired, dashboardKey } from "./agentDesk";
+import { pdfEnabled, pdfPath } from "./pdf";
+import { notifyAgentOfRequest, notifyAgentOfTravellerAnswer, notifyTravellerOfDecision } from "./telegramBot";
 
 const languageSchema = z.string().min(2).max(20).default("en-IN");
 
@@ -22,7 +25,31 @@ void prewarmTranslations(Array.from(new Set([
   ...PACKAGES.flatMap(pkg => [pkg.name, pkg.city, pkg.theme, pkg.description, pkg.inclusions, pkg.exclusions]),
   ...PACKAGES.flatMap(pkg => pkg.components.filter(component => component.type !== "hotel").map(component => component.label)),
   ...ORIGINS.flatMap(origin => [origin.city, origin.airport]),
+  "Free time to explore", "At your own pace", "Your guide is with you today", "Journey home", "Return travel is not part of this quote",
 ])), ["hi", "ta", "te"]);
+
+const counterSchema = z.object({
+  swaps: z.array(z.object({ fromId: z.string().max(80), toId: z.string().max(80) })).max(20).optional(),
+  addOns: z.array(z.object({ componentId: z.string().max(80), include: z.boolean() })).max(20).optional(),
+  adjustment: z.number().min(-1_000_000).max(1_000_000).optional(),
+  note: z.string().max(500).optional(),
+});
+const agentName = z.string().trim().min(1).max(60).optional();
+const deskName = (name?: string) => name ? `${name} (travel agent)` : "travel agent";
+function stillWaiting(tripId: string) {
+  if (trips.getTrip(tripId).status !== "awaiting_approval") throw new Error("This request was already decided");
+}
+
+/** One row of the travel desk's list. */
+function deskSummary(trip: ReturnType<typeof trips.getTrip>) {
+  return {
+    tripId: trip.tripId, reference: trip.booking?.reference ?? null, status: trip.status, origin: trip.origin, destination: trip.destination,
+    departDate: trip.departDate, returnDate: trip.returnDate, travelers: trip.travelers, total: trip.runningTotal, budget: trip.budgetCap,
+    channel: trip.channel, language: trip.language, traveller: getTraveller(trip.userId)?.name ?? null, packageName: trip.package?.name ?? null,
+    requestedAt: trip.approval?.requestedAt ?? null, attempt: trip.approval?.attempt ?? 1, decision: trip.approval?.decision ?? null,
+    decidedBy: trip.approval?.decidedBy ?? null, reason: trip.approval?.reason ?? null, counter: trip.approval?.counter ?? null,
+  };
+}
 
 /** Package as served to the client: real destination photo when warmed, plus dataset popularity. */
 function withMedia<T extends (typeof PACKAGES)[number]>(pkg: T) {
@@ -129,6 +156,62 @@ export const appRouter = router({
     setLanguage: publicProcedure.input(z.object({ tripId: z.string(), language: languageSchema })).mutation(({ input }) => trips.setLanguage(input.tripId, input.language)),
     bookings: publicProcedure.query(() => listBookings()),
     confirm: publicProcedure.input(z.object({ tripId: z.string(), email: z.string().email().optional(), phone: z.string().optional(), idempotencyKey: z.string().min(8).max(80).optional() })).mutation(({ input }) => trips.confirmTrip(input.tripId, { email: input.email, phone: input.phone }, { idempotencyKey: input.idempotencyKey })),
+    /** Ask the travel desk to book (when approvals are on): a pending booking with the guide's dates held. */
+    requestBooking: publicProcedure.input(z.object({ tripId: z.string(), email: z.string().email().optional(), phone: z.string().max(20).optional() })).mutation(async ({ input }) => {
+      const before = trips.getTrip(input.tripId).status;
+      const trip = await trips.requestBooking(input.tripId, { email: input.email, phone: input.phone });
+      if (before !== "awaiting_approval" && trip.status === "awaiting_approval") void notifyAgentOfRequest(trip.tripId);
+      return trip;
+    }),
+    acceptCounter: publicProcedure.input(z.object({ tripId: z.string() })).mutation(async ({ input }) => {
+      const trip = await trips.acceptCounter(input.tripId);
+      void notifyAgentOfTravellerAnswer(trip.tripId, "accepted");
+      return trip;
+    }),
+    declineCounter: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => {
+      const trip = trips.declineCounter(input.tripId);
+      void notifyAgentOfTravellerAnswer(trip.tripId, "declined");
+      return trip;
+    }),
+    /** Signed PDF links (quotation; bill once confirmed) when this server can print PDFs. */
+    pdfLinks: publicProcedure.input(z.object({ tripId: z.string(), lang: z.enum(["en-IN", "hi", "ta", "te"]) })).query(({ input }) => {
+      if (!pdfEnabled()) return null;
+      const trip = trips.getTrip(input.tripId);
+      return { quote: pdfPath(trip.tripId, "quote", input.lang), bill: trip.status === "confirmed" ? pdfPath(trip.tripId, "bill", input.lang) : null };
+    }),
+  }),
+  /** The travel desk: booking requests from the web and Telegram, approve / reject / counter-offer. Needs AGENT_DASHBOARD_KEY. */
+  agent: router({
+    mode: publicProcedure.query(() => ({ approvalRequired: approvalRequired(), dashboard: Boolean(dashboardKey()), reasons: REJECT_REASONS })),
+    list: travelDeskProcedure.query(() => {
+      const all = trips.listApprovals(60).map(deskSummary);
+      const waiting = all.filter(item => item.status === "awaiting_approval").sort((a, b) => String(a.requestedAt).localeCompare(String(b.requestedAt)));
+      return { waiting, decided: all.filter(item => item.status !== "awaiting_approval").slice(0, 30) };
+    }),
+    get: travelDeskProcedure.input(z.object({ tripId: z.string() })).query(({ input }) => {
+      const trip = trips.getTrip(input.tripId);
+      if (!trip.approval) throw new Error("This trip was never sent to the travel desk");
+      return { trip, summary: deskSummary(trip), choices: trip.status === "awaiting_approval" ? trips.counterChoices(trip.tripId) : null };
+    }),
+    preview: travelDeskProcedure.input(z.object({ tripId: z.string(), counter: counterSchema })).query(({ input }) => trips.previewCounter(input.tripId, input.counter)),
+    counter: travelDeskProcedure.input(z.object({ tripId: z.string(), counter: counterSchema, agentName })).mutation(({ input }) => {
+      stillWaiting(input.tripId);
+      const trip = trips.proposeCounter(input.tripId, input.counter, deskName(input.agentName));
+      void notifyTravellerOfDecision(trip.tripId);
+      return trip;
+    }),
+    approve: travelDeskProcedure.input(z.object({ tripId: z.string(), agentName })).mutation(({ input }) => {
+      stillWaiting(input.tripId);
+      const trip = trips.approveBooking(input.tripId, deskName(input.agentName));
+      void notifyTravellerOfDecision(trip.tripId);
+      return trip;
+    }),
+    reject: travelDeskProcedure.input(z.object({ tripId: z.string(), reason: z.string().trim().min(3).max(300), agentName })).mutation(({ input }) => {
+      stillWaiting(input.tripId);
+      const trip = trips.rejectBooking(input.tripId, input.reason, deskName(input.agentName));
+      void notifyTravellerOfDecision(trip.tripId);
+      return trip;
+    }),
   }),
 });
 

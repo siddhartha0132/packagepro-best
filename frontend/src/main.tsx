@@ -43,6 +43,14 @@ const trpcClient = trpc.createClient({
       url: "/api/trpc",
       transformer: superjson,
       headers() {
+        // The travel desk (/agent) sends its key with each call; no other page does.
+        let desk: Record<string, string> = {};
+        try {
+          const key = window.location.pathname.startsWith("/agent") ? localStorage.getItem("packagepro.agentKey") : null;
+          if (key) desk = { "x-agent-key": key };
+        } catch {
+          // storage unavailable
+        }
         // Preview auto-login fallback: when the browser blocks iframe cookies
         // (Safari ITP / private browsing / WebView), the runtime mirrors the
         // session into sessionStorage so we can forward it as a Bearer token.
@@ -54,13 +62,13 @@ const trpcClient = trpc.createClient({
             const pair = raw.split(";").find(s => s.trim().startsWith(prefix));
             const token = pair?.trim().slice(prefix.length);
             if (token) {
-              return { Authorization: `Bearer ${token}` };
+              return { ...desk, Authorization: `Bearer ${token}` };
             }
           }
         } catch {
           // sessionStorage unavailable
         }
-        return {};
+        return desk;
       },
       fetch(input, init) {
         return globalThis.fetch(input, {

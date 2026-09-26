@@ -2,7 +2,7 @@ import { nanoid } from "nanoid";
 import { fromPaise, toPaise } from "./catalogue";
 import { CITIES, GUIDES, LANGUAGE_TAGS, PACKAGES, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, isGuideFree, liveAvailability, packageForCity, realityCheck, withLiveAvailability, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
 import { DESTINATIONS, ORIGINS, searchFlightsLive, sendConfirmation } from "./integrations";
-import { GuideSlotTakenError, loadTrip, recordBooking, saveTrip, settleBooking, type CanonicalItem, type CanonicalTrip } from "./appStore";
+import { GuideSlotTakenError, listApprovalTripIds, loadTrip, recordBooking, saveTrip, settleBooking, type CanonicalItem, type CanonicalTrip } from "./appStore";
 import { DEFAULT_TRAVELLER_ID, getTraveller } from "./travellers";
 
 // Flow: select_flight → select_package (customise: itinerary, swaps, add-ons, guide, duration) → review → confirmed.
@@ -69,7 +69,9 @@ export type Trip = {
   pending: { amount: number; label: string; retryStatus: TripStatus; advanceStatus: TripStatus; patch: Partial<Trip>; total?: number; overage?: number; fixes?: BudgetFix[]; applied?: FixStep[]; lowestTotal?: number } | null;
   booking?: { bookingId: string; reference: string; itineraryId?: string; status?: "pending" | "confirmed" } | null;
   /** A booking request waiting for (or decided by) a travel agent: who asked, from which chat, and the outcome. */
-  approval?: { requestedAt: string; chatId?: string; attempt: number; decidedBy?: string; decision?: "approved" | "rejected"; reason?: string } | null;
+  approval?: { requestedAt: string; chatId?: string; contact?: { email?: string; phone?: string }; attempt: number; decidedBy?: string; decision?: "approved" | "rejected"; reason?: string; counter?: CounterOffer } | null;
+  /** A travel agent's discount (negative) or surcharge (positive), set only when the traveller accepts a counter-offer. */
+  agentAdjustment?: { amount: number; note: string } | null;
   /** users.user_id of the traveller (canonical trips.owner_user_id / bookings.user_id). */
   userId: string;
   /** Canonical bookings.channel: web app, or mobile_app for the Telegram bot. */
@@ -79,6 +81,16 @@ export type Trip = {
   history?: PlanState[];
   /** Trip length as first planned, for "Discard changes". */
   plannedDays?: number;
+};
+
+/** What a travel agent proposes instead of approving as asked: swaps, add-on changes and/or a price adjustment, with a note. */
+export type CounterInput = { swaps?: { fromId: string; toId: string }[]; addOns?: { componentId: string; include: boolean }[]; adjustment?: number; note?: string };
+export type CounterChange = { kind: "swap" | "addon_on" | "addon_off" | "adjustment"; type?: string; from?: string; to?: string; delta: number };
+export type CounterOffer = {
+  id: string; proposedAt: string; proposedBy: string; note: string;
+  swaps: { fromId: string; toId: string }[]; addOns: { componentId: string; include: boolean }[]; adjustment: number;
+  changes: CounterChange[]; oldTotal: number; newTotal: number;
+  status: "open" | "accepted" | "declined" | "withdrawn"; decidedAt?: string;
 };
 
 const trips = new Map<string, Trip>();
@@ -162,7 +174,7 @@ export function componentCharge(trip: Pick<Trip, "travelers" | "durationDays" | 
  * PS-04 pricing: package base + the price_delta of every component you keep (never a float: all sums in integer paise).
  * The base is per person and prorated by days; components scale per person / room / vehicle; the guide is per group.
  */
-function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "durationDays" | "chosenFlight" | "chosenTransport" | "chosenGuide" | "extraGuides" | "travelers">) {
+function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "durationDays" | "chosenFlight" | "chosenTransport" | "chosenGuide" | "extraGuides" | "travelers" | "agentAdjustment">) {
   const party = partyUnits(trip.travelers);
   const transport = paise(trip.chosenTransport?.price ?? trip.chosenFlight?.price ?? 0) * party.pax;
   const base = trip.package ? Math.round(paise(trip.package.basePrice) * Math.max(1, trip.durationDays) / Math.max(1, trip.package.duration)) * party.pax : 0;
@@ -179,6 +191,7 @@ function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "dura
     }
   }
   const guide = allGuides(trip).reduce((sum, item) => sum + paise(item.totalCost), 0);
+  const adjustment = paise(trip.agentAdjustment?.amount ?? 0);
   const packageTotal = base + components + addOns;
   return {
     transport: fromPaise(transport),
@@ -189,7 +202,9 @@ function priceBreakdown(trip: Pick<Trip, "package" | "packageComponents" | "dura
     addOns: fromPaise(addOns),
     packageTotal: fromPaise(packageTotal),
     guide: fromPaise(guide),
-    total: fromPaise(transport + packageTotal + guide),
+    /** The travel agent's discount (−) or surcharge (+) from an accepted counter-offer; 0 otherwise. */
+    adjustment: fromPaise(adjustment),
+    total: fromPaise(transport + packageTotal + guide + adjustment),
     party,
     nightsFactor: trip.package ? Math.max(1, trip.durationDays) / Math.max(1, trip.package.durationNights) : 1,
   };
@@ -202,17 +217,47 @@ export function defaultComponentsTotal(pkg: PackageRecord, days: number, travele
 }
 
 const SLOT_ORDER: Record<string, number> = { morning: 0, afternoon: 1, evening: 2, overnight: 3 };
+// Within a part of the day: arrive, get to the hotel, meet the guide, then the day's plans; the night's stay last.
+const KIND_ORDER: Record<string, number> = { arrival: 0, transfer: 1, guide: 2, experience: 3, entry_ticket: 3, meal: 4, leisure: 5, hotel: 6 };
+
+type ItineraryItem = { kind: string; slot: string; label: string; detail: string; price?: number; componentId?: string; guideId?: string; time?: string };
+
+/** "HH:MM" plus a duration like "2h 50m" → "HH:MM" (or "HH:MM+1" past midnight). */
+function clockAfter(start: string, duration?: string) {
+  const [hours, minutes] = start.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return undefined;
+  const total = hours * 60 + minutes + minutesOf(duration);
+  const clock = `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+  return total >= 24 * 60 ? `${clock}+1` : clock;
+}
+
+/** When the traveller reaches the destination on day 1: the flight's arrival time, or a train/cab's departure + duration. */
+function arrivalTime(trip: Pick<Trip, "chosenFlight" | "chosenTransport">) {
+  if (trip.chosenTransport) return clockAfter(trip.chosenTransport.depart, trip.chosenTransport.duration);
+  const flight = trip.chosenFlight;
+  return flight ? flight.arrive || clockAfter(flight.depart, flight.duration) : undefined;
+}
+
+/** The part of the day a clock time falls in; after midnight counts as the evening of day 1. */
+function slotAt(time?: string) {
+  const hour = Number(time?.match(/^(\d{1,2}):/)?.[1]);
+  if (!time || !Number.isFinite(hour)) return "morning";
+  if (/\+\d/.test(time)) return "evening";
+  return hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+}
 
 function itinerary(trip: Trip) {
   const dates = datesBetween(trip.departDate, trip.durationDays);
   const lines = trip.packageComponents.filter(component => component.included);
   const hotel = lines.find(component => component.type === "hotel");
+  const arrival = arrivalTime(trip);
+  const arrivalSlot = slotAt(arrival);
   return dates.map((date, index) => {
     const day = index + 1;
-    const items: { kind: string; slot: string; label: string; detail: string; price?: number; componentId?: string; guideId?: string }[] = [];
+    const items: ItineraryItem[] = [];
     if (day === 1) {
       const leg = trip.chosenTransport ?? trip.chosenFlight;
-      if (leg) items.push({ kind: "arrival", slot: "morning", label: trip.chosenTransport ? `Arrive by ${trip.chosenTransport.operator}` : `Arrive on ${trip.chosenFlight!.airline} ${trip.chosenFlight!.id}`, detail: leg.route });
+      if (leg) items.push({ kind: "arrival", slot: arrivalSlot, label: trip.chosenTransport ? `Arrive by ${trip.chosenTransport.operator}` : `Arrive on ${trip.chosenFlight!.airline} ${trip.chosenFlight!.id}`, detail: leg.route, time: arrival });
     }
     for (const component of lines) {
       if (component.type === "hotel") continue;
@@ -224,10 +269,28 @@ function itinerary(trip: Trip) {
     if (dayGuide) {
       items.push({ kind: "guide", slot: "morning", label: `Guide: ${dayGuide.name}`, detail: `${dayGuide.specialisation} · ${dayGuide.languages.join(", ")}`, price: guideCost(dayGuide, [date]), guideId: dayGuide.id });
     }
+    // A day with nothing planned says so, instead of looking empty (not a priced line, not a booking row).
+    if (!items.some(item => ["experience", "meal", "entry_ticket"].includes(item.kind))) {
+      items.push({ kind: "leisure", slot: day === 1 && arrivalSlot === "evening" ? "evening" : "afternoon", label: "Free time to explore", detail: dayGuide ? "Your guide is with you today" : "At your own pace" });
+    }
     if (hotel) items.push({ kind: "hotel", slot: "overnight", label: day === 1 ? `Check in: ${hotel.label}` : `Stay: ${hotel.label}`, detail: hotel.detail, price: day === 1 ? componentCharge(trip, hotel) : undefined, componentId: hotel.id });
-    items.sort((a, b) => (SLOT_ORDER[a.slot] ?? 9) - (SLOT_ORDER[b.slot] ?? 9));
+    // Nothing on day 1 can happen before the traveller arrives: earlier plans move to the part of the day they land in.
+    if (day === 1 && arrival) {
+      for (const item of items) if (item.kind !== "hotel" && (SLOT_ORDER[item.slot] ?? 0) < (SLOT_ORDER[arrivalSlot] ?? 0)) item.slot = arrivalSlot;
+    }
+    items.sort((a, b) => (SLOT_ORDER[a.slot] ?? 9) - (SLOT_ORDER[b.slot] ?? 9) || (KIND_ORDER[a.kind] ?? 5) - (KIND_ORDER[b.kind] ?? 5));
     return { day, date, items };
   });
+}
+
+/** The morning after the last night: check out and head home (the return journey is not part of the quote). */
+function departureDay(trip: Trip) {
+  const hotel = trip.packageComponents.find(component => component.type === "hotel" && component.included);
+  const items: ItineraryItem[] = [
+    ...(hotel ? [{ kind: "checkout", slot: "morning", label: `Check out: ${hotel.label}`, detail: hotel.detail }] : []),
+    { kind: "departure", slot: "morning", label: "Journey home", detail: "Return travel is not part of this quote" },
+  ];
+  return { day: trip.durationDays + 1, date: trip.returnDate, items };
 }
 
 function snapshot(trip: Trip) {
@@ -247,6 +310,7 @@ function snapshot(trip: Trip) {
     packagePrice: breakdown.packageTotal,
     chosenHotel: hotel ? { id: hotel.id, name: hotel.label, rating: Number(hotel.detail.match(/(\d)★/)?.[1] || 0), detail: hotel.detail, total: hotel.price } : null,
     itinerary: trip.package ? itinerary(trip) : [],
+    departureDay: trip.package ? departureDay(trip) : null,
     /** Day-by-day guide plan: which guide (if any) covers each trip date, and that day's cost. */
     guidePlan: datesBetween(trip.departDate, trip.durationDays).map(date => {
       const guide = allGuides(trip).find(item => item.bookedDates.includes(date));
@@ -933,7 +997,8 @@ export async function requestBooking(tripId: string, options: { chatId?: string;
     }
     throw error;
   }
-  trip.approval = { requestedAt: new Date().toISOString(), chatId: options.chatId, attempt };
+  const contact = options.email || options.phone ? { email: options.email, phone: options.phone } : trip.approval?.contact;
+  trip.approval = { requestedAt: new Date().toISOString(), chatId: options.chatId, contact, attempt };
   trip.status = "awaiting_approval";
   log(trip, "decision", `Booking ${trip.booking.reference} requested — waiting for a travel agent's approval (guide dates held)`);
   return snapshot(trip);
@@ -946,7 +1011,7 @@ export function approveBooking(tripId: string, decidedBy = "travel agent") {
   settleBooking(trip.booking.bookingId, "approve");
   trip.status = "confirmed";
   trip.booking = { ...trip.booking, status: "confirmed" };
-  trip.approval = { ...(trip.approval ?? { requestedAt: new Date().toISOString(), attempt: 1 }), decidedBy, decision: "approved" };
+  trip.approval = { ...withdrawCounter(trip.approval ?? { requestedAt: new Date().toISOString(), attempt: 1 }), decidedBy, decision: "approved" };
   log(trip, "decision", `Booking ${trip.booking.reference} approved by ${decidedBy} — final total ${inr(trip.runningTotal)}`);
   return snapshot(trip);
 }
@@ -959,8 +1024,129 @@ export function rejectBooking(tripId: string, reason: string, decidedBy = "trave
   log(trip, "decision", `Booking ${trip.booking.reference} not approved by ${decidedBy}: ${reason}`);
   trip.booking = null;
   trip.status = "review";
-  trip.approval = { ...(trip.approval ?? { requestedAt: new Date().toISOString(), attempt: 1 }), decidedBy, decision: "rejected", reason };
+  trip.approval = { ...withdrawCounter(trip.approval ?? { requestedAt: new Date().toISOString(), attempt: 1 }), decidedBy, decision: "rejected", reason };
   return snapshot(trip);
+}
+
+// ---------------------------------------------------------------------------
+// Counter-offers: the agent proposes a changed plan; the traveller accepts (booked at once) or keeps the original request
+// ---------------------------------------------------------------------------
+
+type Approval = NonNullable<Trip["approval"]>;
+const withdrawCounter = (approval: Approval): Approval => approval.counter?.status === "open" ? { ...approval, counter: { ...approval.counter, status: "withdrawn", decidedAt: new Date().toISOString() } } : approval;
+
+const pending = (trip: Trip) => {
+  if (trip.status !== "awaiting_approval" || !trip.booking) throw new Error("This trip has no booking request waiting for a decision");
+  return trip;
+};
+
+/** Apply a counter-offer to a copy of the plan, one change at a time, pricing each change on the whole trip. */
+function counterPlan(trip: Trip, input: CounterInput) {
+  const plan: Trip = { ...trip, packageComponents: [...trip.packageComponents], agentAdjustment: trip.agentAdjustment ?? null };
+  const changes: CounterChange[] = [];
+  const oldTotal = priceBreakdown(plan).total;
+  let running = oldTotal;
+  const step = (change: Omit<CounterChange, "delta">) => { const total = priceBreakdown(plan).total; changes.push({ ...change, delta: Math.round((total - running) * 100) / 100 }); running = total; };
+  for (const swap of input.swaps ?? []) {
+    const from = plan.packageComponents.find(item => item.id === swap.fromId && item.included);
+    const target = from && swapOptions(plan, from.id).find(item => item.id === swap.toId);
+    if (!from || !target) throw new Error("Not a valid swap for this trip");
+    plan.packageComponents = plan.packageComponents.map(item => item.id === from.id ? replacement(from, target) : item);
+    step({ kind: "swap", type: from.type, from: from.label, to: target.label });
+  }
+  for (const change of input.addOns ?? []) {
+    const component = plan.packageComponents.find(item => item.id === change.componentId);
+    if (!component?.optional) throw new Error("That is not an add-on of this package");
+    if (component.included === change.include) continue;
+    plan.packageComponents = plan.packageComponents.map(item => item.id === component.id ? { ...item, included: change.include } : item);
+    step({ kind: change.include ? "addon_on" : "addon_off", type: component.type, to: component.label });
+  }
+  const adjustment = Math.round((input.adjustment ?? 0) * 100) / 100;
+  if (adjustment) {
+    if (running + adjustment <= 0) throw new Error("A discount can't take the total to zero");
+    plan.agentAdjustment = { amount: adjustment, note: input.note?.trim() ?? "" };
+    step({ kind: "adjustment" });
+  }
+  return { plan, changes, oldTotal, newTotal: running, adjustment };
+}
+
+/** What the agent can change in a counter-offer: each swappable line with its alternatives priced on this trip, and the add-ons. */
+export function counterChoices(tripId: string) {
+  const trip = need(tripId);
+  const priced = (lines: TripComponent[]) => priceBreakdown({ ...trip, packageComponents: lines }).total - priceBreakdown(trip).total;
+  return {
+    swaps: trip.packageComponents.filter(line => line.included && !line.optional && (line.dayIndex ?? 1) <= trip.durationDays).map(line => ({
+      componentId: line.id, type: line.type, label: line.label, detail: line.detail, dayIndex: line.dayIndex ?? 1, slot: line.slot,
+      options: swapOptions(trip, line.id).map(option => ({ id: option.id, label: option.label, detail: option.detail, delta: Math.round(priced(trip.packageComponents.map(item => item.id === line.id ? replacement(line, option) : item)) * 100) / 100 })),
+    })).filter(line => line.options.length),
+    addOns: trip.packageComponents.filter(line => line.optional && (line.dayIndex ?? 1) <= trip.durationDays).map(line => ({
+      componentId: line.id, type: line.type, label: line.label, included: line.included,
+      delta: Math.round(priced(trip.packageComponents.map(item => item.id === line.id ? { ...item, included: !item.included } : item)) * 100) / 100,
+    })),
+  };
+}
+
+/** Price a counter-offer without sending it. */
+export function previewCounter(tripId: string, input: CounterInput) {
+  const { changes, oldTotal, newTotal } = counterPlan(pending(need(tripId)), input);
+  return { changes, oldTotal, newTotal };
+}
+
+/** Send a counter-offer: the request stays pending (guide dates stay held) until the traveller answers. A new offer replaces an open one. */
+export function proposeCounter(tripId: string, input: CounterInput, proposedBy = "travel agent") {
+  const trip = pending(need(tripId));
+  const { changes, oldTotal, newTotal, adjustment } = counterPlan(trip, input);
+  if (!changes.length) throw new Error("A counter-offer needs at least one change");
+  trip.approval = {
+    ...trip.approval!,
+    counter: {
+      id: `ctr_${nanoid(8).toLowerCase()}`, proposedAt: new Date().toISOString(), proposedBy, note: input.note?.trim() ?? "",
+      swaps: input.swaps ?? [], addOns: input.addOns ?? [], adjustment, changes, oldTotal, newTotal, status: "open",
+    },
+  };
+  log(trip, "decision", `${proposedBy} proposed a counter-offer: ${inr(oldTotal)} → ${inr(newTotal)} (${changes.length} change${changes.length > 1 ? "s" : ""})`);
+  return snapshot(trip);
+}
+
+/**
+ * The traveller accepts: the original request is cancelled (kept on record) and the changed plan is booked and approved at once —
+ * the agent already agreed to it. The guide's dates are re-held in the same step; if another traveller took them meanwhile the
+ * usual refusal and substitutes appear instead.
+ */
+export async function acceptCounter(tripId: string) {
+  const trip = pending(need(tripId));
+  const counter = trip.approval?.counter;
+  if (counter?.status !== "open") throw new Error("There is no open counter-offer on this trip");
+  const { plan } = counterPlan(trip, counter);
+  const { chatId, contact } = trip.approval!;
+  settleBooking(trip.booking!.bookingId, "reject", "Replaced by the travel agent's counter-offer");
+  trip.booking = null;
+  remember(trip);
+  Object.assign(trip, { packageComponents: plan.packageComponents, agentAdjustment: plan.agentAdjustment });
+  trip.runningTotal = priceBreakdown(trip).total;
+  trip.status = "review";
+  log(trip, "decision", `Traveller accepted the counter-offer — new total ${inr(trip.runningTotal)}`);
+  const accepted = { ...counter, status: "accepted" as const, decidedAt: new Date().toISOString() };
+  await requestBooking(tripId, { chatId, email: contact?.email, phone: contact?.phone });
+  trip.approval = { ...trip.approval!, counter: accepted };
+  // requestBooking may have found the guide taken meanwhile (the trip is then back in customisation with substitutes).
+  if ((trip.status as TripStatus) !== "awaiting_approval") return snapshot(trip);
+  return approveBooking(tripId, counter.proposedBy);
+}
+
+/** The traveller keeps the original request: it stays with the agent to approve or reject. */
+export function declineCounter(tripId: string) {
+  const trip = pending(need(tripId));
+  const counter = trip.approval?.counter;
+  if (counter?.status !== "open") throw new Error("There is no open counter-offer on this trip");
+  trip.approval = { ...trip.approval!, counter: { ...counter, status: "declined", decidedAt: new Date().toISOString() } };
+  log(trip, "decision", "Traveller kept the original request instead of the counter-offer");
+  return snapshot(trip);
+}
+
+/** Booking requests for the travel desk: waiting ones first (oldest first), then recent decisions. */
+export function listApprovals(limit = 40) {
+  return listApprovalTripIds(limit).map(tripId => { try { return getTrip(tripId); } catch { return null; } }).filter((trip): trip is ReturnType<typeof getTrip> => Boolean(trip?.approval));
 }
 
 // ---------------------------------------------------------------------------
@@ -1001,6 +1187,7 @@ function canonicalItems(trip: Trip): CanonicalItem[] {
   const items: CanonicalItem[] = [];
   for (const day of itinerary(trip)) {
     for (const item of day.items) {
+      if (item.kind === "leisure") continue;
       const component = trip.packageComponents.find(entry => entry.id === item.componentId);
       const entityId = item.kind === "guide" ? item.guideId ?? null : item.kind === "hotel" ? component?.entityId ?? null : component ? (component.entityId?.startsWith("trf_") ? component.entityId : component.id) : null;
       const entityType = item.kind === "arrival" ? "flight" : item.kind === "guide" ? "guide" : item.kind === "hotel" ? "hotel" : entityId?.startsWith("trf_") ? "transfer" : component ? "package_component" : null;

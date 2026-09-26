@@ -12,6 +12,7 @@ import { unitsFor } from "./trips";
 import { MAX_VOICE_SECONDS, hear, speak, speakable, voiceEnabled } from "./voice";
 import { takeToken } from "./rateLimit";
 import { pdfEnabled, publicPdfLink, renderTripPdf, type PdfKind } from "./pdf";
+import { REJECT_REASONS, agentChat, approvalRequired, dashboardKey, publicBase } from "./agentDesk";
 
 // PackagePro on Telegram: the same engine as the web app (live fares, PS-04 packages, per-date guide checks with
 // same-language substitutes, budget negotiation, bookings), driven by inline buttons and free-text AI in 4 languages.
@@ -143,8 +144,8 @@ async function translator(lang: Lang, texts: string[]) {
 }
 
 function webLink(tripId: string) {
-  const base = (process.env.PUBLIC_APP_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : "")).replace(/\/$/, "");
-  return base.startsWith("https://") ? `${base}/#trip=${tripId}` : null;
+  const base = publicBase();
+  return base ? `${base}/#trip=${tripId}` : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +362,7 @@ function packageSummary(s: Session, trip: TripView, tr: (text: string) => string
       const items = day.items.filter(item => item.kind !== "hotel" && item.kind !== "arrival" && item.kind !== "guide").map(item => tr(item.label));
       return items.length ? `<b>${say(s.lang, "day")} ${day.day}</b> · ${items.map(esc).join(", ")}` : "";
     }).filter(Boolean),
+    trip.departureDay ? `<b>${say(s.lang, "day")} ${trip.departureDay.day}</b> · ${trip.departureDay.items.map(item => esc(tr(item.label.replace(/^Check out: .*/, "Check out")))).join(", ")}` : "",
     "",
     `💰 ${say(s.lang, "total")}: <b>${money(b.total)}</b>`,
     say(s.lang, "budgetLine", { budget: money(trip.budgetCap), left: money(Math.max(0, trip.budgetCap - b.total)) }),
@@ -369,7 +371,7 @@ function packageSummary(s: Session, trip: TripView, tr: (text: string) => string
 }
 
 async function tripTranslator(s: Session, trip: TripView) {
-  return translator(s.lang, [trip.package?.name ?? "", cleanDetail(trip.chosenHotel?.detail ?? ""), ...trip.itinerary.flatMap(day => day.items.map(item => item.label))]);
+  return translator(s.lang, [trip.package?.name ?? "", cleanDetail(trip.chosenHotel?.detail ?? ""), ...trip.itinerary.flatMap(day => day.items.map(item => item.label)), "Check out", "Journey home"]);
 }
 
 async function showPackage(chatId: string, s: Session, trip: TripView, lead?: string) {
@@ -488,6 +490,7 @@ async function showReview(chatId: string, s: Session, trip: TripView) {
   const breakdown = [
     `${say(s.lang, "flight")}: ${money(b.transport)}`,
     `${say(s.lang, "packageBase")}: ${money(b.packageBase)}`,
+    b.adjustment ? `${say(s.lang, b.adjustment < 0 ? "chDiscount" : "chSurcharge")}: ${signed(b.adjustment)}` : "",
     b.components ? `${say(s.lang, "componentsLine")}: ${money(b.components)}` : "",
     b.addOns ? `${say(s.lang, "addOns")}: ${money(b.addOns)}` : "",
     b.guide ? `${say(s.lang, "guide")}: ${money(b.guide)}` : "",
@@ -495,7 +498,7 @@ async function showReview(chatId: string, s: Session, trip: TripView) {
   const quote = publicPdfLink(trip.tripId, "quote", s.lang);
   await send(chatId, `${stepTitle(s.lang, 5, "stepReview")}\n<b>${say(s.lang, "review")}</b>\n\n${packageSummary(s, trip, tr)}\n\n${breakdown}`, [
     // With a travel agent's chat the traveller asks for the booking; without one it is booked straight away.
-    [agentChat() ? { text: say(s.lang, "requestBooking"), data: "Q" } : { text: say(s.lang, "confirm"), data: "K" }],
+    [approvalRequired() ? { text: say(s.lang, "requestBooking"), data: "Q" } : { text: say(s.lang, "confirm"), data: "K" }],
     ...(quote ? [[{ text: say(s.lang, "pdfLink"), url: quote }]] : []),
     [{ text: say(s.lang, "edit"), data: "BK" }],
   ]);
@@ -518,14 +521,6 @@ async function showConfirmed(chatId: string, s: Session, trip: TripView) {
 // Travel agent approval (AGENT_TELEGRAM_CHAT_ID): request → agent taps Approve / Reject → traveller gets the bill or the reason
 // ---------------------------------------------------------------------------
 
-const agentChat = () => process.env.AGENT_TELEGRAM_CHAT_ID?.trim() || "";
-const REJECT_REASONS = [
-  "The hotel has no rooms on those dates",
-  "Flight fares have changed — please pick the flight again",
-  "The guide can't confirm those dates",
-  "Please call us to confirm a few details",
-];
-
 async function notifyAgent(trip: TripView, travellerLang: Lang) {
   const agent = agentChat();
   if (!agent || !trip.booking) return;
@@ -538,11 +533,13 @@ async function notifyAgent(trip: TripView, travellerLang: Lang) {
     trip.chosenHotel ? `🏨 ${esc(trip.chosenHotel.name)}` : "",
     ...guides,
     `💰 Total <b>${money(trip.runningTotal)}</b> (budget ${money(trip.budgetCap)})`,
-    `🗣 Traveller writes in ${LANGS.find(lang => lang.value === travellerLang)?.native ?? travellerLang} · guide dates are held until you decide`,
+    `${trip.channel === "web" ? "🌐 Booked on the website" : `🗣 Traveller writes in ${LANGS.find(lang => lang.value === travellerLang)?.native ?? travellerLang}`} · guide dates are held until you decide`,
   ].filter(Boolean).join("\n");
   const quote = publicPdfLink(trip.tripId, "quote", "en-IN");
+  const desk = publicBase() && dashboardKey() ? `${publicBase()}/agent?trip=${trip.tripId}` : null;
   await send(agent, text, [
     [{ text: "✅ Approve", data: `AP:${trip.tripId}` }, { text: "❌ Reject", data: `AR:${trip.tripId}` }],
+    ...(desk ? [[{ text: "🤝 Counter-offer on the travel desk", url: desk }]] : []),
     ...(quote ? [[{ text: "📄 Quotation PDF", url: quote }]] : []),
   ]);
   await sendTripPdf(agent, trip, "quote", "en-IN", `📄 ${esc(trip.booking.reference)} · quotation`);
@@ -562,24 +559,69 @@ async function onAgentDecision(chatId: string, kind: string, value: string, mess
   if (kind === "AR") return setButtons([...REJECT_REASONS.map((reason, index) => [{ text: `❌ ${reason}`, data: `RJ:${tripId}:${index}` }]), [{ text: "↩️ Back", data: `AB:${tripId}` }]]);
   if (kind === "AB") return setButtons([[{ text: "✅ Approve", data: `AP:${tripId}` }, { text: "❌ Reject", data: `AR:${tripId}` }]]);
   const who = from?.first_name ? `${from.first_name} (travel agent)` : "travel agent";
-  const reference = trip.booking?.reference ?? "—";
-  const travellerChat = trip.approval?.chatId;
-  const lang = (travellerChat && loadBotSession<Session>(travellerChat)?.lang) || "en-IN";
   if (kind === "AP") {
-    const done = trips.approveBooking(tripId, who);
+    trips.approveBooking(tripId, who);
     await setButtons([[{ text: `✅ Approved by ${who}`, data: "x" }]]);
-    if (!travellerChat) return;
-    await send(travellerChat, `${say(lang, "approvedMsg", { pnr: reference, total: money(done.runningTotal) })}\n${tripLine(done, lang)}`, doneRows(done, lang));
-    await sendTripPdf(travellerChat, done, "bill", lang, say(lang, "billCaption"));
-    return;
+    return tellTraveller(tripId);
   }
   const reason = REJECT_REASONS[Number(reasonIndex)] ?? REJECT_REASONS[0];
   trips.rejectBooking(tripId, reason, who);
   await setButtons([[{ text: `❌ ${reason}`, data: "x" }]]);
-  if (!travellerChat) return;
-  const tr = await translator(lang, [reason]);
-  await send(travellerChat, say(lang, "rejectedMsg", { reason: esc(tr(reason)) }), [[{ text: say(lang, "btnRequestAgain"), data: `Q:${tripId}` }], [{ text: say(lang, "edit"), data: `BK:${tripId}` }]]);
+  return tellTraveller(tripId);
 }
+
+/** Tell a Telegram traveller where their request stands: approved (bill PDF), rejected (reason), or a counter-offer to answer. */
+async function tellTraveller(tripId: string) {
+  const trip = trips.getTrip(tripId);
+  const chat = trip.approval?.chatId;
+  if (!chat) return;
+  const lang = loadBotSession<Session>(chat)?.lang ?? "en-IN";
+  if (trip.status === "confirmed" && trip.approval?.decision === "approved") {
+    await send(chat, `${say(lang, "approvedMsg", { pnr: trip.booking?.reference ?? "—", total: money(trip.runningTotal) })}\n${tripLine(trip, lang)}`, doneRows(trip, lang));
+    await sendTripPdf(chat, trip, "bill", lang, say(lang, "billCaption"));
+    return;
+  }
+  if (trip.status === "review" && trip.approval?.decision === "rejected") {
+    const reason = trip.approval.reason ?? "";
+    const tr = await translator(lang, [reason]);
+    await send(chat, say(lang, "rejectedMsg", { reason: esc(tr(reason)) }), [[{ text: say(lang, "btnRequestAgain"), data: `Q:${tripId}` }], [{ text: say(lang, "edit"), data: `BK:${tripId}` }]]);
+    return;
+  }
+  const counter = trip.approval?.counter;
+  if (trip.status === "awaiting_approval" && counter?.status === "open") {
+    const tr = await translator(lang, counter.changes.flatMap(change => [change.from ?? "", change.to ?? ""]).filter(Boolean));
+    const lines = counter.changes.map(change => {
+      const what = change.kind === "swap" ? say(lang, "chSwap", { from: esc(tr(change.from ?? "")), to: esc(tr(change.to ?? "")) })
+        : change.kind === "addon_on" ? say(lang, "chAddOn", { item: esc(tr(change.to ?? "")) })
+          : change.kind === "addon_off" ? say(lang, "chRemove", { item: esc(tr(change.to ?? "")) })
+            : say(lang, change.delta < 0 ? "chDiscount" : "chSurcharge");
+      return `• ${what} · ${signed(change.delta)}`;
+    });
+    await send(chat, [say(lang, "counterMsg", { total: money(counter.newTotal), old: money(counter.oldTotal) }), ...lines, counter.note ? say(lang, "counterNote", { note: esc(counter.note) }) : ""].filter(Boolean).join("\n"),
+      [[{ text: say(lang, "btnAcceptCounter"), data: `CA:${tripId}` }], [{ text: say(lang, "btnDeclineCounter"), data: `CD:${tripId}` }]]);
+  }
+}
+
+/** The traveller answered a counter-offer: tell the agent's chat. */
+async function tellAgentAnswer(tripId: string, answer: "accepted" | "declined") {
+  const agent = agentChat();
+  if (!agent) return;
+  const trip = trips.getTrip(tripId);
+  const ref = esc(trip.booking?.reference ?? trip.tripId);
+  await send(agent, answer === "accepted"
+    ? (trip.status === "confirmed" ? `🤝 ${ref}: the traveller accepted your counter-offer — booked at <b>${money(trip.runningTotal)}</b>.` : `⚠️ ${esc(trip.tripId)}: the traveller accepted, but a guide's dates were taken meanwhile — they're choosing a substitute.`)
+    : `↩️ ${ref}: the traveller kept the original request (${money(trip.runningTotal)}) — it's waiting for your Approve / Reject.`);
+}
+
+// For the web travel desk and the web app: the same messages, sent outside a chat's queue. No bot token → nothing to send.
+const quietly = (job: () => Promise<unknown>) => (token() ? job().catch(error => console.warn("[telegram] notify:", (error as Error).message)) : Promise.resolve());
+export const notifyAgentOfRequest = (tripId: string) => quietly(async () => {
+  const trip = trips.getTrip(tripId);
+  const chat = trip.approval?.chatId;
+  await notifyAgent(trip, (chat && loadBotSession<Session>(chat)?.lang) || "en-IN");
+});
+export const notifyTravellerOfDecision = (tripId: string) => quietly(() => tellTraveller(tripId));
+export const notifyAgentOfTravellerAnswer = (tripId: string, answer: "accepted" | "declined") => quietly(() => tellAgentAnswer(tripId, answer));
 
 // ---------------------------------------------------------------------------
 // Input handling
@@ -598,6 +640,7 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
   const value = separator < 0 ? "" : data.slice(separator + 1);
   const trip = () => trips.getTrip(s.tripId!);
   if (["AP", "AR", "AB", "RJ"].includes(kind)) return onAgentDecision(chatId, kind, value, messageId, from);
+  if (kind === "CA" || kind === "CD") return onCounterAnswer(chatId, s, kind, value, messageId);
   // "Request again" / "Change the trip" after a rejection name their trip (the traveller may have started another since).
   if ((kind === "Q" || kind === "BK") && value) {
     try { if (trips.getTrip(value).approval?.chatId === chatId) { s.tripId = value; s.wizard = undefined; } } catch { /* stale button */ }
@@ -737,7 +780,7 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
       return;
     }
     case "Q": {
-      if (!agentChat()) return onCallback(chatId, s, "K", messageId);
+      if (!approvalRequired()) return onCallback(chatId, s, "K", messageId);
       const current = trip();
       if (current.status === "awaiting_approval" || current.status === "confirmed") return showTrip(chatId, s, current);
       await typing(chatId);
@@ -748,6 +791,28 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
     }
     default: return showMenu(chatId, s);
   }
+}
+
+/** The traveller answers a counter-offer from the travel agent (only from the chat that made the request). */
+async function onCounterAnswer(chatId: string, s: Session, kind: "CA" | "CD", tripId: string, messageId?: number) {
+  let trip: TripView;
+  try { trip = trips.getTrip(tripId); } catch { return showMenu(chatId, s, say(s.lang, "noTrip")); }
+  if (trip.approval?.chatId !== chatId) return;
+  if (messageId) await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }).catch(() => undefined);
+  if (trip.approval.counter?.status !== "open") return showTrip(chatId, s, trip);
+  s.tripId = tripId;
+  s.wizard = undefined;
+  await typing(chatId);
+  if (kind === "CD") {
+    trips.declineCounter(tripId);
+    await send(chatId, say(s.lang, "counterDeclinedMsg"));
+  } else {
+    const next = await trips.acceptCounter(tripId);
+    if (next.status === "confirmed") await tellTraveller(tripId);
+    else if (next.guideAvailabilityIssue) await showGuideRefusal(chatId, s, next);
+    else await showTrip(chatId, s, next);
+  }
+  await tellAgentAnswer(tripId, kind === "CA" ? "accepted" : "declined");
 }
 
 async function onText(chatId: string, s: Session, text: string) {

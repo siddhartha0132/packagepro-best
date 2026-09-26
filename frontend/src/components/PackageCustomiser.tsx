@@ -10,6 +10,8 @@ import type { AppRouter } from "../../../backend/src/routers";
 import { useTr } from "@/lib/translate";
 import { slotLabel } from "./TripScreens";
 import { GuidePlanner } from "./GuidePlanner";
+import { DayHeading } from "./Itinerary";
+import { itemLabel, packageTitle, useFixedTr } from "@/lib/itinerary";
 
 export type TripView = inferRouterOutputs<AppRouter>["trip"]["get"];
 
@@ -18,13 +20,14 @@ const signed = (value: number) => `${value >= 0 ? "+" : "−"}${money(Math.abs(v
 const langName = (tag: string) => LANGS.find(item => item.value === tag)?.native ?? tag;
 const KIND_TONE: Record<string, string> = {
   arrival: "bg-[#eef2f7] text-[#0b1f3a]", hotel: "bg-[#e6edf5] text-[#2b4f7d]", experience: "bg-[#e8f1fd] text-[#0b6bcb]",
-  transfer: "bg-[#f3ece0] text-[#8a5a2b]", guide: "bg-[#fbf3e4] text-[#b6762a]", meal: "bg-[#f5e3df] text-[#ad4738]", entry_ticket: "bg-[#efe8f5] text-[#6b4a8a]",
+  transfer: "bg-[#f3ece0] text-[#8a5a2b]", guide: "bg-[#fbf3e4] text-[#b6762a]", leisure: "bg-[#e7f8f0] text-[#0e8a5f]", meal: "bg-[#f5e3df] text-[#ad4738]", entry_ticket: "bg-[#efe8f5] text-[#6b4a8a]",
 };
 
 /** Live package customiser: day-by-day itinerary, component swaps, add-ons, duration and the availability-checked guide. */
 export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: TripView; lang: Lang; onContinue: () => void; busy: boolean }) {
   const copy = (key: CopyKey) => t(lang, key);
   const tr = useTr(lang);
+  const fixed = useFixedTr(lang);
   const utils = trpc.useUtils();
   const [openSwap, setOpenSwap] = useState<string | null>(null);
   const refresh = { onSuccess: () => { setOpenSwap(null); utils.trip.get.invalidate(); utils.trip.guides.invalidate(); }, onError: (error: { message: string }) => toast.error(error.message) };
@@ -64,7 +67,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap gap-1.5"><Badge variant="outline" className="text-[10px] uppercase tracking-wider">{tr(pkg.theme)}</Badge><Badge variant="outline" className="text-[10px] uppercase tracking-wider">{copy(`tier_${pkg.tier}` as CopyKey)}</Badge><Badge variant="outline" className="text-[10px] uppercase tracking-wider">{copy(`diff_${pkg.difficulty}` as CopyKey)}</Badge></div>
-          <h3 className="mt-2 font-extrabold text-2xl">{tr(pkg.name)}</h3>
+          <h3 className="mt-2 font-extrabold text-2xl">{tr(packageTitle(pkg.name))}</h3>
           <p className="mt-1 text-xs leading-5 text-[#5f6b7a]">{tr(pkg.inclusions)}</p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-[#5f6b7a]">{copy("offeredIn")}: {pkg.languagesOffered.map(tag => <span key={tag} className={`rounded-full px-2 py-0.5 ${tag === trip.language ? "bg-[#0b6bcb] text-white" : "bg-[#eef2f7]"}`}>{langName(tag)}</span>)}</div>
         </div>
@@ -111,7 +114,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
       <div className="text-[10px] font-bold uppercase tracking-[.18em] text-[#0b6bcb]">{copy("itinerary")}</div>
       <div className="mt-3 space-y-3">
         {trip.itinerary.map(day => <div key={day.date} className="rounded-md border border-[#e6ebf2] bg-white/60">
-          <div className="flex items-center justify-between border-b border-[#e6ebf2] px-4 py-2 text-xs"><span className="font-semibold">{copy("day")} {day.day}</span><span className="text-[#5f6b7a]">{day.date}</span></div>
+          <div className="border-b border-[#e6ebf2] px-4 py-2"><DayHeading day={day.day} date={day.date} lang={lang} /></div>
           <div className="divide-y divide-[#eef2f7]">
             {day.items.map((item, index) => {
               const swappable = item.componentId && (item.kind !== "hotel" || day.day === 1) ? alternativesFor(item.componentId) : [];
@@ -121,7 +124,7 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-3">
                     <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${KIND_TONE[item.kind] ?? "bg-[#eef2f7]"}`}>{slotLabel(lang, item.slot)}</span>
-                    <div className="min-w-0"><div className="text-sm font-medium">{tr(item.label)}</div>{item.detail && <div className="mt-0.5 text-xs text-[#5f6b7a]">{tr(item.detail)}</div>}</div>
+                    <div className="min-w-0"><div className="text-sm font-medium">{itemLabel(item.label, fixed)}</div>{item.detail && <div className="mt-0.5 text-xs text-[#5f6b7a]">{item.kind === "arrival" ? `${item.detail}${item.time ? ` · ${fixed("Lands")} ${item.time}` : ""}` : fixed(item.detail.replace(/^Day \d+ · \w+( · )?/, ""))}</div>}</div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {item.price != null && <span className="text-sm">{item.price < 0 ? signed(item.price) : money(item.price)}{unitsOf(item.kind) > 1 && <span className="ml-1 text-[10px] text-[#5f6b7a]">×{unitsOf(item.kind)}</span>}</span>}
@@ -168,6 +171,11 @@ export function PackageCustomiser({ trip, lang, onContinue, busy }: { trip: Trip
             })}
           </div>
         </div>)}
+        {/* The morning after the last night: check-out (not editable, not priced) */}
+        {trip.departureDay && <div className="rounded-md border border-dashed border-[#d6dde8] bg-[#fafbfd]">
+          <div className="border-b border-[#e6ebf2] px-4 py-2"><DayHeading day={trip.departureDay.day} date={trip.departureDay.date} lang={lang} tag={fixed("Check out:").replace(/:$/, "")} /></div>
+          <div className="divide-y divide-[#eef2f7]">{trip.departureDay.items.map((item, index) => <div key={index} className="flex items-start gap-3 px-4 py-3"><span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${KIND_TONE.hotel}`}>{slotLabel(lang, item.slot)}</span><div className="min-w-0"><div className="text-sm font-medium">{itemLabel(item.label, fixed)}</div><div className="mt-0.5 text-xs text-[#5f6b7a]">{item.kind === "departure" ? fixed(item.detail) : fixed(item.detail.replace(/^Day \d+ · \w+( · )?/, "")).split(" · ")[0]}</div></div></div>)}</div>
+        </div>}
       </div>
     </div>
 
@@ -220,6 +228,7 @@ export function PriceBreakdown({ trip, lang }: { trip: TripView; lang: Lang }) {
       {b.components !== 0 && line(copy("componentsLine"), b.components)}
       {b.addOns !== 0 && line(copy("addOnsLine"), b.addOns)}
       {b.guide !== 0 && line(copy("guide"), b.guide)}
+      {b.adjustment !== 0 && line(copy(b.adjustment < 0 ? "agentDiscount" : "agentSurcharge"), b.adjustment, true)}
       <div className="mt-1 flex justify-between border-t border-[#e6ebf2] pt-2 text-sm font-semibold"><span>{copy("total")}</span><span>{money(b.total)}</span></div>
     </div>}
   </div>;

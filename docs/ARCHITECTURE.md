@@ -210,6 +210,30 @@ sequenceDiagram
   end
 ```
 
+**Travel desk** (`/agent`, `frontend/src/pages/AgentDesk.tsx`, `agent.*` in `routers.ts`, key `AGENT_DASHBOARD_KEY`): every
+request from the website and Telegram, oldest first, with the full day-by-day plan and price. The agent approves, rejects with
+a reason, or sends a **counter-offer** — swap any swappable line, add or remove an add-on, a discount or surcharge, a note —
+priced change by change on the whole trip before sending (`trips.previewCounter`). The traveller sees it on the web page
+(which checks every 4 s while waiting) or in Telegram (Accept / Keep buttons). Accepting cancels the original pending booking
+(kept on record) and books the changed plan, approved at once; keeping it leaves the original with the agent.
+
+```mermaid
+sequenceDiagram
+  participant T as Traveller (web or Telegram)
+  participant E as Trip engine
+  participant D as Travel desk (/agent)
+  T->>E: requestBooking → booking 'pending', guide dates held
+  D->>E: previewCounter (swap stay, −₹2,000, note)
+  D->>E: proposeCounter → request still pending
+  E-->>T: "The travel agent suggests a change" · Accept / Keep
+  alt Accept
+    T->>E: acceptCounter → old booking 'cancelled', new booking 'confirmed'
+    E-->>T: PNR + bill (discount on its own line)
+  else Keep
+    T->>E: declineCounter → original waits for Approve / Reject
+  end
+```
+
 PDFs are printed by headless Chrome from the web app's `/print` page (same template as the browser's "Save as PDF"), cached
 per trip state, and linked with HMAC-signed URLs. Without an agent chat the bot books straight away; without Chrome it sends
 the link instead of the file.

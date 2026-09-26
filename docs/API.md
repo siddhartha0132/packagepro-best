@@ -39,6 +39,28 @@ curl -s -X POST http://localhost:3000/api/trpc/trip.create -H 'content-type: app
 `voice.hear` 20 / 500, `voice.speak` 40 / 1,000, `packagepro.translate` 120 / 5,000, `packagepro.explain` 40 / 2,000.
 Over a limit the call fails with `TOO_MANY_REQUESTS` and a plain-language message; the Telegram bot applies the same limits per chat.
 
+## Travel desk — `agent.*` and the traveller's side
+
+With `AGENT_DASHBOARD_KEY` (or `AGENT_TELEGRAM_CHAT_ID`) set, bookings go to a travel agent first. The desk procedures need the
+key in the `x-agent-key` header (the `/agent` page sends it); without it they fail with `UNAUTHORIZED`.
+
+| Procedure | Type | Input | Behaviour |
+|---|---|---|---|
+| `agent.mode` | query | — | `{ approvalRequired, dashboard, reasons }` (public) |
+| `agent.list` | query 🔑 | — | `{ waiting (oldest first), decided }` — every request from the web and Telegram |
+| `agent.get` | query 🔑 | `{ tripId }` | Full trip + what a counter-offer can change (`choices`: swappable lines with alternatives priced on this trip, add-ons) |
+| `agent.preview` | query 🔑 | `{ tripId, counter }` | Prices a counter-offer change by change: `{ changes[], oldTotal, newTotal }` |
+| `agent.counter` | mutation 🔑 | `{ tripId, counter: { swaps?, addOns?, adjustment?, note? }, agentName? }` | Sends the offer; the request stays pending (guide dates held) |
+| `agent.approve` | mutation 🔑 | `{ tripId, agentName? }` | Pending → confirmed; the traveller gets the bill (Telegram) or sees it on the page |
+| `agent.reject` | mutation 🔑 | `{ tripId, reason, agentName? }` | Pending → cancelled (kept), dates released, trip back to review with the reason |
+| `trip.requestBooking` | mutation | `{ tripId, email?, phone? }` | The traveller asks for the booking (pending, guide dates held); the agent's Telegram chat is pinged |
+| `trip.acceptCounter` | mutation | `{ tripId }` | Original request cancelled (kept on record), changed plan booked and approved at once |
+| `trip.declineCounter` | mutation | `{ tripId }` | Keeps the original request with the agent |
+| `trip.pdfLinks` | query | `{ tripId, lang }` | Signed links: quotation, and the bill once confirmed (`null` without Chrome) |
+
+A decided request can't be decided again (`This request was already decided`). An accepted counter-offer's discount or
+surcharge is a separate line, `priceBreakdown.adjustment`, included in the total.
+
 ## PDF files — `GET /api/pdf/:tripId/:kind/:lang/:signature.pdf`
 
 `kind` is `quote` (any time) or `bill` (only once the booking is confirmed, else `409`); `lang` is `en-IN`, `hi`, `ta` or `te`.
@@ -49,8 +71,11 @@ the server has no Chrome (`backend/src/pdf.ts`).
 
 ## Trip engine — `trip.*`
 
-A trip moves `select_flight → select_package ⇄ negotiate → review → confirmed` (or, when booked through a travel agent in
-Telegram, `review → awaiting_approval → confirmed | review`). Every mutation returns the full trip snapshot
+A trip moves `select_flight → select_package ⇄ negotiate → review → confirmed` (or, when booked through a travel agent,
+`review → awaiting_approval → confirmed | review`).
+
+`itinerary` lists each night's day in the order it happens (land, transfer, guide, the day's plans or free time, the night's
+stay; nothing on day 1 before the arrival time), and `departureDay` is the check-out morning on the return date. Every mutation returns the full trip snapshot
 (`priceBreakdown`, `itinerary`, `guideAvailabilityIssue`, `negotiationOptions`, `booking`).
 
 | Procedure | Type | Input | Behaviour |

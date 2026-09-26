@@ -73,7 +73,8 @@ export default function Home() {
     setDefaultsReady(true);
   }, [cities.data, packages.data, defaultsReady]);
 
-  const tripQuery = trpc.trip.get.useQuery({ tripId: tripId || "" }, { enabled: Boolean(tripId), retry: false });
+  // While a travel agent decides, the page checks every few seconds for the answer (approved, rejected or a counter-offer).
+  const tripQuery = trpc.trip.get.useQuery({ tripId: tripId || "" }, { enabled: Boolean(tripId), retry: false, refetchInterval: query => (query.state.data?.status === "awaiting_approval" ? 4000 : false) });
   const trip = tripQuery.data;
   useEffect(() => { if (tripQuery.error && tripId) { setTripId(null); setScreen("intake"); } }, [tripQuery.error, tripId]);
   const destination = cities.data?.destinations.find(item => item.code === form.destination);
@@ -128,8 +129,16 @@ export default function Home() {
   const goBack = trpc.trip.goBack.useMutation({ onSuccess: refresh, onError });
   const setTripLanguage = trpc.trip.setLanguage.useMutation({ onSuccess: () => { refresh(); utils.trip.guides.invalidate(); } });
   const confirm = trpc.trip.confirm.useMutation({ onSuccess: refresh, onError });
-  const busy = createTrip.isPending || autoBuild.isPending || selectFlight.isPending || swapHotel.isPending || removeGuide.isPending || continuePackage.isPending || negotiate.isPending || goBack.isPending || confirm.isPending;
+  const requestBooking = trpc.trip.requestBooking.useMutation({ onSuccess: refresh, onError });
+  const acceptCounter = trpc.trip.acceptCounter.useMutation({ onSuccess: refresh, onError });
+  const declineCounter = trpc.trip.declineCounter.useMutation({ onSuccess: refresh, onError });
+  const deskMode = trpc.agent.mode.useQuery(undefined, { staleTime: 60_000 });
+  const busy = createTrip.isPending || autoBuild.isPending || selectFlight.isPending || swapHotel.isPending || removeGuide.isPending || continuePackage.isPending || negotiate.isPending || goBack.isPending || confirm.isPending || requestBooking.isPending || acceptCounter.isPending || declineCounter.isPending;
 
+  // Signed PDF links from the server (the bill appears once the booking is confirmed).
+  const pdfLinks = trpc.trip.pdfLinks.useQuery({ tripId: trip?.tripId ?? "", lang: uiLang }, { enabled: Boolean(trip?.package) && (trip?.status === "confirmed" || trip?.status === "awaiting_approval"), retry: false });
+  const tripStatus = trip?.status;
+  useEffect(() => { void utils.trip.pdfLinks.invalidate(); }, [tripStatus, utils]);
   const packageList = packages.data || [];
   // Traveller profile (users + user_preferences): picking one applies their saved languages and interests.
   const travellers = trpc.packagepro.travellers.useQuery();
@@ -416,9 +425,10 @@ export default function Home() {
             <ScreenHeader title={copy("customise")} sub={copy("packageSub")} onBack={back} backLabel={copy("back")} />
             <Panel className="p-5"><PackageCustomiser trip={trip} lang={uiLang} busy={busy} onContinue={() => continuePackage.mutate({ tripId: trip.tripId })} /></Panel>
           </>}
-          {(trip.status === "review" || trip.status === "confirmed") && <>
-            <ScreenHeader title={trip.status === "confirmed" ? copy("locked") : copy("review")} sub={trip.status === "confirmed" ? undefined : copy("reviewSub")} onBack={trip.status === "review" ? back : undefined} backLabel={copy("back")} />
-            <ReviewPanel trip={trip} lang={uiLang} busy={busy} email={email} phone={phone} setEmail={setEmail} setPhone={setPhone} onConfirm={() => confirm.mutate({ tripId: trip.tripId, email: email || undefined, phone: phone || undefined })} onEdit={back} onWhatsApp={exportWhatsApp} onStartOver={startOver} />
+          {(trip.status === "review" || trip.status === "awaiting_approval" || trip.status === "confirmed") && <>
+            <ScreenHeader title={trip.status === "confirmed" ? copy("locked") : copy("review")} sub={trip.status === "review" ? copy("reviewSub") : undefined} onBack={trip.status === "review" ? back : undefined} backLabel={copy("back")} />
+            <ReviewPanel trip={trip} lang={uiLang} busy={busy} email={email} phone={phone} setEmail={setEmail} setPhone={setPhone} onConfirm={() => confirm.mutate({ tripId: trip.tripId, email: email || undefined, phone: phone || undefined })} onEdit={back} onWhatsApp={exportWhatsApp} onStartOver={startOver}
+              approval={{ required: Boolean(deskMode.data?.approvalRequired), billUrl: pdfLinks.data?.bill, onRequest: () => requestBooking.mutate({ tripId: trip.tripId, email: email || undefined, phone: phone || undefined }), onAccept: () => acceptCounter.mutate({ tripId: trip.tripId }), onDecline: () => declineCounter.mutate({ tripId: trip.tripId }) }} />
           </>}
         </>}
       </section>

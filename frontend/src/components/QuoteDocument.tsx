@@ -1,49 +1,24 @@
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Lang } from "@/i18n";
-import { useTr } from "@/lib/translate";
-import { QUOTE_COPY, QUOTE_EN } from "@/lib/quoteCopy";
+import { KIND_TAG, cleanDetail, itemLabel, longDate, packageTitle, useFixedTr } from "@/lib/itinerary";
 import type { TripView } from "./PackageCustomiser";
 import { type Estimate, money, slotLabel, specLabel } from "./TripScreens";
 
 // Printable A4 quotation (browser "Save as PDF"): keeps Indic scripts crisp and photos sharp without a PDF library.
 // A table's thead/tfoot repeat on every printed page, giving each page a brand strip and footer.
 
-const cleanDetail = (detail: string) => detail.replace(/^Day \d+ · \w+( · )?/, "");
 /** "Thanjavur Honeymoon — 6 Days" → "Thanjavur Honeymoon": the trip's own length is shown separately. */
-const baseName = (name: string) => name.replace(/\s*[—-]\s*\d+\s*Days?$/i, "");
-
-const KIND_TAG: Record<string, string> = { arrival: "Flight", experience: "Activity", transfer: "Transfer", meal: "Meal", entry_ticket: "Ticket", guide: "Guide", hotel: "Stay" };
+const baseName = packageTitle;
 
 const locale = (lang: Lang) => (lang === "en-IN" ? "en-IN" : `${lang}-IN`);
 
-function longDate(iso: string, lang: Lang) {
-  const date = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return { weekday: "", label: iso, full: iso };
-  return {
-    weekday: new Intl.DateTimeFormat(locale(lang), { weekday: "long", timeZone: "UTC" }).format(date),
-    label: new Intl.DateTimeFormat(locale(lang), { day: "numeric", month: "short", timeZone: "UTC" }).format(date),
-    full: new Intl.DateTimeFormat(locale(lang), { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(date),
-  };
-}
-
 /** Fixed wording comes from hand-written copy; only dataset content (package names, activities) uses live translation. */
-function useQuoteTr(lang: Lang) {
-  const tr = useTr(lang);
-  return (text: string) => QUOTE_COPY[lang]?.[text] ?? (QUOTE_EN[text] ? tr(QUOTE_EN[text]) : tr(text));
-}
-
-/** Itinerary lines keep proper nouns (hotel, guide, flight) intact and translate only the words around them. */
-function itemLabel(label: string, tr: (text: string) => string) {
-  const named = label.match(/^(Guide:|Check in:|Stay:) (.+)$/);
-  if (named) return `${tr(named[1])} ${named[2]}`;
-  const arrival = label.match(/^Arrive on (.+)$/);
-  if (arrival) return `${tr("Arrive on")} ${arrival[1]}`;
-  return tr(label);
-}
+const useQuoteTr = useFixedTr;
 
 function itemDetail(item: { kind: string; detail: string; slot?: string }, lang: Lang, tr: (text: string) => string, flight?: { depart: string; arrive?: string } | null) {
   if (item.kind === "arrival") return flight ? `${item.detail} · ${flight.depart} → ${flight.arrive ?? ""}` : item.detail;
+  if (item.kind === "checkout" || item.kind === "departure") return item.kind === "checkout" ? tr(cleanDetail(item.detail)).split(" · ")[0] : tr(item.detail);
   if (/^Day \d+ · \w+$/.test(item.detail)) return slotLabel(lang, item.slot);
   if (item.kind === "guide") { const [spec, ...rest] = item.detail.split(" · "); return [specLabel(lang, spec), ...rest].join(" · "); }
   return tr(cleanDetail(item.detail));
@@ -111,6 +86,7 @@ export function TripQuote({ trip, lang, image, kind = "quote" }: { trip: TripVie
     { label: `${tr("Package base")} · ${tr(baseName(trip.package?.name ?? ""))} · ${money(trip.package?.basePrice ?? 0)} ${tr("per person")} × ${trip.durationDays}/${trip.package?.duration ?? trip.durationDays} ${tr("days")} × ${trip.travelers}`, value: b.packageBase },
     ...componentLines.map(item => ({ label: `${itemLabel(item.label, tr)} · ${tr(KIND_TAG[item.kind] ?? item.kind)}`, value: item.price!, sub: true })),
     ...guidesOnPlan.map(guide => ({ label: `${tr("Guide")} · ${guide.name} · ${shortDates(guide.bookedDates)}`, value: guide.totalCost })),
+    ...(b.adjustment ? [{ label: tr(b.adjustment < 0 ? "Travel desk discount" : "Travel desk adjustment"), value: b.adjustment }] : []),
   ];
   const bill = kind === "bill";
   return <Sheet reference={reference} tr={tr} lang={lang} title={bill ? "Booking confirmation" : "Quotation"}>
@@ -173,9 +149,12 @@ export function TripQuote({ trip, lang, image, kind = "quote" }: { trip: TripVie
           </div>)}</div>
         </div>;
       })}
-        {(() => { const date = longDate(trip.returnDate, lang); return <div className="q-day q-avoid">
-          <div className="q-day-badge"><span>{tr("Day")}</span><strong>{String(trip.itinerary.length + 1).padStart(2, "0")}</strong><em>{date.weekday}</em><small>{date.label}</small></div>
-          <div className="q-day-items"><div className="q-item"><div><div className="q-item-title">{tr("Check-out and departure")}</div>{hotel && <div className="q-muted">• {hotel.name}</div>}</div><span className="q-tag">{tr("Stay")}</span></div></div>
+        {trip.departureDay && (() => { const day = trip.departureDay; const date = longDate(day.date, lang); return <div className="q-day q-avoid">
+          <div className="q-day-badge"><span>{tr("Day")}</span><strong>{String(day.day).padStart(2, "0")}</strong><em>{date.weekday}</em><small>{date.label}</small></div>
+          <div className="q-day-items">{day.items.map((item, index) => <div key={index} className="q-item">
+            <div><div className="q-item-title">{itemLabel(item.label, tr)}</div>{item.detail && <div className="q-muted">• {itemDetail(item, lang, tr, flight)}</div>}</div>
+            <span className="q-tag">{tr(KIND_TAG[item.kind] ?? item.kind)}</span>
+          </div>)}</div>
         </div>; })()}
       </div>
     </section>

@@ -117,6 +117,12 @@ export function saveTrip(trip: { tripId: string; destination: string; departDate
     canonical.party_size, canonical.party_size, canonical.trip_type, canonical.party_size >= 5 ? 1 : 0, canonical.status, now, now);
 }
 
+/** Trips that went to a travel agent (a booking request was made), most recently changed first. */
+export function listApprovalTripIds(limit = 40) {
+  const rows = store().prepare("SELECT trip_id FROM app_trips WHERE json_extract(state_json, '$.approval') IS NOT NULL ORDER BY updated_at DESC LIMIT ?").all(limit) as { trip_id: string }[];
+  return rows.map(row => row.trip_id);
+}
+
 export function loadTrip<T>(tripId: string): T | null {
   const row = store().prepare("SELECT state_json FROM app_trips WHERE trip_id = ?").get(tripId) as { state_json: string } | undefined;
   return row ? JSON.parse(row.state_json) as T : null;

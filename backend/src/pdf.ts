@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import type { Express } from "express";
 import type { Browser } from "puppeteer-core";
 import * as trips from "./trips";
+import { publicBase } from "./agentDesk";
 
 // Real PDF files on the server (for Telegram, e-mail, download links): headless Chrome opens the web app's /print page — the
 // same quotation template as the browser's "Save as PDF", so Indian scripts shape correctly — waits until every translation
@@ -84,8 +85,8 @@ export function pdfPath(tripId: string, kind: PdfKind, lang: string) {
 
 /** A public https link to the PDF (Railway's domain or PUBLIC_APP_URL); null when the server has no public address. */
 export function publicPdfLink(tripId: string, kind: PdfKind, lang: string) {
-  const base = (process.env.PUBLIC_APP_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : "")).replace(/\/$/, "");
-  return base.startsWith("https://") ? `${base}${pdfPath(tripId, kind, lang)}` : null;
+  const base = publicBase();
+  return base ? `${base}${pdfPath(tripId, kind, lang)}` : null;
 }
 
 function validSignature(tripId: string, kind: PdfKind, lang: string, signature: string) {

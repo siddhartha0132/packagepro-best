@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleUpdate } from "../backend/src/telegramBot";
+import { handleUpdate, notifyTravellerOfDecision } from "../backend/src/telegramBot";
 import { clearGuideBookingsForTests, loadBotSession } from "../backend/src/appStore";
 import { PACKAGES } from "../backend/src/packagepro";
 import * as trips from "../backend/src/trips";
@@ -416,6 +416,26 @@ describe("telegram bot: booking through a travel agent", () => {
     // A second tap changes nothing.
     await tap(AGENT, `AP:${tripId}`);
     expect(last().text).toContain("already approved");
+  });
+
+  it("a travel desk counter-offer reaches the traveller, who accepts it in one tap and gets the bill", async () => {
+    await reviewInTamil(9903);
+    await tap(9903, "Q");
+    const tripId = tripOf(9903)!;
+    const hotel = trips.counterChoices(tripId).swaps.find(line => line.type === "hotel")!;
+    trips.proposeCounter(tripId, { swaps: [{ fromId: hotel.componentId, toId: hotel.options[0].id }], adjustment: -1000, note: "Better rooms" }, "Priya (travel agent)");
+    sent = [];
+    await notifyTravellerOfDecision(tripId);
+    const offer = sent.find(message => message.chatId === "9903")!;
+    expect(offer.text).toContain("Better rooms");
+    expect(offer.text).toMatch(/−₹1,000/);
+    expect(offer.buttons.map(button => button.data)).toEqual([`CA:${tripId}`, `CD:${tripId}`]);
+    await tap(9910, `CA:${tripId}`); // another chat can't answer it
+    expect(trips.getTrip(tripId).status).toBe("awaiting_approval");
+    await tap(9903, `CA:${tripId}`);
+    expect(trips.getTrip(tripId)).toMatchObject({ status: "confirmed", approval: { counter: { status: "accepted" } } });
+    expect(documents(9903).length).toBeGreaterThan(0); // the bill
+    expect(sent.some(message => message.chatId === String(AGENT) && message.text.includes("accepted your counter-offer"))).toBe(true);
   });
 
   it("on rejection tells the traveller why (in their language) and lets them ask again", async () => {

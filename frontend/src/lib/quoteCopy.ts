@@ -12,6 +12,7 @@ export const QUOTE_EN: Record<string, string> = {
 
 export const QUOTE_COPY: Partial<Record<Lang, Record<string, string>>> = {
   hi: {
+    "Check out:": "चेक-आउट:", "Arrive by": "आगमन:", "Free time to explore": "घूमने के लिए खाली समय", "At your own pace": "अपनी रफ़्तार से", "Your guide is with you today": "आज आपके गाइड साथ हैं", "Journey home": "घर वापसी", "Return travel is not part of this quote": "वापसी यात्रा इस कोटेशन में शामिल नहीं है", "Free time": "खाली समय", "Return trip": "वापसी", "Travel desk discount": "ट्रैवल डेस्क छूट", "Travel desk adjustment": "ट्रैवल डेस्क समायोजन", "Lands": "पहुँचना",
     LETTER_BILL: "आपकी {city} छुट्टी हमारे ट्रैवल डेस्क ने पक्की कर दी है। यह आपकी बुकिंग पुष्टि और बिल है — कृपया इसे यात्रा के लिए संभाल कर रखें।", "Booking confirmation": "बुकिंग पुष्टि", "Awaiting approval": "स्वीकृति की प्रतीक्षा", "Amount payable": "देय राशि",
     "Package base": "पैकेज बेस", "per person": "प्रति व्यक्ति", "day-by-day plan": "दिन-वार योजना", "Check-out and departure": "चेक-आउट और वापसी",
     "Reference": "संदर्भ", "Booking": "बुकिंग",
@@ -48,6 +49,7 @@ export const QUOTE_COPY: Partial<Record<Lang, Record<string, string>>> = {
     "Cancellation: free within 24 hours of booking; after that, supplier charges apply.": "रद्दीकरण: बुकिंग के 24 घंटे के भीतर मुफ़्त; उसके बाद सप्लायर शुल्क लागू होंगे।",
   },
   ta: {
+    "Check out:": "செக்-அவுட்:", "Arrive by": "வருகை:", "Free time to explore": "சுற்றிப் பார்க்க ஓய்வு நேரம்", "At your own pace": "உங்கள் வேகத்தில்", "Your guide is with you today": "இன்று உங்கள் வழிகாட்டி உடன் இருப்பார்", "Journey home": "வீடு திரும்புதல்", "Return travel is not part of this quote": "திரும்பும் பயணம் இந்த விலைப்பட்டியலில் இல்லை", "Free time": "ஓய்வு நேரம்", "Return trip": "திரும்புதல்", "Travel desk discount": "பயண மேசை தள்ளுபடி", "Travel desk adjustment": "பயண மேசை சரிசெய்தல்", "Lands": "தரையிறக்கம்",
     LETTER_BILL: "உங்கள் {city} விடுமுறை எங்கள் பயண மேசையால் உறுதிசெய்யப்பட்டது. இது உங்கள் முன்பதிவு உறுதிப்படுத்தல் மற்றும் பில் — பயணத்திற்கு வைத்துக்கொள்ளுங்கள்.", "Booking confirmation": "முன்பதிவு உறுதிப்படுத்தல்", "Awaiting approval": "ஒப்புதலுக்காகக் காத்திருக்கிறது", "Amount payable": "செலுத்த வேண்டிய தொகை",
     "Package base": "தொகுப்பு அடிப்படை", "per person": "ஒருவருக்கு", "day-by-day plan": "நாள்வாரித் திட்டம்", "Check-out and departure": "செக்-அவுட் மற்றும் திரும்புதல்",
     "Reference": "குறிப்பு எண்", "Booking": "முன்பதிவு",
@@ -84,6 +86,7 @@ export const QUOTE_COPY: Partial<Record<Lang, Record<string, string>>> = {
     "Cancellation: free within 24 hours of booking; after that, supplier charges apply.": "ரத்து: முன்பதிவு செய்த 24 மணி நேரத்திற்குள் இலவசம்; அதன் பிறகு சப்ளையர் கட்டணங்கள் பொருந்தும்.",
   },
   te: {
+    "Check out:": "చెక్-అవుట్:", "Arrive by": "రాక:", "Free time to explore": "చుట్టి చూడటానికి ఖాళీ సమయం", "At your own pace": "మీ వేగంలో", "Your guide is with you today": "ఈరోజు మీ గైడ్ మీతో ఉంటారు", "Journey home": "ఇంటికి తిరుగు ప్రయాణం", "Return travel is not part of this quote": "తిరుగు ప్రయాణం ఈ కొటేషన్‌లో లేదు", "Free time": "ఖాళీ సమయం", "Return trip": "తిరుగు ప్రయాణం", "Travel desk discount": "ట్రావెల్ డెస్క్ తగ్గింపు", "Travel desk adjustment": "ట్రావెల్ డెస్క్ సర్దుబాటు", "Lands": "ల్యాండింగ్",
     LETTER_BILL: "మీ {city} సెలవును మా ట్రావెల్ డెస్క్ నిర్ధారించింది. ఇది మీ బుకింగ్ నిర్ధారణ మరియు బిల్లు — ప్రయాణం కోసం దీన్ని ఉంచుకోండి.", "Booking confirmation": "బుకింగ్ నిర్ధారణ", "Awaiting approval": "ఆమోదం కోసం వేచి ఉంది", "Amount payable": "చెల్లించవలసిన మొత్తం",
     "Package base": "ప్యాకేజీ బేస్", "per person": "ఒక్కరికి", "day-by-day plan": "రోజువారీ ప్లాన్", "Check-out and departure": "చెక్-అవుట్ మరియు తిరుగు ప్రయాణం",
     "Reference": "రిఫరెన్స్", "Booking": "బుకింగ్",
