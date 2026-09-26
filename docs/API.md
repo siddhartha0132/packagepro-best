@@ -53,7 +53,8 @@ key in the `x-agent-key` header (the `/agent` page sends it); without it they fa
 | `agent.counter` | mutation 🔑 | `{ tripId, counter: { swaps?, addOns?, adjustment?, note? }, agentName? }` | Sends the offer; the request stays pending (guide dates held) |
 | `agent.approve` | mutation 🔑 | `{ tripId, agentName? }` | Pending → confirmed; the traveller gets the bill (Telegram) or sees it on the page |
 | `agent.reject` | mutation 🔑 | `{ tripId, reason, agentName? }` | Pending → cancelled (kept), dates released, trip back to review with the reason |
-| `trip.requestBooking` | mutation | `{ tripId, email?, phone? }` | The traveller asks for the booking (pending, guide dates held); the agent's Telegram chat is pinged |
+| `trip.requestBooking` | mutation | `{ tripId, email?, phone?, lang? }` | The traveller asks for the booking (pending, guide dates held). A mobile number (normalised to +91…) or email is required; the traveller gets an SMS / email in `lang` with a private link back to the trip now and whenever the agent answers. The agent's Telegram chat is pinged |
+| `trip.findMine` | mutation | `{ reference, contact }` | "My bookings": a booking reference plus the mobile number or email it was made with → `{ tripId }` (rate limited: 15 per 10 min per client) |
 | `trip.acceptCounter` | mutation | `{ tripId }` | Original request cancelled (kept on record), changed plan booked and approved at once |
 | `trip.declineCounter` | mutation | `{ tripId }` | Keeps the original request with the agent |
 | `trip.pdfLinks` | query | `{ tripId, lang }` | Signed links: quotation, and the bill once confirmed (`null` without Chrome) |

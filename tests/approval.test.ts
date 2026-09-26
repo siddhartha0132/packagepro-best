@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { clearGuideBookingsForTests, exportCanonicalRows, guideBookedCount } from "../backend/src/appStore";
 import * as trips from "../backend/src/trips";
 import { appRouter } from "../backend/src/routers";
+import { normalisePhone } from "../backend/src/travellerMessages";
 import type { TrpcContext } from "../backend/src/_core/context";
 
 // Booking with a travel agent's approval: a request is written as booking_status 'pending' with the guide's dates held,
@@ -190,9 +191,30 @@ describe("travel desk API", () => {
 
   it("approves once; a second decision is refused", async () => {
     const trip = await readyForReview();
-    await caller().trip.requestBooking({ tripId: trip.tripId });
+    await caller().trip.requestBooking({ tripId: trip.tripId, phone: "98765 43210" });
     const desk = caller("desk-test-key");
     expect((await desk.agent.approve({ tripId: trip.tripId, agentName: "Priya" })).approval).toMatchObject({ decision: "approved", decidedBy: "Priya (travel agent)" });
     await expect(desk.agent.reject({ tripId: trip.tripId, reason: "Too late" })).rejects.toThrow(/already decided/);
+  });
+
+  it("a website request needs a mobile number or email, and the traveller finds it again by reference + contact", async () => {
+    const trip = await readyForReview();
+    await expect(caller().trip.requestBooking({ tripId: trip.tripId })).rejects.toThrow(/mobile number or email/);
+    await expect(caller().trip.requestBooking({ tripId: trip.tripId, phone: "12345" })).rejects.toThrow(/10-digit mobile number/);
+    const asked = await caller().trip.requestBooking({ tripId: trip.tripId, phone: "098765-43210", lang: "ta" });
+    expect(asked.approval).toMatchObject({ contact: { phone: "+919876543210" }, lang: "ta" });
+    const reference = asked.booking!.reference;
+    expect(await caller().trip.findMine({ reference: reference.toLowerCase(), contact: "9876543210" })).toEqual({ tripId: trip.tripId });
+    await expect(caller().trip.findMine({ reference, contact: "9999999999" })).rejects.toThrow(/No booking matches/);
+    await expect(caller().trip.findMine({ reference: "ZZZZZZ", contact: "9876543210" })).rejects.toThrow(/No booking matches/);
+  });
+});
+
+describe("mobile numbers", () => {
+  it("normalises Indian mobiles to +91 and rejects the rest", () => {
+    expect(["9876543210", "+91 98765 43210", "09876543210", "919876543210"].map(normalisePhone)).toEqual(Array(4).fill("+919876543210"));
+    expect(normalisePhone("+14155550123")).toBe("+14155550123");
+    expect(normalisePhone("12345")).toBeNull();
+    expect(normalisePhone("5876543210")).toBeNull();
   });
 });

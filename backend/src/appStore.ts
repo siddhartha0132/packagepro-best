@@ -117,6 +117,11 @@ export function saveTrip(trip: { tripId: string; destination: string; departDate
     canonical.party_size, canonical.party_size, canonical.trip_type, canonical.party_size >= 5 ? 1 : 0, canonical.status, now, now);
 }
 
+/** A booking (any status) by its reference, with the contact given when it was made — for "My bookings". */
+export function findBookingByReference(reference: string) {
+  return store().prepare("SELECT trip_id, contact_email, contact_phone FROM bookings WHERE upper(booking_reference) = upper(?) ORDER BY created_at DESC LIMIT 1").get(reference.trim()) as { trip_id: string; contact_email: string | null; contact_phone: string | null } | undefined;
+}
+
 /** Trips that went to a travel agent (a booking request was made), most recently changed first. */
 export function listApprovalTripIds(limit = 40) {
   const rows = store().prepare("SELECT trip_id FROM app_trips WHERE json_extract(state_json, '$.approval') IS NOT NULL ORDER BY updated_at DESC LIMIT ?").all(limit) as { trip_id: string }[];

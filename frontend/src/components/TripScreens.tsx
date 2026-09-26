@@ -315,6 +315,8 @@ export function ReviewPanel({ trip, lang, busy, email, phone, setEmail, setPhone
   const rejected = trip.status === "review" && trip.approval?.decision === "rejected";
   const nights = trip.durationDays;
   const shortDay = (iso: string) => { const date = prettyDate(iso); return `${date.day} ${date.rest}`; };
+  // A request to the travel agent needs a way to reach the traveller: a valid-looking email or at least 10 digits.
+  const contactGiven = /^\S+@\S+\.\S+$/.test(email.trim()) || phone.replace(/\D/g, "").length >= 10;
   return <div className="space-y-4">
     {confirmed && <Panel className="border border-[#b7ebd3] bg-[#e7f8f0] p-5 text-[#0e8a5f]">
       <div className="flex items-center gap-3"><Check className="h-6 w-6" /><div className="flex-1"><div className="font-extrabold">{copy("confirmed")}</div><div className="text-xs">{copy("final")} {money(trip.runningTotal)} {copy("of")} {money(trip.budgetCap)}{trip.approval?.decision === "approved" && trip.approval.decidedBy ? ` · ${copy("approvedBy")} ${trip.approval.decidedBy}` : ""}</div></div>{trip.booking && <div className="rounded-xl bg-white px-4 py-2 text-right"><div className="text-[10px] font-bold uppercase tracking-wider text-[#5f6b7a]">PNR</div><div className="font-mono text-lg font-black text-[#0b1f3a]">{trip.booking.reference}</div></div>}</div>
@@ -324,6 +326,7 @@ export function ReviewPanel({ trip, lang, busy, email, phone, setEmail, setPhone
       <div className="flex items-start gap-3"><Hourglass className="mt-0.5 h-5 w-5 shrink-0 animate-pulse text-[#b45309]" /><div className="flex-1"><div className="font-extrabold text-[#7a4a0b]">{copy("awaitingTitle")}</div><div className="mt-0.5 text-xs leading-5 text-[#7a4a0b]">{copy("awaitingSub")}</div></div>{trip.booking && <div className="rounded-xl bg-white px-3 py-1.5 text-right"><div className="text-[10px] font-bold uppercase tracking-wider text-[#5f6b7a]">Ref</div><div className="font-mono text-sm font-black text-[#0b1f3a]">{trip.booking.reference}</div></div>}</div>
       {counter?.status === "open" && approval && <CounterCard counter={counter} lang={lang} busy={busy} onAccept={approval.onAccept} onDecline={approval.onDecline} />}
       {counter?.status === "declined" && <p className="mt-3 text-xs text-[#7a4a0b]">{copy("counterDeclined")}</p>}
+      {(trip.approval?.contact?.phone || trip.approval?.contact?.email) && counter?.status !== "open" && <p className="mt-3 text-xs font-semibold text-[#7a4a0b]">{copy("willMessage").replace("{contact}", [trip.approval.contact.phone, trip.approval.contact.email].filter(Boolean).join(" · "))}</p>}
     </Panel>}
     {rejected && <Panel className="flex items-start gap-3 border border-[#f3c1b8] bg-[#fff6f4] p-5"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-[#c0392b]" /><div><div className="font-extrabold text-[#7a2e22]">{copy("rejectedTitle")}</div>{trip.approval?.reason && <div className="mt-1 text-sm text-[#7a2e22]">“{tr(trip.approval.reason)}”</div>}<div className="mt-1 text-xs text-[#7a3b2e]">{copy("rejectedSub")}</div></div></Panel>}
     {leg && <Panel className="p-5"><SectionTitle icon={<Plane className="h-4 w-4 text-[#0b6bcb]" />} title={copy("flight")} sub={shortDay(trip.departDate)} /><div className="mt-3"><FlightRow flight={leg} lang={lang} travelers={trip.travelers} /></div></Panel>}
@@ -337,12 +340,12 @@ export function ReviewPanel({ trip, lang, busy, email, phone, setEmail, setPhone
       <div className="mt-3 space-y-2">{guides.map(guide => <div key={guide.id} className="flex items-center justify-between gap-3 rounded-lg bg-[#f6f8fb] px-3 py-2"><div className="min-w-0"><div className="text-sm font-bold text-[#0b1f3a]">{guide.name} <span className="text-[11px] font-normal text-[#5f6b7a]">★ {guide.rating} · {specLabel(lang, guide.specialisation)} · {guide.languages.join(", ")}</span></div><div className="text-[11px] text-[#5f6b7a]">{guide.bookedDates.map(shortDay).join(" · ")}</div></div><span className="shrink-0 font-bold">{money(guide.totalCost)}</span></div>)}</div>
     </Panel>}
     {trip.status === "review" ? <Panel className="p-5">
-      {approval?.required && <p className="mb-3 text-xs leading-5 text-[#5f6b7a]">{copy("requestAgentSub")}</p>}
+      {approval?.required && <p className="mb-3 text-xs leading-5 text-[#5f6b7a]">{copy("requestAgentSub")} <b className="text-[#0b1f3a]">{copy("contactNeeded")}</b></p>}
       <div className="grid gap-3 sm:grid-cols-2"><input placeholder={copy("email")} value={email} onChange={event => setEmail(event.target.value)} type="email" className="h-11 rounded-xl border border-[#e6ebf2] px-3 text-sm" /><input placeholder={copy("phone")} value={phone} onChange={event => setPhone(event.target.value)} className="h-11 rounded-xl border border-[#e6ebf2] px-3 text-sm" /></div>
       <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_1.4fr]">
         <Button variant="outline" className="h-12 rounded-full" disabled={busy} onClick={onEdit}>{copy("editPackage")}</Button>
         <Button variant="outline" className="h-12 rounded-full border-[#25d366] text-[#128c4a]" onClick={onWhatsApp}>{copy("whatsapp")}</Button>
-        <Button disabled={busy} onClick={approval?.required ? approval.onRequest : onConfirm} className="h-12 rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg">{approval?.required ? (rejected ? copy("requestAgain") : copy("requestAgent")) : copy("confirmTrip")}</Button>
+        <Button disabled={busy || (approval?.required && !contactGiven)} onClick={approval?.required ? approval.onRequest : onConfirm} className="h-12 rounded-full bg-gradient-to-r from-[#53b2fe] to-[#065af3] text-sm font-extrabold uppercase tracking-wider text-white shadow-lg">{approval?.required ? (rejected ? copy("requestAgain") : copy("requestAgent")) : copy("confirmTrip")}</Button>
       </div>
     </Panel> : <div className="grid gap-2 sm:grid-cols-2"><Button variant="outline" className="h-12 rounded-full border-[#25d366] text-[#128c4a]" onClick={onWhatsApp}>{copy("whatsapp")}</Button><Button variant="outline" className="h-12 rounded-full" onClick={onStartOver}>{copy("another")}</Button></div>}
   </div>;

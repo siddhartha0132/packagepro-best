@@ -13,6 +13,7 @@ export const LIMITS = {
   voiceSpeak: { label: "spoken replies", perClient: 40, windowMs: TEN_MINUTES, dailyTotal: 1000 },
   translate: { label: "translations", perClient: 120, windowMs: TEN_MINUTES, dailyTotal: 5000 },
   ai: { label: "AI answers", perClient: 40, windowMs: TEN_MINUTES, dailyTotal: 2000 },
+  lookup: { label: "booking look-ups", perClient: 15, windowMs: TEN_MINUTES, dailyTotal: 3000 },
 } satisfies Record<string, Bucket>;
 export type LimitName = keyof typeof LIMITS;
 

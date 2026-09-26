@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, BedDouble, FileDown, Calendar, Check, Compass, Flame, Languages, Map as MapIcon, MapPin, Plane, Search, Share2, Sparkles, Star, Ticket, Users, UtensilsCrossed, X } from "lucide-react";
+import { Loader2, ArrowRight, BedDouble, FileDown, Calendar, Check, Compass, Flame, Languages, Map as MapIcon, MapPin, Plane, Search, Share2, Sparkles, Star, Ticket, Users, UtensilsCrossed, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -129,7 +129,12 @@ export default function Home() {
   const goBack = trpc.trip.goBack.useMutation({ onSuccess: refresh, onError });
   const setTripLanguage = trpc.trip.setLanguage.useMutation({ onSuccess: () => { refresh(); utils.trip.guides.invalidate(); } });
   const confirm = trpc.trip.confirm.useMutation({ onSuccess: refresh, onError });
-  const requestBooking = trpc.trip.requestBooking.useMutation({ onSuccess: refresh, onError });
+  // After asking the travel agent, this browser remembers the trip (reopening the site goes straight back to it).
+  const requestBooking = trpc.trip.requestBooking.useMutation({ onSuccess: data => { refresh(); try { localStorage.setItem("packagepro-draft", JSON.stringify({ form, uiLang, tripId: data.tripId, screen: "trip", travellerId })); } catch { /* storage unavailable */ } }, onError });
+  const [findOpen, setFindOpen] = useState(false);
+  const [findRef, setFindRef] = useState("");
+  const [findContact, setFindContact] = useState("");
+  const findMine = trpc.trip.findMine.useMutation({ onSuccess: data => { setFindOpen(false); setTripId(data.tripId); setScreen("trip"); window.location.hash = `trip=${data.tripId}`; }, onError: error => toast.error(error.message) });
   const acceptCounter = trpc.trip.acceptCounter.useMutation({ onSuccess: refresh, onError });
   const declineCounter = trpc.trip.declineCounter.useMutation({ onSuccess: refresh, onError });
   const deskMode = trpc.agent.mode.useQuery(undefined, { staleTime: 60_000 });
@@ -279,6 +284,7 @@ export default function Home() {
         </button>
         {screen !== "intake" && <div className="hidden lg:block"><Stepper steps={steps} current={stepIndex} /></div>}
         <div className="flex items-center gap-2">
+        <button onClick={() => setFindOpen(true)} className={`rounded-full px-3 py-1.5 font-bold leading-4 ${screen === "intake" ? "bg-white/15 ring-1 ring-white/25" : "bg-[#f2f5f9]"}`}><span className="text-xs">{copy("myBookings")}</span></button>
         <a href="/how-it-works" className={`hidden rounded-full px-3 py-1.5 text-xs font-bold sm:inline-flex ${screen === "intake" ? "bg-white text-[#0b4fb3]" : "bg-[#0b1f3a] text-white"}`}>{copy("howItWorks")}</a>
         {travellers.data && <label className={`hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold md:flex ${screen === "intake" ? "bg-white/15 ring-1 ring-white/25" : "bg-[#f2f5f9]"}`}>
           <Users className="h-3.5 w-3.5" /><span>{copy("travellingAs")}</span>
@@ -428,7 +434,7 @@ export default function Home() {
           {(trip.status === "review" || trip.status === "awaiting_approval" || trip.status === "confirmed") && <>
             <ScreenHeader title={trip.status === "confirmed" ? copy("locked") : copy("review")} sub={trip.status === "review" ? copy("reviewSub") : undefined} onBack={trip.status === "review" ? back : undefined} backLabel={copy("back")} />
             <ReviewPanel trip={trip} lang={uiLang} busy={busy} email={email} phone={phone} setEmail={setEmail} setPhone={setPhone} onConfirm={() => confirm.mutate({ tripId: trip.tripId, email: email || undefined, phone: phone || undefined })} onEdit={back} onWhatsApp={exportWhatsApp} onStartOver={startOver}
-              approval={{ required: Boolean(deskMode.data?.approvalRequired), billUrl: pdfLinks.data?.bill, onRequest: () => requestBooking.mutate({ tripId: trip.tripId, email: email || undefined, phone: phone || undefined }), onAccept: () => acceptCounter.mutate({ tripId: trip.tripId }), onDecline: () => declineCounter.mutate({ tripId: trip.tripId }) }} />
+              approval={{ required: Boolean(deskMode.data?.approvalRequired), billUrl: pdfLinks.data?.bill, onRequest: () => requestBooking.mutate({ tripId: trip.tripId, email: email || undefined, phone: phone || undefined, lang: uiLang }), onAccept: () => acceptCounter.mutate({ tripId: trip.tripId }), onDecline: () => declineCounter.mutate({ tripId: trip.tripId }) }} />
           </>}
         </>}
       </section>
@@ -456,6 +462,19 @@ export default function Home() {
 
     {printing === "trip" && trip && <TripQuote trip={trip} lang={uiLang} image={packageList.find(item => item.id === trip.package?.id)?.image} />}
     {printing === "estimate" && estimate.data && <EstimateQuote estimate={estimate.data} lang={uiLang} travelers={form.travelers} origin={cities.data?.origins.find(item => item.code === form.origin)?.city || form.origin} image={estimate.data.insight.image || packageList.find(item => item.id === estimate.data?.package.id)?.image} />}
+
+    {/* ---------- My bookings: reference + the mobile number or email it was booked with ---------- */}
+    <Dialog open={findOpen} onOpenChange={setFindOpen}>
+      <DialogContent className="max-w-sm rounded-2xl border-0 bg-white p-6 text-[#0b1f3a]">
+        <DialogTitle className="text-lg font-extrabold">{copy("findTitle")}</DialogTitle>
+        <p className="text-xs leading-5 text-[#5f6b7a]">{copy("findSub")}</p>
+        <form className="mt-2 space-y-3" onSubmit={event => { event.preventDefault(); findMine.mutate({ reference: findRef, contact: findContact }); }}>
+          <input value={findRef} onChange={event => setFindRef(event.target.value.toUpperCase())} placeholder={copy("referenceLabel")} autoCapitalize="characters" className="h-11 w-full rounded-xl border border-[#e6ebf2] px-3 font-mono text-sm tracking-wider" />
+          <input value={findContact} onChange={event => setFindContact(event.target.value)} placeholder={copy("contactLabel")} className="h-11 w-full rounded-xl border border-[#e6ebf2] px-3 text-sm" />
+          <Button type="submit" disabled={findMine.isPending || findRef.trim().length < 4 || findContact.trim().length < 3} className="h-11 w-full rounded-full bg-[#0b1f3a] font-bold text-white">{findMine.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : copy("findButton")}</Button>
+        </form>
+      </DialogContent>
+    </Dialog>
 
     {/* ---------- Package detail ---------- */}
     <Dialog open={Boolean(detail)} onOpenChange={open => !open && setDetailId(null)}>

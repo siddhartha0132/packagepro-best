@@ -13,6 +13,7 @@ import { MAX_VOICE_SECONDS, hear, speak, speakable, voiceEnabled } from "./voice
 import { takeToken } from "./rateLimit";
 import { pdfEnabled, publicPdfLink, renderTripPdf, type PdfKind } from "./pdf";
 import { REJECT_REASONS, agentChat, approvalRequired, dashboardKey, publicBase } from "./agentDesk";
+import { notifyWebTraveller } from "./travellerMessages";
 
 // PackagePro on Telegram: the same engine as the web app (live fares, PS-04 packages, per-date guide checks with
 // same-language substitutes, budget negotiation, bookings), driven by inline buttons and free-text AI in 4 languages.
@@ -574,7 +575,8 @@ async function onAgentDecision(chatId: string, kind: string, value: string, mess
 async function tellTraveller(tripId: string) {
   const trip = trips.getTrip(tripId);
   const chat = trip.approval?.chatId;
-  if (!chat) return;
+  // Booked on the website: an SMS / email with a link back to the trip instead.
+  if (!chat) { await notifyWebTraveller(tripId); return; }
   const lang = loadBotSession<Session>(chat)?.lang ?? "en-IN";
   if (trip.status === "confirmed" && trip.approval?.decision === "approved") {
     await send(chat, `${say(lang, "approvedMsg", { pnr: trip.booking?.reference ?? "—", total: money(trip.runningTotal) })}\n${tripLine(trip, lang)}`, doneRows(trip, lang));
@@ -620,7 +622,10 @@ export const notifyAgentOfRequest = (tripId: string) => quietly(async () => {
   const chat = trip.approval?.chatId;
   await notifyAgent(trip, (chat && loadBotSession<Session>(chat)?.lang) || "en-IN");
 });
-export const notifyTravellerOfDecision = (tripId: string) => quietly(() => tellTraveller(tripId));
+/** The agent decided (or sent a counter-offer): tell the traveller in Telegram, or by SMS / email for website bookings. */
+export const notifyTravellerOfDecision = (tripId: string) => trips.getTrip(tripId).approval?.chatId
+  ? quietly(() => tellTraveller(tripId))
+  : notifyWebTraveller(tripId).catch(error => console.warn("[notify]", (error as Error).message));
 export const notifyAgentOfTravellerAnswer = (tripId: string, answer: "accepted" | "declined") => quietly(() => tellAgentAnswer(tripId, answer));
 
 // ---------------------------------------------------------------------------

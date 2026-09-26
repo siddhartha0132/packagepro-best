@@ -69,7 +69,7 @@ export type Trip = {
   pending: { amount: number; label: string; retryStatus: TripStatus; advanceStatus: TripStatus; patch: Partial<Trip>; total?: number; overage?: number; fixes?: BudgetFix[]; applied?: FixStep[]; lowestTotal?: number } | null;
   booking?: { bookingId: string; reference: string; itineraryId?: string; status?: "pending" | "confirmed" } | null;
   /** A booking request waiting for (or decided by) a travel agent: who asked, from which chat, and the outcome. */
-  approval?: { requestedAt: string; chatId?: string; contact?: { email?: string; phone?: string }; attempt: number; decidedBy?: string; decision?: "approved" | "rejected"; reason?: string; counter?: CounterOffer } | null;
+  approval?: { requestedAt: string; chatId?: string; contact?: { email?: string; phone?: string }; lang?: string; attempt: number; decidedBy?: string; decision?: "approved" | "rejected"; reason?: string; counter?: CounterOffer } | null;
   /** A travel agent's discount (negative) or surcharge (positive), set only when the traveller accepts a counter-offer. */
   agentAdjustment?: { amount: number; note: string } | null;
   /** users.user_id of the traveller (canonical trips.owner_user_id / bookings.user_id). */
@@ -972,7 +972,7 @@ export async function confirmTrip(tripId: string, contact?: { email?: string; ph
  * guide's dates are held (so no one else can take them) until a travel agent approves or rejects. Same guide re-check and
  * slot guard as confirmTrip. A repeated request while one is pending returns it unchanged.
  */
-export async function requestBooking(tripId: string, options: { chatId?: string; email?: string; phone?: string } = {}) {
+export async function requestBooking(tripId: string, options: { chatId?: string; email?: string; phone?: string; lang?: string } = {}) {
   const trip = need(tripId);
   if (trip.status === "awaiting_approval" || trip.status === "confirmed") return snapshot(trip);
   if (trip.status !== "review" && trip.status !== "select_package") throw new Error(trip.status === "negotiate" ? "Resolve the pending budget negotiation first" : `Can't request a booking from '${trip.status}'`);
@@ -998,7 +998,7 @@ export async function requestBooking(tripId: string, options: { chatId?: string;
     throw error;
   }
   const contact = options.email || options.phone ? { email: options.email, phone: options.phone } : trip.approval?.contact;
-  trip.approval = { requestedAt: new Date().toISOString(), chatId: options.chatId, contact, attempt };
+  trip.approval = { requestedAt: new Date().toISOString(), chatId: options.chatId, contact, lang: options.lang ?? trip.approval?.lang, attempt };
   trip.status = "awaiting_approval";
   log(trip, "decision", `Booking ${trip.booking.reference} requested — waiting for a travel agent's approval (guide dates held)`);
   return snapshot(trip);

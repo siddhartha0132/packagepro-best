@@ -216,6 +216,9 @@ a reason, or sends a **counter-offer** — swap any swappable line, add or remov
 priced change by change on the whole trip before sending (`trips.previewCounter`). The traveller sees it on the web page
 (which checks every 4 s while waiting) or in Telegram (Accept / Keep buttons). Accepting cancels the original pending booking
 (kept on record) and books the changed plan, approved at once; keeping it leaves the original with the agent.
+Website travellers have no chat, so a request needs a mobile number or email: `backend/src/travellerMessages.ts` sends a short
+SMS / email in their language (received, counter-offer, approved, rejected) with a private link back to the trip, and
+"My bookings" (`trip.findMine`) reopens a trip from its booking reference plus that mobile number or email.
 
 ```mermaid
 sequenceDiagram

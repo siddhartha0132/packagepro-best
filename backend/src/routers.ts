@@ -11,7 +11,8 @@ import { explainWithFreeOpenRouter } from "../../ai/pipeline";
 import { cityImage, getDestinationInsight, warmCityImages } from "./insights";
 import { PACKAGE_POPULARITY, estimateTrip } from "./estimate";
 import * as trips from "./trips";
-import { listBookings } from "./appStore";
+import { findBookingByReference, listBookings } from "./appStore";
+import { normalisePhone, notifyWebTraveller } from "./travellerMessages";
 import { DEMO_TRAVELLERS, getTraveller, travellerSummary } from "./travellers";
 import { REJECT_REASONS, approvalRequired, dashboardKey } from "./agentDesk";
 import { pdfEnabled, pdfPath } from "./pdf";
@@ -156,16 +157,33 @@ export const appRouter = router({
     setLanguage: publicProcedure.input(z.object({ tripId: z.string(), language: languageSchema })).mutation(({ input }) => trips.setLanguage(input.tripId, input.language)),
     bookings: publicProcedure.query(() => listBookings()),
     confirm: publicProcedure.input(z.object({ tripId: z.string(), email: z.string().email().optional(), phone: z.string().optional(), idempotencyKey: z.string().min(8).max(80).optional() })).mutation(({ input }) => trips.confirmTrip(input.tripId, { email: input.email, phone: input.phone }, { idempotencyKey: input.idempotencyKey })),
-    /** Ask the travel desk to book (when approvals are on): a pending booking with the guide's dates held. */
-    requestBooking: publicProcedure.input(z.object({ tripId: z.string(), email: z.string().email().optional(), phone: z.string().max(20).optional() })).mutation(async ({ input }) => {
+    /**
+     * Ask the travel desk to book (when approvals are on): a pending booking with the guide's dates held. A mobile number or
+     * email is required — the traveller is messaged there, with a link back to the trip, whenever the agent answers.
+     */
+    requestBooking: publicProcedure.input(z.object({ tripId: z.string(), email: z.string().trim().email().optional().or(z.literal("")), phone: z.string().max(20).optional(), lang: z.enum(["en-IN", "hi", "ta", "te"]).optional() })).mutation(async ({ input }) => {
+      const phone = input.phone?.trim() ? normalisePhone(input.phone) : undefined;
+      if (phone === null) throw new Error("Enter a 10-digit mobile number (or an international number starting with +)");
+      const email = input.email?.toLowerCase() || undefined;
+      if (!phone && !email) throw new Error("Add your mobile number or email so the travel agent can reach you");
       const before = trips.getTrip(input.tripId).status;
-      const trip = await trips.requestBooking(input.tripId, { email: input.email, phone: input.phone });
-      if (before !== "awaiting_approval" && trip.status === "awaiting_approval") void notifyAgentOfRequest(trip.tripId);
+      const trip = await trips.requestBooking(input.tripId, { email, phone, lang: input.lang });
+      if (before !== "awaiting_approval" && trip.status === "awaiting_approval") { void notifyAgentOfRequest(trip.tripId); void notifyWebTraveller(trip.tripId); }
       return trip;
+    }),
+    /** "My bookings": the reference plus the mobile number or email it was booked with → the trip. */
+    findMine: publicProcedure.input(z.object({ reference: z.string().trim().min(4).max(20), contact: z.string().trim().min(3).max(120) })).mutation(({ input, ctx }) => {
+      enforceLimit("lookup", clientOf(ctx.req));
+      const row = findBookingByReference(input.reference);
+      const contact = input.contact.includes("@") ? input.contact.toLowerCase() : normalisePhone(input.contact);
+      const matches = Boolean(row && contact && (row.contact_email?.toLowerCase() === contact || row.contact_phone === contact));
+      if (!matches) throw new Error("No booking matches that reference and contact");
+      return { tripId: row!.trip_id };
     }),
     acceptCounter: publicProcedure.input(z.object({ tripId: z.string() })).mutation(async ({ input }) => {
       const trip = await trips.acceptCounter(input.tripId);
       void notifyAgentOfTravellerAnswer(trip.tripId, "accepted");
+      void notifyWebTraveller(trip.tripId);
       return trip;
     }),
     declineCounter: publicProcedure.input(z.object({ tripId: z.string() })).mutation(({ input }) => {

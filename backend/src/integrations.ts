@@ -397,6 +397,11 @@ export async function prewarmTranslations(texts: string[], languages: string[]) 
 }
 
 export async function sendConfirmation(input: { email?: string; phone?: string; summary: string }) {
+  return sendMessage({ email: input.email, phone: input.phone, subject: "Your PackagePro trip is confirmed", text: input.summary });
+}
+
+/** Email (Resend) and/or SMS (Twilio) to a traveller; each is skipped when its keys aren't set. */
+export async function sendMessage(input: { email?: string; phone?: string; subject: string; text: string }) {
   const result = { email: false, sms: false };
   if (input.email && env("RESEND_API_KEY")) {
     try {
@@ -407,10 +412,10 @@ export async function sendConfirmation(input: { email?: string; phone?: string; 
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: "PackagePro <beth.t@example.com>",
+          from: env("EMAIL_FROM") || "PackagePro <onboarding@resend.dev>",
           to: [input.email],
-          subject: "Your PackagePro trip is confirmed",
-          text: input.summary,
+          subject: input.subject,
+          text: input.text,
         }),
       }, 4000);
       result.email = res.ok;
@@ -423,7 +428,7 @@ export async function sendConfirmation(input: { email?: string; phone?: string; 
       const body = new URLSearchParams({
         To: input.phone,
         From: env("TWILIO_FROM_NUMBER"),
-        Body: input.summary.slice(0, 320),
+        Body: input.text.slice(0, 480),
       });
       const res = await timedFetch(`https://api.twilio.com/2010-04-01/Accounts/${env("TWILIO_ACCOUNT_SID")}/Messages.json`, {
         method: "POST",

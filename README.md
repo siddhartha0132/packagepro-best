@@ -12,7 +12,7 @@ Start from a curated package, reshape it piece by piece, and watch it reprice li
 |---|---|
 | Mandatory guide availability check | Enforced in the backend, proven by [`tests/hardProof.guideAvailability.test.ts`](tests/hardProof.guideAvailability.test.ts) |
 | Shared data model | Canonical tables read and written; organisers' validator **PASS** (`pnpm conformance`) |
-| Tests | 83 offline tests (`pnpm verify`, run by GitHub Actions on every push) + 4 live-key checks — `npx vitest run` → 87 passed · voice: 20/20 (`pnpm voice:eval`) |
+| Tests | 85 offline tests (`pnpm verify`, run by GitHub Actions on every push) + 4 live-key checks — `npx vitest run` → 89 passed · voice: 20/20 (`pnpm voice:eval`) |
 | Guided tour for judges | `/how-it-works`: every PS-04 requirement, where it is in the code, and a live demo |
 | Brief | [HACKATHON.md](HACKATHON.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](data-model/DATA_MODEL.md) · [AI](ai/README.md) · [API](docs/API.md) · [Demo script](docs/DEMO_SCRIPT.md) |
 
@@ -31,7 +31,7 @@ Start from a curated package, reshape it piece by piece, and watch it reprice li
 - **AI package builder.** It works from free-text interests, budget and **booking history** (the traveller's past trips), picks only real catalogue packages, keeps to the stated budget, and builds the chosen trip in one tap. A grounded agent explains every decision.
 - **Save, share and book.** Drafts auto-save, and a share link reopens the exact trip. Booking writes the canonical `trips` / `itineraries` / `itinerary_items` / `bookings` rows with an idempotency key and returns a PNR. There's a downloadable PDF quotation, and a **Telegram bot** runs on the same engine.
 - **Telegram: step by step, with a travel agent's approval.** The bot walks the traveller through flight → stay → extras → guide → review and sends the quotation as a real PDF in their language. "Request booking" writes a `pending` booking (guide dates held) and sends it to a travel agent's Telegram chat with Approve / Reject. On approval the traveller gets the PNR, the **bill as a PDF** and a signed link; on rejection, the reason and "Request again".
-- **Travel desk with counter-offers (`/agent`).** Requests from the website and Telegram in one list, each with the full day-by-day plan. The agent approves, rejects with a reason, or sends a counter-offer (swap the stay or an activity, add/remove an add-on, a discount or surcharge, a note) priced live on the whole trip. The traveller accepts in one tap on the web page or in Telegram and is booked at once, or keeps the original request.
+- **Travel desk with counter-offers (`/agent`).** Requests from the website and Telegram in one list, each with the full day-by-day plan. The agent approves, rejects with a reason, or sends a counter-offer (swap the stay or an activity, add/remove an add-on, a discount or surcharge, a note) priced live on the whole trip. The traveller accepts in one tap on the web page or in Telegram and is booked at once, or keeps the original request. Website travellers give a mobile number or email when they send the request; each answer from the agent reaches them by SMS / email (Twilio / Resend) with a private link back to the trip, and **My bookings** finds a trip again by reference + mobile/email — no passwords.
 - **An itinerary that reads in order.** Day 1 starts when the flight lands (nothing is scheduled before it), the transfer comes right after, empty days say "Free time to explore", and a last day shows check-out on the return date — the same on the web, in Telegram and in the PDF.
 
 | PS-04 "What you need to build" | Where it is |
@@ -119,8 +119,8 @@ The terminal outcome: **a customised package, booked, with the guide rule shown*
 ## Tests / proof
 
 ```bash
-pnpm verify                                                   # type check + lint + 83 offline tests + production build (also runs before every push)
-npx vitest run                                                # everything: 83 offline + 4 live-key checks (reads .env) → 87 passed
+pnpm verify                                                   # type check + lint + 85 offline tests + production build (also runs before every push)
+npx vitest run                                                # everything: 85 offline + 4 live-key checks (reads .env) → 89 passed
 npx vitest run tests/hardProof.guideAvailability.test.ts     # the PS-04 hard proof
 pnpm voice:eval                                               # 20 spoken requests in 4 languages through the real voice pipeline → docs/VOICE_EVAL.md (needs SARVAM_API_KEY)
 pnpm conformance                                              # organisers' validator on dataset + our rows → PASS
