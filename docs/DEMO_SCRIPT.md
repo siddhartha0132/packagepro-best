@@ -2,7 +2,7 @@
 
 **Before you start:** run `pnpm db:reset` (it frees the demo guide's slots), then `pnpm dev`, or use the deployed URL. Open the web app full-screen, and Telegram (@wayypoint_Bot) on a phone. Do one dry run so live fares, translations and photos are warm.
 
-Every fact below comes from the PS-04 dataset. The package is *Thanjavur Honeymoon* (groups of 4–8). In `guide_availability`, **Meera Novak** (Tamil, heritage) is unavailable on **28 Sept**. **Arjun Nair** (Tamil, heritage) is free 28–30 Sept.
+Every fact below comes from the PS-04 dataset. The package is *Thanjavur Heritage* (groups of 4–8). In `guide_availability`, **Meera Novak** (Tamil, heritage) is unavailable on **28 Sept**. **Arjun Nair** (Tamil, heritage) is free 28–30 Sept.
 
 ## 1 · Web (3 minutes)
 

@@ -177,13 +177,70 @@ function contextSlot(type: PackageComponent["type"], title: string, slot: string
 /** Where a traveller arrives: transfer alternatives must start here (an airport transfer is never swapped for a port-to-business-park ferry). */
 const ARRIVAL_POINTS = ["Airport", "Railway station"];
 
-export const PACKAGES: PackageRecord[] = data.packages.map(row => {
-  const city = cityName(row.city_id);
+// ---------------------------------------------------------------------------
+// Catalogue curation. The PS-04 dataset is generated: each package's theme and activity titles were drawn without regard to
+// the place — a "Honeymoon" package in the temple town of Tirupati, a jazz cellar in Amritsar, a beach in inland Ooty.
+// We keep every ID and price, show the theme that fits the place (name and description follow it), and leave out lines
+// that don't belong there. The dataset itself is read-only and unchanged.
+// ---------------------------------------------------------------------------
+
+/** The theme each place is actually known for, where the dataset's generated theme contradicts it. */
+export const PLACE_THEME: Record<string, string> = {
+  // Sacred towns: temple darshan, ghats, gurdwara
+  Tirupati: "pilgrimage", Amritsar: "pilgrimage", Puri: "pilgrimage", Madurai: "pilgrimage", Varanasi: "pilgrimage",
+  // Monuments, forts and old cities
+  Thanjavur: "heritage", Bhubaneswar: "heritage", Hyderabad: "heritage", Ahmedabad: "heritage", Hampi: "heritage", Jaisalmer: "heritage", Kochi: "heritage",
+  // Couples' lake and hill getaways
+  Srinagar: "honeymoon", Nainital: "honeymoon", Alleppey: "honeymoon",
+  // High mountains
+  Leh: "adventure",
+  // Cities people travel to eat in
+  Lucknow: "food_trail", Kolkata: "food_trail", Mumbai: "food_trail", Bengaluru: "food_trail",
+  // Easy family trips
+  Shimla: "family", Visakhapatnam: "family", Ooty: "family", Pune: "family",
+  // Next to national parks
+  Wayanad: "wildlife",
+};
+
+const COASTAL = new Set(["Chennai", "Kochi", "Mumbai", "Panaji", "Pondicherry", "Puri", "Thiruvananthapuram", "Visakhapatnam", "Gokarna", "Alleppey"]);
+const BACKWATERS = new Set(["Alleppey", "Kochi", "Thiruvananthapuram"]);
+const PLACE_MISFITS: Record<string, RegExp> = { Leh: /elephant/i, Pondicherry: /tea estate/i };
+// Hill towns reached by road: no railway station to be picked up from.
+const NO_RAILWAY = new Set(["Leh", "Gangtok", "Shillong", "Munnar", "Manali", "Nainital", "Wayanad"]);
+const HOT_SPRINGS = new Set(["Manali", "Gangtok", "Leh"]);
+
+/** Why a line doesn't belong in this place (null when it does). */
+export function misfitReason(city: string, theme: string, title: string) {
+  if (theme === "pilgrimage" && /jazz|live music|lounge|\bbar\b|\bpub\b|club|wine|brew/i.test(title)) return "nightlife in a sacred town";
+  if (!COASTAL.has(city) && /\b(beach|bay|cove|maritime|seafront)\b/i.test(title)) return "no sea here";
+  if (/backwater/i.test(title) && !BACKWATERS.has(city)) return "backwaters are in Kerala";
+  if (/hot spring/i.test(title) && !HOT_SPRINGS.has(city)) return "no hot springs here";
+  if (/^railway station/i.test(title) && NO_RAILWAY.has(city)) return "no railway station here";
+  if (PLACE_MISFITS[city]?.test(title)) return "not found here";
+  return null;
+}
+
+const themeWords = (theme: string) => theme.replaceAll("_", " ");
+const titleCase = (text: string) => text.replace(/\b\w/g, letter => letter.toUpperCase());
+
+export const PACKAGES: PackageRecord[] = data.packages.map(source => {
+  const city = cityName(source.city_id);
+  const theme = PLACE_THEME[city] ?? source.theme;
+  const retitle = (text: string, format: (words: string) => string) => text.replace(new RegExp(`\\b${themeWords(source.theme)}\\b`, "i"), format(themeWords(theme)));
+  const row = theme === source.theme ? source : { ...source, theme, name: retitle(source.name, titleCase), description: retitle(source.description, words => words) };
   const rows = data.components.filter(component => component.package_id === row.package_id);
   const components: PackageComponent[] = [];
   const seenGroups = new Set<string>();
+  const groupLabels = new Map<string, Set<string>>();
   for (const component of rows) {
     if (component.component_type === "guide") continue; // guides are booked through the availability-checked guide step
+    if (component.component_type !== "hotel" && misfitReason(city, theme, component.title)) continue;
+    // A swap alternative with the same name as another option in its group is no choice at all.
+    if (component.swap_group) {
+      const labels = groupLabels.get(component.swap_group) ?? new Set<string>();
+      if (labels.has(component.title)) continue;
+      groupLabels.set(component.swap_group, labels.add(component.title));
+    }
     const type: PackageComponent["type"] = component.component_type === "poi" ? "experience" : component.component_type as PackageComponent["type"];
     const hotel = type === "hotel" ? data.hotels.find(item => item.hotel_id === component.entity_id) : undefined;
     const arrivalTransfer = type === "transfer" && /airport|arrival|station/i.test(component.title);
@@ -223,8 +280,10 @@ export const PACKAGES: PackageRecord[] = data.packages.map(row => {
   // Transfer swap: the city's legs from the transfers table that start where a traveller arrives (airport or railway station).
   const includedTransfer = components.find(component => component.type === "transfer");
   if (includedTransfer) {
-    const legs = data.transfers.filter(item => item.city_id === row.city_id && ARRIVAL_POINTS.includes(item.from_label)).sort((a, b) => toPaise(a.cost) - toPaise(b.cost));
+    const legs = data.transfers.filter(item => item.city_id === row.city_id && ARRIVAL_POINTS.includes(item.from_label) && !misfitReason(city, theme, `${item.from_label} → ${item.to_label}`)).sort((a, b) => toPaise(a.cost) - toPaise(b.cost));
     for (const leg of legs) {
+      // Legs are cheapest first; a second leg on the same route is not a different choice.
+      if (components.some(item => item.swapGroup === includedTransfer.swapGroup && item.label === `${leg.from_label} → ${leg.to_label}`)) continue;
       components.push({
         id: leg.transfer_id, type: "transfer", label: `${leg.from_label} → ${leg.to_label}`,
         detail: `${leg.mode.replaceAll("_", " ")} · ${leg.duration_minutes} min`,

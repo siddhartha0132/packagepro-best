@@ -11,7 +11,7 @@ export function useFixedTr(lang: Lang) {
   return (text: string) => QUOTE_COPY[lang]?.[text] ?? (QUOTE_EN[text] ? tr(QUOTE_EN[text]) : tr(text));
 }
 
-/** "Thanjavur Honeymoon — 6 Days" → "Thanjavur Honeymoon": the trip's own length is shown next to it. */
+/** "Thanjavur Heritage — 6 Days" → "Thanjavur Heritage": the trip's own length is shown next to it. */
 export const packageTitle = (name: string) => name.replace(/\s*[—-]\s*\d+\s*Days?$/i, "");
 
 /** "Day 2 · morning · Brihadeeswarar temple" → "Brihadeeswarar temple". */

@@ -3,6 +3,7 @@ import { clearGuideBookingsForTests, exportCanonicalRows, guideBookedCount } fro
 import * as trips from "../backend/src/trips";
 import { appRouter } from "../backend/src/routers";
 import { normalisePhone } from "../backend/src/travellerMessages";
+import { PACKAGES } from "../backend/src/packagepro";
 import type { TrpcContext } from "../backend/src/_core/context";
 
 // Booking with a travel agent's approval: a request is written as booking_status 'pending' with the guide's dates held,
@@ -161,7 +162,8 @@ describe("itinerary reads in the order the trip happens", () => {
   });
 
   it("an early flight keeps the morning plans", async () => {
-    const created = await trips.createTrip({ origin: "DEL", destination: "Thanjavur", ...DATES, travelers: 4, budgetCap: 900000, language: "ta" });
+    const pkg = PACKAGES.find(item => item.city !== "New Delhi" && item.components.some(line => line.isDefault && line.type === "experience" && line.dayIndex === 1 && line.slot === "morning"))!;
+    const created = await trips.createTrip({ origin: "DEL", destination: pkg.city, ...DATES, travelers: pkg.minGroupSize, budgetCap: 900000, language: "en-IN" });
     const early = created.flightOptions.find(flight => Number(flight.arrive?.slice(0, 2)) < 12)!;
     const trip = await trips.selectFlight(created.tripId, early.id);
     expect(trip.itinerary[0].items[0]).toMatchObject({ kind: "arrival", slot: "morning" });

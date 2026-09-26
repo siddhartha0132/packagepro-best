@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { appRouter } from "../backend/src/routers";
 import { clearGuideBookingsForTests } from "../backend/src/appStore";
 import { sensibleFares } from "../backend/src/integrations";
+import { PACKAGES } from "../backend/src/packagepro";
 
 // PS-04 dataset: two Tamil-speaking heritage guides in Thanjavur. Arjun is unavailable on 2026-09-02; Meera is free 2–4 Sep.
 const ARJUN = "gid_ad5b7c5f";
@@ -51,7 +52,7 @@ describe("packagepro catalogue", () => {
   });
 });
 
-// Thanjavur Honeymoon takes groups of 4–8 (tour_packages.min_group_size / max_group_size), so the flows use a party of 4.
+// Thanjavur Heritage takes groups of 4–8 (tour_packages.min_group_size / max_group_size), so the flows use a party of 4.
 async function customiseThanjavur(budgetCap = 500000, dates = { departDate: "2026-09-02", returnDate: "2026-09-05" }) {
   const api = caller();
   let trip = await api.trip.create({ origin: "DEL", destination: "Thanjavur", ...dates, travelers: 4, budgetCap, language: "ta" });
@@ -559,5 +560,26 @@ describe("estimate ordering", () => {
     expect(estimate.low).toBeLessThanOrEqual(estimate.typical);
     expect(estimate.typical).toBeLessThanOrEqual(estimate.high);
     expect(estimate.flights.typical).toBeGreaterThanOrEqual(estimate.flights.low);
+  });
+});
+
+describe("catalogue fits each place", () => {
+  it("sacred towns are pilgrimages, with no nightlife; inland places have no beaches; every theme still has packages", () => {
+    const byCity = (city: string) => PACKAGES.find(pkg => pkg.city === city)!;
+    for (const city of ["Tirupati", "Amritsar", "Puri", "Madurai", "Varanasi"]) {
+      const pkg = byCity(city);
+      expect(pkg.tags[0]).toBe("pilgrimage");
+      expect(pkg.name).toMatch(/Pilgrimage/);
+      expect(pkg.name + pkg.description).not.toMatch(/honeymoon/i);
+      expect(pkg.components.some(line => /jazz|live music|lounge/i.test(line.label))).toBe(false);
+    }
+    for (const city of ["Ooty", "Thanjavur", "Agra", "Amritsar"]) expect(byCity(city).components.some(line => /beach|bay\b|cove/i.test(line.label))).toBe(false);
+    expect(byCity("Leh").components.some(line => /^Railway station/.test(line.label))).toBe(false);
+    for (const theme of ["heritage", "honeymoon", "pilgrimage", "food_trail", "family", "wellness", "adventure", "wildlife"]) expect(PACKAGES.some(pkg => pkg.tags[0] === theme)).toBe(true);
+    // Swap groups never offer the same activity twice.
+    for (const pkg of PACKAGES) for (const group of new Set(pkg.components.map(line => line.swapGroup).filter(Boolean))) {
+      const labels = pkg.components.filter(line => line.swapGroup === group).map(line => line.label);
+      expect(new Set(labels).size).toBe(labels.length);
+    }
   });
 });

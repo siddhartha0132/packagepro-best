@@ -103,7 +103,7 @@ function AddOnOrbit() {
   const step = 360 / Math.max(1, addOns.length);
   return <div className="absolute inset-0 grid place-items-center">
     <div className="relative grid place-items-center">
-      <div className="z-10 w-44 rounded-2xl bg-white p-3 text-center text-[#0b1f3a] shadow-2xl"><div className="text-[10px] font-bold uppercase tracking-wider text-[#0b6bcb]">Package</div><div className="text-sm font-black">{detail.data?.name ?? "Thanjavur Honeymoon"}</div></div>
+      <div className="z-10 w-44 rounded-2xl bg-white p-3 text-center text-[#0b1f3a] shadow-2xl"><div className="text-[10px] font-bold uppercase tracking-wider text-[#0b6bcb]">Package</div><div className="text-sm font-black">{detail.data?.name ?? "Thanjavur Heritage"}</div></div>
       <div className="hw-3d hw-orbit absolute h-0 w-0">
         {addOns.map((item, index) => <div key={item.id} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ transform: `rotateY(${index * step}deg) translateZ(170px)` }}>
           <div className="hw-counter whitespace-nowrap rounded-full bg-[#16a37a] px-3 py-1.5 text-[11px] font-bold text-white shadow-lg" style={{ transform: `rotateY(${-index * step}deg)` }}>＋ {item.label} · {money(item.price)}</div>
@@ -149,7 +149,7 @@ function GuideCalendar() {
 
 /** 6 · One package, four languages, on a rotating cube (live translations). */
 function LanguageCube() {
-  const name = "Thanjavur Honeymoon — 6 Days";
+  const name = "Thanjavur Heritage — 6 Days";
   const hi = useTr("hi");
   const ta = useTr("ta");
   const te = useTr("te");
@@ -180,7 +180,7 @@ function BookingTicket() {
         <div className="hw-face absolute inset-0 rounded-2xl bg-white p-4 text-left text-[#0b1f3a] shadow-2xl">
           <div className="text-[10px] font-bold uppercase tracking-wider text-[#0b6bcb]">PackagePro · confirmed</div>
           <div className="mt-2 flex items-baseline justify-between"><span className="text-2xl font-black">DEL → TRZ</span><span className="text-xs text-[#5f6b7a]">28 Sept – 1 Oct</span></div>
-          <div className="mt-2 text-xs text-[#334155]">Thanjavur Honeymoon · 4 travellers · guide Arjun Nair</div>
+          <div className="mt-2 text-xs text-[#334155]">Thanjavur Heritage · 4 travellers · guide Arjun Nair</div>
           <div className="mt-3 flex items-end justify-between border-t border-dashed border-[#dde3ec] pt-3"><span className="text-[10px] text-[#5f6b7a]">tap to flip</span><span className="font-mono text-lg font-black">PNR K7Q2XA</span></div>
         </div>
         <div className="hw-face absolute inset-0 rounded-2xl bg-[#0b1f3a] p-4 text-left font-mono text-[11px] leading-5 text-[#bfe0ff] shadow-2xl" style={{ transform: "rotateY(180deg)" }}>

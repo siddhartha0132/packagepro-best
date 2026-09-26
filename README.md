@@ -12,7 +12,7 @@ Start from a curated package, reshape it piece by piece, and watch it reprice li
 |---|---|
 | Mandatory guide availability check | Enforced in the backend, proven by [`tests/hardProof.guideAvailability.test.ts`](tests/hardProof.guideAvailability.test.ts) |
 | Shared data model | Canonical tables read and written; organisers' validator **PASS** (`pnpm conformance`) |
-| Tests | 85 offline tests (`pnpm verify`, run by GitHub Actions on every push) + 4 live-key checks — `npx vitest run` → 89 passed · voice: 20/20 (`pnpm voice:eval`) |
+| Tests | 86 offline tests (`pnpm verify`, run by GitHub Actions on every push) + 4 live-key checks — `npx vitest run` → 90 passed · voice: 20/20 (`pnpm voice:eval`) |
 | Guided tour for judges | `/how-it-works`: every PS-04 requirement, where it is in the code, and a live demo |
 | Brief | [HACKATHON.md](HACKATHON.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](data-model/DATA_MODEL.md) · [AI](ai/README.md) · [API](docs/API.md) · [Demo script](docs/DEMO_SCRIPT.md) |
 
@@ -119,8 +119,8 @@ The terminal outcome: **a customised package, booked, with the guide rule shown*
 ## Tests / proof
 
 ```bash
-pnpm verify                                                   # type check + lint + 85 offline tests + production build (also runs before every push)
-npx vitest run                                                # everything: 85 offline + 4 live-key checks (reads .env) → 89 passed
+pnpm verify                                                   # type check + lint + 86 offline tests + production build (also runs before every push)
+npx vitest run                                                # everything: 86 offline + 4 live-key checks (reads .env) → 90 passed
 npx vitest run tests/hardProof.guideAvailability.test.ts     # the PS-04 hard proof
 pnpm voice:eval                                               # 20 spoken requests in 4 languages through the real voice pipeline → docs/VOICE_EVAL.md (needs SARVAM_API_KEY)
 pnpm conformance                                              # organisers' validator on dataset + our rows → PASS

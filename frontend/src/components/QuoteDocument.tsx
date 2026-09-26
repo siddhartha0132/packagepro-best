@@ -8,7 +8,7 @@ import { type Estimate, money, slotLabel, specLabel } from "./TripScreens";
 // Printable A4 quotation (browser "Save as PDF"): keeps Indic scripts crisp and photos sharp without a PDF library.
 // A table's thead/tfoot repeat on every printed page, giving each page a brand strip and footer.
 
-/** "Thanjavur Honeymoon — 6 Days" → "Thanjavur Honeymoon": the trip's own length is shown separately. */
+/** "Thanjavur Heritage — 6 Days" → "Thanjavur Heritage": the trip's own length is shown separately. */
 const baseName = packageTitle;
 
 const locale = (lang: Lang) => (lang === "en-IN" ? "en-IN" : `${lang}-IN`);
