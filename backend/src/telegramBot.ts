@@ -51,8 +51,17 @@ async function tg<T = unknown>(method: string, body: Record<string, unknown> = {
 
 const markup = (rows?: Rows) => rows && { inline_keyboard: rows.map(row => row.map(button => button.url ? { text: button.text, url: button.url } : { text: button.text, callback_data: button.data ?? "x" })) };
 
-// While a voice note is being answered, the bot's replies to that chat are collected so the first one can be spoken back.
-const spokenReplies = new Map<string, string[]>();
+// While a voice note is being answered, the first reply to that chat is turned into speech at once, in parallel with the
+// rest of the answer, so the voice note follows the text within a moment instead of after every message has gone out.
+const spokenReplies = new Map<string, { lang: Lang; audio?: Promise<Uint8Array | null> }>();
+
+function captureSpoken(chatId: string, text: string) {
+  const pending = spokenReplies.get(chatId);
+  if (!pending || pending.audio) return;
+  const words = speakable(text);
+  // Spoken replies share the credit guard; when over it the text reply alone is enough.
+  pending.audio = words && !takeToken("voiceSpeak", `tg:${chatId}`) ? speak(words, pending.lang).catch(() => null) : Promise.resolve(null);
+}
 
 /** Multipart upload (voice replies); the JSON helper above covers every other call. */
 async function tgUpload(method: string, form: FormData, timeoutMs = 30000) {
@@ -62,7 +71,7 @@ async function tgUpload(method: string, form: FormData, timeoutMs = 30000) {
 }
 
 function send(chatId: string, text: string, rows?: Rows) {
-  spokenReplies.get(chatId)?.push(text);
+  captureSpoken(chatId, text);
   return tg<{ message_id: number }>("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: markup(rows) });
 }
 
@@ -76,7 +85,7 @@ async function edit(chatId: string, messageId: number, text: string, rows?: Rows
 
 async function sendPhoto(chatId: string, photo: string | undefined, caption: string, rows?: Rows) {
   if (photo?.startsWith("http")) {
-    spokenReplies.get(chatId)?.push(caption);
+    captureSpoken(chatId, caption);
     try { return await tg("sendPhoto", { chat_id: chatId, photo, caption, parse_mode: "HTML", reply_markup: markup(rows) }, 20000); } catch { /* fall back to text */ }
   }
   return send(chatId, caption, rows);
@@ -668,15 +677,12 @@ async function onVoice(chatId: string, s: Session, note: VoiceNote) {
   // Reply in the language the traveller spoke (the app's four languages; others keep the current one).
   if (LANGS.some(lang => lang.value === heard.language)) s.lang = heard.language as Lang;
   await send(chatId, `${say(s.lang, "voiceHeard")} <i>${esc(heard.native)}</i>${heard.native !== heard.english ? `\n<i>(${esc(heard.english)})</i>` : ""}`);
-  spokenReplies.set(chatId, []);
+  spokenReplies.set(chatId, { lang: s.lang });
   try {
     await onText(chatId, s, heard.english);
   } finally {
-    const replies = spokenReplies.get(chatId) ?? [];
+    const audio = await spokenReplies.get(chatId)?.audio;
     spokenReplies.delete(chatId);
-    const text = speakable(replies[0] ?? "");
-    // Spoken replies share the credit guard; when over it the text reply alone is enough.
-    const audio = text && !takeToken("voiceSpeak", `tg:${chatId}`) ? await speak(text, s.lang) : null;
     if (audio) {
       const form = new FormData();
       form.append("chat_id", chatId);
