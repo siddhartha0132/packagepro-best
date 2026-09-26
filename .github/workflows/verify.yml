@@ -1,0 +1,39 @@
+# Every push and pull request: type check, the offline test suites (incl. the PS-04 hard proof), the production build,
+# and the organisers' data-model validator. Same Node version as Railway (.node-version); no secrets needed —
+# the tests run offline (live-key checks stay local: `npx vitest run` with .env).
+name: verify
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check, tests and build
+        run: pnpm verify
+
+      - name: Data-model conformance (organisers' validator)
+        run: pnpm conformance
