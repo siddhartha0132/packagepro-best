@@ -39,9 +39,18 @@ curl -s -X POST http://localhost:3000/api/trpc/trip.create -H 'content-type: app
 `voice.hear` 20 / 500, `voice.speak` 40 / 1,000, `packagepro.translate` 120 / 5,000, `packagepro.explain` 40 / 2,000.
 Over a limit the call fails with `TOO_MANY_REQUESTS` and a plain-language message; the Telegram bot applies the same limits per chat.
 
+## PDF files — `GET /api/pdf/:tripId/:kind/:lang/:signature.pdf`
+
+`kind` is `quote` (any time) or `bill` (only once the booking is confirmed, else `409`); `lang` is `en-IN`, `hi`, `ta` or `te`.
+The signature is an HMAC of trip, kind and language (`JWT_SECRET`), so a link can't be guessed from a trip id (`404` if it
+doesn't match). The file is printed by headless Chrome from the web app's `/print?trip=…&lang=…&kind=…` page — the same
+template as the browser's "Save as PDF", so Indian scripts shape correctly — and cached until the trip changes. `503` when
+the server has no Chrome (`backend/src/pdf.ts`).
+
 ## Trip engine — `trip.*`
 
-A trip moves `select_flight → select_package ⇄ negotiate → review → confirmed`. Every mutation returns the full trip snapshot
+A trip moves `select_flight → select_package ⇄ negotiate → review → confirmed` (or, when booked through a travel agent in
+Telegram, `review → awaiting_approval → confirmed | review`). Every mutation returns the full trip snapshot
 (`priceBreakdown`, `itinerary`, `guideAvailabilityIssue`, `negotiationOptions`, `booking`).
 
 | Procedure | Type | Input | Behaviour |

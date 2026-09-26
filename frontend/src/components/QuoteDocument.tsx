@@ -49,11 +49,11 @@ function itemDetail(item: { kind: string; detail: string; slot?: string }, lang:
   return tr(cleanDetail(item.detail));
 }
 
-function Sheet({ reference, tr, lang, children }: { reference: string; tr: (text: string) => string; lang: Lang; children: ReactNode }) {
+function Sheet({ reference, tr, lang, children, title = "Quotation" }: { reference: string; tr: (text: string) => string; lang: Lang; children: ReactNode; title?: string }) {
   const issued = new Intl.DateTimeFormat(locale(lang), { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date());
   return createPortal(<div id="print-root" className={`print-root${lang === "en-IN" ? "" : " q-indic"}`} lang={lang}>
     <table className="q-sheet">
-      <thead><tr><td><div className="q-strip"><span className="q-brand"><span className="q-logo">P</span>PackagePro</span><span>{tr("Quotation")} · {reference}</span></div></td></tr></thead>
+      <thead><tr><td><div className="q-strip"><span className="q-brand"><span className="q-logo">P</span>PackagePro</span><span>{tr(title)} · {reference}</span></div></td></tr></thead>
       <tbody><tr><td>{children}</td></tr></tbody>
       <tfoot><tr><td><div className="q-foot">{tr("Prices generated live on")} {issued} · {tr("PS-04 dataset, Google Flights and guide availability")}</div></td></tr></tfoot>
     </table>
@@ -94,7 +94,8 @@ function ListBox({ tone, title, text }: { tone: "in" | "out"; title: string; tex
 }
 
 /** Final quotation for a customised (or confirmed) trip. */
-export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; image?: string }) {
+/** The trip quotation — or, with kind "bill", the booking confirmation and bill sent once a travel agent approves. */
+export function TripQuote({ trip, lang, image, kind = "quote" }: { trip: TripView; lang: Lang; image?: string; kind?: "quote" | "bill" }) {
   const tr = useQuoteTr(lang);
   const b = trip.priceBreakdown;
   const reference = trip.booking?.reference ? `PNR ${trip.booking.reference}` : `#${trip.tripId.replace(/^trp_/, "").toUpperCase()}`;
@@ -111,7 +112,8 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
     ...componentLines.map(item => ({ label: `${itemLabel(item.label, tr)} · ${tr(KIND_TAG[item.kind] ?? item.kind)}`, value: item.price!, sub: true })),
     ...guidesOnPlan.map(guide => ({ label: `${tr("Guide")} · ${guide.name} · ${shortDates(guide.bookedDates)}`, value: guide.totalCost })),
   ];
-  return <Sheet reference={reference} tr={tr} lang={lang}>
+  const bill = kind === "bill";
+  return <Sheet reference={reference} tr={tr} lang={lang} title={bill ? "Booking confirmation" : "Quotation"}>
     <Cover image={image} title={tr(trip.destination)} subtitle={`${tr(baseName(trip.package?.name ?? ""))} · ${nights} ${tr("nights")} / ${nights + 1} ${tr("days")}`} meta={[
       [tr("Duration"), `${nights} ${tr("nights")} · ${nights + 1} ${tr("days")}`],
       [tr("Departure"), `${longDate(trip.departDate, lang).label} → ${longDate(trip.returnDate, lang).full}`],
@@ -121,8 +123,8 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
 
     <section className="q-letter">
       <h3>{tr("Dear traveller,")}</h3>
-      <p>{tr("LETTER_TRIP").replace("{city}", tr(trip.destination))}</p>
-      {trip.status === "confirmed" ? <span className="q-pill q-pill-ok">✓ {tr("Confirmed")}</span> : <span className="q-pill">{tr("Ready to confirm")}</span>}
+      <p>{tr(bill ? "LETTER_BILL" : "LETTER_TRIP").replace("{city}", tr(trip.destination))}</p>
+      {trip.status === "confirmed" ? <span className="q-pill q-pill-ok">✓ {tr("Confirmed")}</span> : trip.status === "awaiting_approval" ? <span className="q-pill">{tr("Awaiting approval")}</span> : <span className="q-pill">{tr("Ready to confirm")}</span>}
     </section>
 
     <section className="q-avoid">
@@ -130,7 +132,7 @@ export function TripQuote({ trip, lang, image }: { trip: TripView; lang: Lang; i
       <table className="q-table">
         <thead><tr><th>{tr("Item")}</th><th className="r">{tr("Amount")}</th></tr></thead>
         <tbody>{rows.map((row, index) => <tr key={index} className={row.sub ? "q-subrow" : ""}><td>{row.label}</td><td className="r">{row.value < 0 ? "−" : ""}{money(Math.abs(row.value))}</td></tr>)}</tbody>
-        <tfoot><tr><td>{tr("Total")}<span className="q-sub">{tr("Your budget")} {money(trip.budgetCap)} · {money(Math.max(0, trip.budgetCap - b.total))} {tr("remaining")}</span></td><td className="r q-total">{money(b.total)}</td></tr></tfoot>
+        <tfoot><tr><td>{tr(bill ? "Amount payable" : "Total")}<span className="q-sub">{tr("Your budget")} {money(trip.budgetCap)} · {money(Math.max(0, trip.budgetCap - b.total))} {tr("remaining")}</span></td><td className="r q-total">{money(b.total)}</td></tr></tfoot>
       </table>
     </section>
 

@@ -11,21 +11,27 @@ import { travellerForLanguage } from "./travellers";
 import { unitsFor } from "./trips";
 import { MAX_VOICE_SECONDS, hear, speak, speakable, voiceEnabled } from "./voice";
 import { takeToken } from "./rateLimit";
+import { pdfEnabled, publicPdfLink, renderTripPdf, type PdfKind } from "./pdf";
 
 // PackagePro on Telegram: the same engine as the web app (live fares, PS-04 packages, per-date guide checks with
 // same-language substitutes, budget negotiation, bookings), driven by inline buttons and free-text AI in 4 languages.
 // Long polling, so it runs locally and on Railway without a public webhook.
+// After the flight the bot walks the traveller step by step (stay → extras → guide → review), sends the quotation as a
+// PDF, and — when AGENT_TELEGRAM_CHAT_ID is set — sends the booking to a travel agent's chat to approve or reject; on
+// approval the traveller gets the booking confirmation and bill as a PDF plus a link. Without an agent chat it books at once.
 
 type TripView = Awaited<ReturnType<typeof trips.getTrip>>;
 type Draft = { cityId?: string; city?: string; origin?: string; departDate?: string; days?: number; travelers?: number; budget?: number; language?: string };
-type Session = { lang: Lang; step?: "origin" | "budget" | "raiseCap"; draft: Draft; tripId?: string; history: { role: "user" | "assistant"; content: string }[] };
+type WizardStep = "stay" | "extras" | "guide";
+type Session = { lang: Lang; step?: "origin" | "budget" | "raiseCap"; wizard?: WizardStep; draft: Draft; tripId?: string; history: { role: "user" | "assistant"; content: string }[] };
+type From = { language_code?: string; first_name?: string; username?: string };
 type Button = { text: string; data?: string; url?: string };
 type VoiceNote = { file_id: string; duration: number; mime_type?: string };
 type Rows = Button[][];
 type Update = {
   update_id: number;
   message?: { message_id: number; chat: { id: number }; from?: { language_code?: string }; text?: string; voice?: VoiceNote; audio?: VoiceNote };
-  callback_query?: { id: string; data?: string; from?: { language_code?: string }; message?: { message_id: number; chat: { id: number } } };
+  callback_query?: { id: string; data?: string; from?: From; message?: { message_id: number; chat: { id: number } } };
 };
 
 const THEMES = ["heritage", "honeymoon", "adventure", "pilgrimage", "family", "wellness", "wildlife", "food_trail"] as const;
@@ -89,6 +95,25 @@ async function sendPhoto(chatId: string, photo: string | undefined, caption: str
     try { return await tg("sendPhoto", { chat_id: chatId, photo, caption, parse_mode: "HTML", reply_markup: markup(rows) }, 20000); } catch { /* fall back to text */ }
   }
   return send(chatId, caption, rows);
+}
+
+/**
+ * The quotation or bill as a PDF document (headless Chrome, backend/src/pdf.ts), with a button to the signed link when the
+ * server has a public address. Returns false when no PDF could be made here — callers show the link instead.
+ */
+async function sendTripPdf(chatId: string, trip: TripView, kind: PdfKind, lang: Lang, caption: string) {
+  if (!pdfEnabled()) return false;
+  await tg("sendChatAction", { chat_id: chatId, action: "upload_document" }).catch(() => undefined);
+  const pdf = await renderTripPdf(trip.tripId, kind, lang);
+  if (!pdf) return false;
+  const link = publicPdfLink(trip.tripId, kind, lang);
+  const form = new FormData();
+  form.append("chat_id", chatId);
+  form.append("caption", caption);
+  form.append("parse_mode", "HTML");
+  if (link) form.append("reply_markup", JSON.stringify(markup([[{ text: say(lang, "pdfLink"), url: link }]])));
+  form.append("document", new Blob([new Uint8Array(pdf)], { type: "application/pdf" }), `PackagePro-${kind === "bill" ? "Bill" : "Quotation"}-${trip.booking?.reference ?? trip.tripId}.pdf`);
+  return tgUpload("sendDocument", form, 60000).then(() => true, error => { console.warn("[telegram] PDF upload failed:", (error as Error).message); return false; });
 }
 
 const typing = (chatId: string) => tg("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => undefined);
@@ -296,6 +321,7 @@ async function buildTrip(chatId: string, s: Session) {
   // The chat books as the dataset traveller for its language (users + user_preferences), over the mobile_app channel.
   const trip = await trips.createTrip({ origin: d.origin, destination: d.cityId, departDate: d.departDate, returnDate: addDays(d.departDate, d.days), travelers: d.travelers, budgetCap: d.budget, language: d.language, userId: travellerForLanguage(s.lang).userId, channel: "mobile_app" });
   s.tripId = trip.tripId;
+  s.wizard = undefined;
   return showTrip(chatId, s, trip);
 }
 
@@ -307,8 +333,9 @@ async function showTrip(chatId: string, s: Session, trip?: TripView) {
   }
   if (trip.status === "select_flight") return showFlights(chatId, s, trip);
   if (trip.status === "negotiate") return showNegotiation(chatId, s, trip);
-  if (trip.status === "select_package") return showPackage(chatId, s, trip);
+  if (trip.status === "select_package") return s.wizard ? showStep(chatId, s, trip) : showPackage(chatId, s, trip);
   if (trip.status === "review") return showReview(chatId, s, trip);
+  if (trip.status === "awaiting_approval") return send(chatId, say(s.lang, "stillWaiting"), [[{ text: say(s.lang, "btnBrowse"), data: "M:browse" }, { text: say(s.lang, "btnAi"), data: "M:ai" }]]);
   return showConfirmed(chatId, s, trip);
 }
 
@@ -316,7 +343,7 @@ async function showFlights(chatId: string, s: Session, trip: TripView) {
   if (!trip.flightOptions.length) return send(chatId, say(s.lang, "noFlights"), [[{ text: say(s.lang, "back"), data: "M:menu" }]]);
   const order = trip.flightOptions.map((flight, index) => ({ flight, index })).sort((a, b) => a.flight.price - b.flight.price).slice(0, 6);
   const stops = (n?: number) => (n ? say(s.lang, "stops", { n }) : say(s.lang, "nonstop"));
-  await send(chatId, `${say(s.lang, "pickFlight")}\n${esc(trip.origin)} → ${esc(trip.destination)} · ${shortDate(trip.departDate, s.lang)}${trip.flightSource === "catalogue" ? `\n${say(s.lang, "catalogueFares")}` : ""}`,
+  await send(chatId, `${stepTitle(s.lang, 1, "stepFlight")}\n${say(s.lang, "pickFlight")}\n${esc(trip.origin)} → ${esc(trip.destination)} · ${shortDate(trip.departDate, s.lang)}${trip.flightSource === "catalogue" ? `\n${say(s.lang, "catalogueFares")}` : ""}`,
     order.map(({ flight, index }) => [{ text: `${flight.airline} ${flight.depart}${flight.arrive ? `→${flight.arrive}` : ""} · ${stops(flight.stops)} · ${money(flight.price * trip.travelers)}${trip.travelers > 1 ? ` (${trip.travelers}×${money(flight.price)})` : ""}`, data: `F:${index}` }]));
 }
 
@@ -358,34 +385,69 @@ async function showPackage(chatId: string, s: Session, trip: TripView, lead?: st
 async function showHotels(chatId: string, s: Session, trip: TripView) {
   const current = trip.packageComponents.find(item => item.type === "hotel" && item.included);
   if (!current || !trip.package) return showPackage(chatId, s, trip);
-  const alternatives = getAlternatives(trip.package, current.id);
-  const stars = (detail: string) => detail.match(/(\d)★/)?.[1];
-  await send(chatId, say(s.lang, "pickHotel"), [
-    [{ text: `✓ ${current.label}${stars(current.detail) ? ` · ${stars(current.detail)}★` : ""} (${say(s.lang, "current")})`, data: "x" }],
-    ...alternatives.map((item, index) => [{ text: `${item.label}${stars(item.detail) ? ` · ${stars(item.detail)}★` : ""} · ${signed((item.price - current.price) * trip.priceBreakdown.party.rooms * trip.priceBreakdown.nightsFactor)}`, data: `H:${index}` }]),
-    [{ text: say(s.lang, "back"), data: "M:trip" }],
-  ]);
+  await send(chatId, say(s.lang, "pickHotel"), [...hotelRows(s, trip, current), [{ text: say(s.lang, "back"), data: "M:trip" }]]);
 }
 
-function addOnRows(s: Session, trip: TripView, tr: (text: string) => string): Rows {
+function hotelRows(s: Session, trip: TripView, current: TripView["packageComponents"][number]): Rows {
+  const stars = (detail: string) => detail.match(/(\d)★/)?.[1];
   return [
-    ...trip.packageComponents.map((item, index) => ({ item, index })).filter(({ item }) => item.optional)
-      .map(({ item, index }) => [{ text: `${item.included ? "✅" : "➕"} ${tr(item.label)} · ${money(item.price * unitsFor(item.type, trip.priceBreakdown.party))}`, data: `A:${index}` }]),
-    [{ text: say(s.lang, "back"), data: "M:trip" }],
+    [{ text: `✓ ${current.label}${stars(current.detail) ? ` · ${stars(current.detail)}★` : ""} (${say(s.lang, "current")})`, data: "x" }],
+    ...getAlternatives(trip.package!, current.id).map((item, index) => [{ text: `${item.label}${stars(item.detail) ? ` · ${stars(item.detail)}★` : ""} · ${signed((item.price - current.price) * trip.priceBreakdown.party.rooms * trip.priceBreakdown.nightsFactor)}`, data: `H:${index}` }]),
   ];
 }
 
+function addOnRows(s: Session, trip: TripView, tr: (text: string) => string, last: Button[] = [{ text: say(s.lang, "back"), data: "M:trip" }]): Rows {
+  return [
+    ...trip.packageComponents.map((item, index) => ({ item, index })).filter(({ item }) => item.optional)
+      .map(({ item, index }) => [{ text: `${item.included ? "✅" : "➕"} ${tr(item.label)} · ${money(item.price * unitsFor(item.type, trip.priceBreakdown.party))}`, data: `A:${index}` }]),
+    last,
+  ];
+}
+
+function guideRows(s: Session, trip: TripView): Rows {
+  return trips.listGuides(trip.tripId).slice(0, 8).map((guide, index) => [{
+    text: `${guide.isAvailableForTrip ? "✅" : "⚠️"} ${guide.name} ★${guide.rating} · ${specName(s.lang, guide.specialisation)} · ${guide.isAvailableForTrip ? say(s.lang, "guideAvail") : say(s.lang, "guideBusy", { dates: guide.unavailableDates.slice(0, 2).map(date => shortDate(date, s.lang)).join(", ") })} · ${money(guide.tripCost)}`,
+    data: `GS:${index}`,
+  }]);
+}
+
 async function showGuides(chatId: string, s: Session, trip: TripView) {
-  const guides = trips.listGuides(trip.tripId);
+  const rows = guideRows(s, trip);
   const langName = GUIDE_LANG_NAMES[trip.language] ?? trip.language;
-  if (!guides.length) return send(chatId, say(s.lang, "noGuides", { lang: langName, city: trip.destination }), [[{ text: say(s.lang, "back"), data: "M:trip" }]]);
-  await send(chatId, say(s.lang, "pickGuide", { lang: langName }), [
-    ...guides.slice(0, 8).map((guide, index) => [{
-      text: `${guide.isAvailableForTrip ? "✅" : "⚠️"} ${guide.name} ★${guide.rating} · ${specName(s.lang, guide.specialisation)} · ${guide.isAvailableForTrip ? say(s.lang, "guideAvail") : say(s.lang, "guideBusy", { dates: guide.unavailableDates.slice(0, 2).map(date => shortDate(date, s.lang)).join(", ") })} · ${money(guide.tripCost)}`,
-      data: `GS:${index}`,
-    }]),
-    [{ text: say(s.lang, "back"), data: "M:trip" }],
-  ]);
+  if (!rows.length) return send(chatId, say(s.lang, "noGuides", { lang: langName, city: trip.destination }), [[{ text: say(s.lang, "back"), data: "M:trip" }]]);
+  await send(chatId, say(s.lang, "pickGuide", { lang: langName }), [...rows, [{ text: say(s.lang, "back"), data: "M:trip" }]]);
+}
+
+// ---------------------------------------------------------------------------
+// The guided flow: 1 flight → 2 stay → 3 extras → 4 guide → 5 review (each step can still be changed later)
+// ---------------------------------------------------------------------------
+
+const stepTitle = (lang: Lang, n: number, name: BotKey) => say(lang, "step", { n, name: say(lang, name) });
+const nextButton = (lang: Lang, step: WizardStep | "review"): Button => ({ text: say(lang, "btnNext", { name: say(lang, step === "stay" ? "stepStay" : step === "extras" ? "stepExtras" : step === "guide" ? "stepGuide" : "stepReview") }), data: `W:${step}` });
+
+async function showStep(chatId: string, s: Session, trip: TripView, lead?: string): Promise<unknown> {
+  const hasAddOns = trip.packageComponents.some(item => item.optional);
+  const hotel = trip.packageComponents.find(item => item.type === "hotel" && item.included);
+  // Skip a step the package has nothing for.
+  if (s.wizard === "stay" && (!hotel || !trip.package || !getAlternatives(trip.package, hotel.id).length)) s.wizard = "extras";
+  if (s.wizard === "extras" && !hasAddOns) s.wizard = "guide";
+  const head = (n: number, name: BotKey) => `${lead ? `${lead}\n\n` : ""}${stepTitle(s.lang, n, name)}\n`;
+  const total = money(trip.priceBreakdown.total);
+  if (s.wizard === "stay") {
+    return send(chatId, `${head(2, "stepStay")}${say(s.lang, "stayPrompt", { total })}`, [...hotelRows(s, trip, hotel!), [nextButton(s.lang, hasAddOns ? "extras" : "guide")]]);
+  }
+  if (s.wizard === "extras") {
+    const tr = await translator(s.lang, trip.packageComponents.filter(item => item.optional).map(item => item.label));
+    return send(chatId, `${head(3, "stepExtras")}${say(s.lang, "extrasPrompt", { total })}`, addOnRows(s, trip, tr, [nextButton(s.lang, "guide")]));
+  }
+  const langName = GUIDE_LANG_NAMES[trip.language] ?? trip.language;
+  const chosen = [trip.chosenGuide, ...(trip.extraGuides ?? [])].filter(Boolean).map(guide => guide!.name);
+  if (chosen.length) {
+    return send(chatId, `${head(4, "stepGuide")}${say(s.lang, "guideChosen", { guide: esc(chosen.join(", ")) })}`, [[nextButton(s.lang, "review")], [{ text: say(s.lang, "btnRemoveGuide"), data: "GX" }]]);
+  }
+  const rows = guideRows(s, trip);
+  const intro = rows.length ? say(s.lang, "guidePrompt", { lang: langName }) : say(s.lang, "noGuides", { lang: langName, city: trip.destination });
+  return send(chatId, `${head(4, "stepGuide")}${intro}`, [...rows, [{ text: say(s.lang, "btnNoGuide"), data: "W:review" }]]);
 }
 
 /** The mandatory guide rule: refuse, name the clashing date, offer same-language same-specialisation substitutes, reprice. */
@@ -430,16 +492,93 @@ async function showReview(chatId: string, s: Session, trip: TripView) {
     b.addOns ? `${say(s.lang, "addOns")}: ${money(b.addOns)}` : "",
     b.guide ? `${say(s.lang, "guide")}: ${money(b.guide)}` : "",
   ].filter(Boolean).join("\n");
-  await send(chatId, `<b>${say(s.lang, "review")}</b>\n\n${packageSummary(s, trip, tr)}\n\n${breakdown}`, [
-    [{ text: say(s.lang, "confirm"), data: "K" }],
+  const quote = publicPdfLink(trip.tripId, "quote", s.lang);
+  await send(chatId, `${stepTitle(s.lang, 5, "stepReview")}\n<b>${say(s.lang, "review")}</b>\n\n${packageSummary(s, trip, tr)}\n\n${breakdown}`, [
+    // With a travel agent's chat the traveller asks for the booking; without one it is booked straight away.
+    [agentChat() ? { text: say(s.lang, "requestBooking"), data: "Q" } : { text: say(s.lang, "confirm"), data: "K" }],
+    ...(quote ? [[{ text: say(s.lang, "pdfLink"), url: quote }]] : []),
     [{ text: say(s.lang, "edit"), data: "BK" }],
   ]);
+  await sendTripPdf(chatId, trip, "quote", s.lang, say(s.lang, "quoteCaption"));
+}
+
+const tripLine = (trip: TripView, lang: Lang) => `${esc(trip.origin)} → ${esc(trip.destination)} · ${shortDate(trip.departDate, lang)} → ${shortDate(trip.returnDate, lang)}`;
+
+function doneRows(trip: TripView, lang: Lang): Rows {
+  const bill = publicPdfLink(trip.tripId, "bill", lang);
+  const web = webLink(trip.tripId);
+  return [...(bill ? [[{ text: say(lang, "pdfLink"), url: bill }]] : []), ...(web ? [[{ text: say(lang, "openWeb"), url: web }]] : []), [{ text: say(lang, "btnBrowse"), data: "M:browse" }, { text: say(lang, "btnAi"), data: "M:ai" }]];
 }
 
 async function showConfirmed(chatId: string, s: Session, trip: TripView) {
-  const link = webLink(trip.tripId);
-  await send(chatId, `${say(s.lang, "confirmed", { pnr: trip.booking?.reference ?? "—" })}\n${esc(trip.origin)} → ${esc(trip.destination)} · ${shortDate(trip.departDate, s.lang)} → ${shortDate(trip.returnDate, s.lang)}\n💰 ${say(s.lang, "total")}: <b>${money(trip.runningTotal)}</b>`,
-    [...(link ? [[{ text: say(s.lang, "openWeb"), url: link }]] : []), [{ text: say(s.lang, "btnBrowse"), data: "M:browse" }, { text: say(s.lang, "btnAi"), data: "M:ai" }]]);
+  await send(chatId, `${say(s.lang, "confirmed", { pnr: trip.booking?.reference ?? "—" })}\n${tripLine(trip, s.lang)}\n💰 ${say(s.lang, "total")}: <b>${money(trip.runningTotal)}</b>`, doneRows(trip, s.lang));
+}
+
+// ---------------------------------------------------------------------------
+// Travel agent approval (AGENT_TELEGRAM_CHAT_ID): request → agent taps Approve / Reject → traveller gets the bill or the reason
+// ---------------------------------------------------------------------------
+
+const agentChat = () => process.env.AGENT_TELEGRAM_CHAT_ID?.trim() || "";
+const REJECT_REASONS = [
+  "The hotel has no rooms on those dates",
+  "Flight fares have changed — please pick the flight again",
+  "The guide can't confirm those dates",
+  "Please call us to confirm a few details",
+];
+
+async function notifyAgent(trip: TripView, travellerLang: Lang) {
+  const agent = agentChat();
+  if (!agent || !trip.booking) return;
+  const guides = [trip.chosenGuide, ...(trip.extraGuides ?? [])].filter(Boolean).map(guide => `🧭 ${esc(guide!.name)} · ${guide!.bookedDates.map(date => shortDate(date, "en-IN")).join(", ")} · ${money(guide!.totalCost)}`);
+  const text = [
+    `🛎 <b>New booking request ${esc(trip.booking.reference)}</b>${(trip.approval?.attempt ?? 1) > 1 ? ` (request #${trip.approval!.attempt})` : ""}`,
+    `${tripLine(trip, "en-IN")} · 👥 ${trip.travelers}`,
+    `🧳 ${esc(trip.package?.name ?? trip.destination)}`,
+    trip.chosenFlight ? `✈️ ${esc(trip.chosenFlight.airline)} ${esc(trip.chosenFlight.id)} ${trip.chosenFlight.depart} · ${money(trip.chosenFlight.price)} × ${trip.travelers}` : "",
+    trip.chosenHotel ? `🏨 ${esc(trip.chosenHotel.name)}` : "",
+    ...guides,
+    `💰 Total <b>${money(trip.runningTotal)}</b> (budget ${money(trip.budgetCap)})`,
+    `🗣 Traveller writes in ${LANGS.find(lang => lang.value === travellerLang)?.native ?? travellerLang} · guide dates are held until you decide`,
+  ].filter(Boolean).join("\n");
+  const quote = publicPdfLink(trip.tripId, "quote", "en-IN");
+  await send(agent, text, [
+    [{ text: "✅ Approve", data: `AP:${trip.tripId}` }, { text: "❌ Reject", data: `AR:${trip.tripId}` }],
+    ...(quote ? [[{ text: "📄 Quotation PDF", url: quote }]] : []),
+  ]);
+  await sendTripPdf(agent, trip, "quote", "en-IN", `📄 ${esc(trip.booking.reference)} · quotation`);
+}
+
+/** Only the agent chat may approve or reject; a second tap (or a tap after a decision) just reports the outcome. */
+async function onAgentDecision(chatId: string, kind: string, value: string, messageId: number | undefined, from?: From) {
+  if (!agentChat() || chatId !== agentChat()) return;
+  const [tripId, reasonIndex] = value.split(":");
+  let trip: TripView;
+  try { trip = trips.getTrip(tripId); } catch { return send(chatId, "Trip not found."); }
+  const setButtons = (rows: Rows) => messageId ? tg("editMessageReplyMarkup", { chat_id: chatId, message_id: messageId, reply_markup: markup(rows) }).catch(() => undefined) : undefined;
+  if (trip.status !== "awaiting_approval") {
+    const outcome = trip.approval?.decision ? `${trip.approval.decision}${trip.approval.decidedBy ? ` by ${trip.approval.decidedBy}` : ""}` : trip.status;
+    return send(chatId, `ℹ️ ${esc(tripId)} — already ${esc(outcome)}.`);
+  }
+  if (kind === "AR") return setButtons([...REJECT_REASONS.map((reason, index) => [{ text: `❌ ${reason}`, data: `RJ:${tripId}:${index}` }]), [{ text: "↩️ Back", data: `AB:${tripId}` }]]);
+  if (kind === "AB") return setButtons([[{ text: "✅ Approve", data: `AP:${tripId}` }, { text: "❌ Reject", data: `AR:${tripId}` }]]);
+  const who = from?.first_name ? `${from.first_name} (travel agent)` : "travel agent";
+  const reference = trip.booking?.reference ?? "—";
+  const travellerChat = trip.approval?.chatId;
+  const lang = (travellerChat && loadBotSession<Session>(travellerChat)?.lang) || "en-IN";
+  if (kind === "AP") {
+    const done = trips.approveBooking(tripId, who);
+    await setButtons([[{ text: `✅ Approved by ${who}`, data: "x" }]]);
+    if (!travellerChat) return;
+    await send(travellerChat, `${say(lang, "approvedMsg", { pnr: reference, total: money(done.runningTotal) })}\n${tripLine(done, lang)}`, doneRows(done, lang));
+    await sendTripPdf(travellerChat, done, "bill", lang, say(lang, "billCaption"));
+    return;
+  }
+  const reason = REJECT_REASONS[Number(reasonIndex)] ?? REJECT_REASONS[0];
+  trips.rejectBooking(tripId, reason, who);
+  await setButtons([[{ text: `❌ ${reason}`, data: "x" }]]);
+  if (!travellerChat) return;
+  const tr = await translator(lang, [reason]);
+  await send(travellerChat, say(lang, "rejectedMsg", { reason: esc(tr(reason)) }), [[{ text: say(lang, "btnRequestAgain"), data: `Q:${tripId}` }], [{ text: say(lang, "edit"), data: `BK:${tripId}` }]]);
 }
 
 // ---------------------------------------------------------------------------
@@ -450,15 +589,21 @@ function startPlanning(s: Session, cityId: string) {
   const destination = DESTINATIONS.find(item => item.code === cityId);
   s.draft = { ...s.draft, cityId, city: destination?.city, departDate: undefined, days: undefined };
   s.tripId = undefined;
+  s.wizard = undefined;
 }
 
-async function onCallback(chatId: string, s: Session, data: string, messageId?: number) {
+async function onCallback(chatId: string, s: Session, data: string, messageId?: number, from?: From): Promise<unknown> {
   const separator = data.indexOf(":");
   const kind = separator < 0 ? data : data.slice(0, separator);
   const value = separator < 0 ? "" : data.slice(separator + 1);
   const trip = () => trips.getTrip(s.tripId!);
+  if (["AP", "AR", "AB", "RJ"].includes(kind)) return onAgentDecision(chatId, kind, value, messageId, from);
+  // "Request again" / "Change the trip" after a rejection name their trip (the traveller may have started another since).
+  if ((kind === "Q" || kind === "BK") && value) {
+    try { if (trips.getTrip(value).approval?.chatId === chatId) { s.tripId = value; s.wizard = undefined; } } catch { /* stale button */ }
+  }
   // Buttons from an old message can arrive after the trip is gone (or before one exists): send them to the menu.
-  if (["F", "H", "A", "GD", "GS", "GR", "GX", "GF", "GU", "ND", "NG", "NF", "R", "BK", "K"].includes(kind) && !s.tripId) return showMenu(chatId, s, say(s.lang, "noTrip"));
+  if (["F", "H", "A", "GD", "GS", "GR", "GX", "GF", "GU", "ND", "NG", "NF", "R", "BK", "K", "Q", "W"].includes(kind) && !s.tripId) return showMenu(chatId, s, say(s.lang, "noTrip"));
   switch (kind) {
     case "x": return;
     case "L": s.lang = (LANGS.find(lang => lang.value === value)?.value ?? "en-IN"); return showMenu(chatId, s, say(s.lang, "langSet"));
@@ -497,6 +642,7 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
       const flight = trip().flightOptions[Number(value)];
       if (!flight) return showTrip(chatId, s);
       await typing(chatId);
+      s.wizard = "stay";
       return showTrip(chatId, s, await trips.selectFlight(s.tripId!, flight.id));
     }
     case "H": {
@@ -507,7 +653,8 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
       if (!from || !target) return showHotels(chatId, s, current);
       const next = trips.swapComponent(s.tripId!, from.id, target.id);
       if (next.status === "negotiate") return showNegotiation(chatId, s, next);
-      return showPackage(chatId, s, next, say(s.lang, "updated", { total: money(next.priceBreakdown.total), delta: signed(next.priceBreakdown.total - current.priceBreakdown.total) }));
+      const lead = say(s.lang, "updated", { total: money(next.priceBreakdown.total), delta: signed(next.priceBreakdown.total - current.priceBreakdown.total) });
+      return s.wizard ? showStep(chatId, s, next, lead) : showPackage(chatId, s, next, lead);
     }
     case "A": {
       const current = trip();
@@ -517,8 +664,10 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
       if (!component?.optional) return;
       const next = trips.toggleAddOn(s.tripId!, component.id, !component.included);
       if (next.status === "negotiate") return showNegotiation(chatId, s, next);
-      const text = `${say(s.lang, "pickAddon")}\n${say(s.lang, "updated", { total: money(next.priceBreakdown.total), delta: signed(next.priceBreakdown.total - current.priceBreakdown.total) })}`;
-      return messageId ? edit(chatId, messageId, text, addOnRows(s, next, tr)) : send(chatId, text, addOnRows(s, next, tr));
+      const updated = say(s.lang, "updated", { total: money(next.priceBreakdown.total), delta: signed(next.priceBreakdown.total - current.priceBreakdown.total) });
+      const text = s.wizard === "extras" ? `${stepTitle(s.lang, 3, "stepExtras")}\n${updated}` : `${say(s.lang, "pickAddon")}\n${updated}`;
+      const rows = addOnRows(s, next, tr, s.wizard === "extras" ? [nextButton(s.lang, "guide")] : undefined);
+      return messageId ? edit(chatId, messageId, text, rows) : send(chatId, text, rows);
     }
     case "GD": return showGuides(chatId, s, trip());
     case "GS": case "GR": {
@@ -529,9 +678,14 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
       const next = trips.selectGuide(s.tripId!, guide.id, current.durationDays);
       if (next.status === "negotiate") return showNegotiation(chatId, s, next);
       if (next.chosenGuide?.id !== guide.id && next.guideAvailabilityIssue?.guide.id === guide.id) return showGuideRefusal(chatId, s, next);
-      return showPackage(chatId, s, next, say(s.lang, "guideBooked", { guide: esc(guide.name), days: next.chosenGuide?.daysBooked ?? current.durationDays, cost: money(next.chosenGuide?.totalCost ?? 0) }));
+      const lead = say(s.lang, "guideBooked", { guide: esc(guide.name), days: next.chosenGuide?.daysBooked ?? current.durationDays, cost: money(next.chosenGuide?.totalCost ?? 0) });
+      if (s.wizard) { s.wizard = "guide"; return showStep(chatId, s, next, lead); }
+      return showPackage(chatId, s, next, lead);
     }
-    case "GX": return showPackage(chatId, s, trips.removeGuide(s.tripId!));
+    case "GX": {
+      const next = trips.removeGuide(s.tripId!);
+      return s.wizard ? showStep(chatId, s, next) : showPackage(chatId, s, next);
+    }
     case "GF": case "GU": {
       const current = trip();
       const uncovered = current.guidePlan.filter(day => !day.guideId).map(day => day.date);
@@ -566,14 +720,31 @@ async function onCallback(chatId: string, s: Session, data: string, messageId?: 
     case "NG":
       if (value === "raise_cap") { s.step = "raiseCap"; return send(chatId, say(s.lang, "askNewCap")); }
       return showTrip(chatId, s, await trips.negotiate(s.tripId!, value));
-    case "R": return showTrip(chatId, s, trips.continueFromPackage(s.tripId!));
-    case "BK": return showTrip(chatId, s, trips.goBack(s.tripId!));
+    case "W": {
+      if (value === "review") { s.wizard = undefined; return showTrip(chatId, s, trips.continueFromPackage(s.tripId!)); }
+      s.wizard = value === "extras" || value === "guide" ? value : "stay";
+      return showTrip(chatId, s);
+    }
+    case "R": s.wizard = undefined; return showTrip(chatId, s, trips.continueFromPackage(s.tripId!));
+    case "BK": s.wizard = undefined; return showTrip(chatId, s, trips.goBack(s.tripId!));
     case "K": {
       await typing(chatId);
       const next = await trips.confirmTrip(s.tripId!);
       // Another traveller took the guide's last slot first: show the refusal and substitutes instead of a booking.
       if (next.status !== "confirmed" && next.guideAvailabilityIssue) return showGuideRefusal(chatId, s, next);
-      return showTrip(chatId, s, next);
+      await showTrip(chatId, s, next);
+      if (next.status === "confirmed") await sendTripPdf(chatId, next, "bill", s.lang, say(s.lang, "billCaption"));
+      return;
+    }
+    case "Q": {
+      if (!agentChat()) return onCallback(chatId, s, "K", messageId);
+      const current = trip();
+      if (current.status === "awaiting_approval" || current.status === "confirmed") return showTrip(chatId, s, current);
+      await typing(chatId);
+      const next = await trips.requestBooking(s.tripId!, { chatId });
+      if (next.status !== "awaiting_approval") return next.guideAvailabilityIssue ? showGuideRefusal(chatId, s, next) : showTrip(chatId, s, next);
+      await send(chatId, `${say(s.lang, "awaitingApproval")}\n${tripLine(next, s.lang)} · <b>${money(next.runningTotal)}</b>`);
+      return notifyAgent(next, s.lang);
     }
     default: return showMenu(chatId, s);
   }
@@ -590,6 +761,8 @@ async function onText(chatId: string, s: Session, text: string) {
     if (command === "trip") return showTrip(chatId, s);
     if (command === "reset") { s.draft = {}; s.step = undefined; s.tripId = undefined; s.history = []; return showMenu(chatId, s); }
     if (command === "help") return send(chatId, say(s.lang, "help"));
+    // For setting AGENT_TELEGRAM_CHAT_ID: the travel agent sends /chatid to the bot once.
+    if (command === "chatid") return send(chatId, `Chat id: <code>${esc(chatId)}</code>`);
     return showMenu(chatId, s);
   }
 
@@ -703,7 +876,7 @@ export function handleUpdate(update: Update) {
     try {
       if (callback) {
         void tg("answerCallbackQuery", { callback_query_id: callback.id }).catch(() => undefined);
-        await onCallback(chatId, session, callback.data ?? "x", callback.message?.message_id);
+        await onCallback(chatId, session, callback.data ?? "x", callback.message?.message_id, callback.from);
       } else if (update.message?.voice || update.message?.audio) {
         await onVoice(chatId, session, (update.message.voice ?? update.message.audio)!);
       } else if (update.message?.text) {

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "deploy": {
+    "aptPackages": ["chromium", "fonts-noto-core", "fonts-noto-ui-core", "fonts-noto-color-emoji"]
+  }
+}

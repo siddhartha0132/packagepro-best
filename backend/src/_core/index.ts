@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startTelegramBot } from "../telegramBot";
+import { registerPdfRoutes, setLocalBaseUrl } from "../pdf";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -45,6 +46,7 @@ async function startServer() {
       createContext,
     })
   );
+  registerPdfRoutes(app);
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
@@ -61,6 +63,7 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    setLocalBaseUrl(`http://127.0.0.1:${port}`);
     startTelegramBot();
   });
 }

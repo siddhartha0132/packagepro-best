@@ -12,7 +12,7 @@ Start from a curated package, reshape it piece by piece, and watch it reprice li
 |---|---|
 | Mandatory guide availability check | Enforced in the backend, proven by [`tests/hardProof.guideAvailability.test.ts`](tests/hardProof.guideAvailability.test.ts) |
 | Shared data model | Canonical tables read and written; organisers' validator **PASS** (`pnpm conformance`) |
-| Tests | 70 offline tests (`pnpm verify`, run by GitHub Actions on every push) + 4 live-key checks — `npx vitest run` → 74 passed · voice: 20/20 (`pnpm voice:eval`) |
+| Tests | 75 offline tests (`pnpm verify`, run by GitHub Actions on every push) + 4 live-key checks — `npx vitest run` → 79 passed · voice: 20/20 (`pnpm voice:eval`) |
 | Guided tour for judges | `/how-it-works`: every PS-04 requirement, where it is in the code, and a live demo |
 | Brief | [HACKATHON.md](HACKATHON.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](data-model/DATA_MODEL.md) · [AI](ai/README.md) · [API](docs/API.md) · [Demo script](docs/DEMO_SCRIPT.md) |
 
@@ -30,6 +30,7 @@ Start from a curated package, reshape it piece by piece, and watch it reprice li
 - **Language preferences.** There are 4 app languages (English, हिन्दी, தமிழ், తెలుగు) and 12 guide languages (BCP-47). A traveller profile read from `users` + `user_preferences` sets both. Packages offered in the guide language rank first, and guides are filtered by it. Dataset content, AI replies and the PDF quotation follow the chosen language.
 - **AI package builder.** It works from free-text interests, budget and **booking history** (the traveller's past trips), picks only real catalogue packages, keeps to the stated budget, and builds the chosen trip in one tap. A grounded agent explains every decision.
 - **Save, share and book.** Drafts auto-save, and a share link reopens the exact trip. Booking writes the canonical `trips` / `itineraries` / `itinerary_items` / `bookings` rows with an idempotency key and returns a PNR. There's a downloadable PDF quotation, and a **Telegram bot** runs on the same engine.
+- **Telegram: step by step, with a travel agent's approval.** The bot walks the traveller through flight → stay → extras → guide → review and sends the quotation as a real PDF in their language. "Request booking" writes a `pending` booking (guide dates held) and sends it to a travel agent's Telegram chat with Approve / Reject. On approval the traveller gets the PNR, the **bill as a PDF** and a signed link; on rejection, the reason and "Request again".
 
 | PS-04 "What you need to build" | Where it is |
 |---|---|
@@ -109,14 +110,14 @@ The terminal outcome: **a customised package, booked, with the guide rule shown*
 5. **Continue to review → Confirm.** You get a booking reference (PNR). Try **Download quotation PDF**.
 6. **Language:** pick **Travelling as → Anita Bhat**. The app switches to Tamil, the guide language to `ta`, and her interests and past trips drive "Picked for you".
 7. **AI:** in *Plan it with AI*, type "beach honeymoon under 40k" (or in Hindi or Tamil), then tap **Build this package**.
-8. **Telegram:** send `/demo` to **@wayypoint_Bot** → Build my trip → pick a flight → Add a guide → Meera Novak. You get the same refusal, date strips and substitute.
+8. **Telegram:** send `/demo` to **@wayypoint_Bot** → Build my trip → pick a flight, then follow the steps (stay → extras → guide → review). At the guide step pick Meera Novak: you get the same refusal, date strips and substitute. At review you get the quotation PDF; **Request booking** goes to the travel agent's chat, and **Approve** sends you the bill PDF.
 9. **Voice:** send @wayypoint_Bot a voice note in Tamil, Hindi, Telugu or English ("Plan a three-day trip to Thanjavur"). It shows what it heard, answers in that language and replies with a voice note. On the web, tap 🎙 in *Ask why PackagePro chose this* and speak.
 
 ## Tests / proof
 
 ```bash
-pnpm verify                                                   # type check + lint + 70 offline tests + production build (also runs before every push)
-npx vitest run                                                # everything: 70 offline + 4 live-key checks (reads .env) → 74 passed
+pnpm verify                                                   # type check + lint + 75 offline tests + production build (also runs before every push)
+npx vitest run                                                # everything: 75 offline + 4 live-key checks (reads .env) → 79 passed
 npx vitest run tests/hardProof.guideAvailability.test.ts     # the PS-04 hard proof
 pnpm voice:eval                                               # 20 spoken requests in 4 languages through the real voice pipeline → docs/VOICE_EVAL.md (needs SARVAM_API_KEY)
 pnpm conformance                                              # organisers' validator on dataset + our rows → PASS
@@ -140,6 +141,7 @@ The tests run offline: the LLM and live fares are off under test, so every fallb
 1. **Variables:** set those from `.env.example`, plus `PACKAGEPRO_APP_DB=/data/packagepro-app.db`.
 2. **Volume:** add one at `/data`. The dataset ships in the repo under `data-model/seed/`.
 3. **Domain:** generate one.
+4. **Travel agent (optional):** the agent sends `/chatid` to the bot; put that number in `AGENT_TELEGRAM_CHAT_ID`. `railpack.json` installs Chromium + Noto fonts so the server can make PDF files.
 
 Only one running instance may poll a Telegram token, so by default only the deployed server (`NODE_ENV=production`) runs the bot; set `TELEGRAM_BOT_DISABLED=false` to run it from a local `pnpm dev` instead. Keep a single instance, because active trips are cached in memory in front of SQLite.
 

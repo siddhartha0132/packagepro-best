@@ -4,6 +4,7 @@ import { clearGuideBookingsForTests, loadBotSession } from "../backend/src/appSt
 import { PACKAGES } from "../backend/src/packagepro";
 import * as trips from "../backend/src/trips";
 import { setVoiceBackendForTests } from "../backend/src/voice";
+import { setPdfRendererForTests } from "../backend/src/pdf";
 
 // Drives the Telegram bot end to end with a fake Telegram API: every message and button the bot would send is recorded
 // and checked against Telegram's limits. No network: flights fall back to the catalogue and the LLM is off under vitest.
@@ -23,7 +24,8 @@ beforeAll(() => {
     const method = href.match(/api\.telegram\.org\/bot[^/]+\/(\w+)$/)?.[1];
     if (!method) throw new Error(`offline test: blocked ${href}`);
     if (init?.body instanceof FormData) {
-      sent.push({ method, chatId: String(init.body.get("chat_id")), text: "", buttons: [] });
+      const file = init.body.get("document");
+      sent.push({ method, chatId: String(init.body.get("chat_id")), text: String(init.body.get("caption") ?? (file instanceof File ? file.name : "")), buttons: [] });
       return new Response(JSON.stringify({ ok: true, result: { message_id: nextMessageId++ } }), { headers: { "content-type": "application/json" } });
     }
     if (method === "getFile") return new Response(JSON.stringify({ ok: true, result: { file_path: "voice/note.oga" } }), { headers: { "content-type": "application/json" } });
@@ -136,10 +138,28 @@ describe("telegram bot", () => {
     expect(text).toContain("How many days?");
     expect(text).toMatch(/Low ₹[\d,]+ · <b>Typical ₹[\d,]+<\/b> · High ₹[\d,]+/);
     expect(text).toContain("catalogue fares");
+    expect(text).toContain("Step 1 of 5 · Flight");
     expect(text).toContain("Pick your flight");
-    expect(last().text).toContain("Thanjavur");
+    // After the flight the bot walks the traveller step by step: stay → extras → guide → review.
+    expect(last().text).toContain("Step 2 of 5 · Stay");
+    expect(last().buttons.map(button => button.data)).toEqual(expect.arrayContaining(["H:0", "W:extras"]));
+    await tap(9003, "H:0");
+    expect(last().text).toMatch(/Updated — total now <b>₹[\d,]+<\/b>[\s\S]*Step 2 of 5/);
+    await tap(9003, "W:extras");
+    expect(last().text).toContain("Step 3 of 5 · Extras");
+    expect(last().buttons.at(-1)?.data).toBe("W:guide");
+    await tap(9003, "W:guide");
+    expect(last().text).toContain("Step 4 of 5 · Local guide");
+    const arjun = trips.listGuides(tripOf(9003)!).findIndex(guide => guide.name === "Arjun Nair");
+    await tap(9003, `GS:${arjun}`);
+    expect(last().text).toContain("Arjun Nair booked for 3 days");
+    expect(last().text).toContain("Guide on your plan: <b>Arjun Nair</b>");
+    await tap(9003, "W:review");
+    expect(last().text).toContain("Step 5 of 5 · Review");
     expect(last().text).toMatch(/Total: <b>₹[\d,]+<\/b>/);
-    expect(last().buttons.map(button => button.data)).toEqual(expect.arrayContaining(["H:list", "GD", "ND:list", "R"]));
+    expect(last().buttons.map(button => button.data)).toEqual(["K", "BK"]); // no agent chat → book straight away
+    await tap(9003, "BK");
+    expect(last().buttons.map(button => button.data)).toEqual(expect.arrayContaining(["H:list", "GX", "ND:list", "R"]));
     expect(trips.getTrip(tripOf(9003)!).status).toBe("select_package");
   });
 
@@ -342,5 +362,73 @@ describe("telegram bot day-by-day guides", () => {
     await tap(9400, "GU:0");
     const plan = trips.getTrip(tripOf(9400)!).guidePlan.map(day => day.guideName);
     expect(plan).toEqual(["Arjun Nair", "Meera Novak", "Meera Novak"]);
+  });
+});
+
+describe("telegram bot: booking through a travel agent", () => {
+  const AGENT = 9900;
+  const pdfRequests: string[] = [];
+  beforeAll(() => {
+    process.env.AGENT_TELEGRAM_CHAT_ID = String(AGENT);
+    setPdfRendererForTests(async (tripId, kind, lang) => { pdfRequests.push(`${kind}:${lang}`); return new TextEncoder().encode(`%PDF-1.4 ${tripId}`); });
+  });
+  afterAll(() => { delete process.env.AGENT_TELEGRAM_CHAT_ID; setPdfRendererForTests(null); });
+  beforeEach(() => { pdfRequests.length = 0; });
+
+  async function reviewInTamil(chatId: number) {
+    await say(chatId, "/start");
+    await tap(chatId, "L:ta");
+    await tap(chatId, `B:${thanjavur.id}`);
+    for (const data of ["O:DEL", "D:2026-09-28", "N:3", "V:4", "G:150000", "GL:ta", "E:go", "F:0", "W:review"]) await tap(chatId, data);
+  }
+  const documents = (chatId: number) => sent.filter(message => message.method === "sendDocument" && message.chatId === String(chatId));
+
+  it("sends the quotation PDF at review, asks the agent, and on approval sends the bill PDF", async () => {
+    await reviewInTamil(9901);
+    expect(last().method).toBe("sendDocument");
+    expect(pdfRequests).toContain("quote:ta");
+    expect(sent.some(message => message.buttons.some(button => button.data === "Q"))).toBe(true);
+    await tap(9901, "Q");
+    const tripId = tripOf(9901)!;
+    expect(trips.getTrip(tripId).status).toBe("awaiting_approval");
+    const toAgent = sent.find(message => message.chatId === String(AGENT) && message.method === "sendMessage")!;
+    expect(toAgent.text).toContain("New booking request");
+    expect(toAgent.buttons.map(button => button.data)).toEqual([`AP:${tripId}`, `AR:${tripId}`]);
+    expect(documents(AGENT)).toHaveLength(1); // the agent gets the quotation in English
+    expect(pdfRequests).toContain("quote:en-IN");
+    // The traveller can't approve their own booking, and asking again only says it's still waiting.
+    await tap(9901, `AP:${tripId}`);
+    expect(trips.getTrip(tripId).status).toBe("awaiting_approval");
+    await tap(9901, "Q");
+    expect(last().chatId).toBe("9901");
+    expect(trips.getTrip(tripId).status).toBe("awaiting_approval");
+
+    sent = [];
+    await handleUpdate({ update_id: updateId++, callback_query: { id: "cb-agent", data: `AP:${tripId}`, from: { first_name: "Priya" }, message: { message_id: 7, chat: { id: AGENT } } } });
+    const trip = trips.getTrip(tripId);
+    expect(trip.status).toBe("confirmed");
+    expect(trip.approval).toMatchObject({ decision: "approved", decidedBy: "Priya (travel agent)" });
+    expect(sent.find(message => message.chatId === String(AGENT))?.buttons[0].text).toContain("Approved by Priya");
+    const toTraveller = sent.filter(message => message.chatId === "9901");
+    expect(toTraveller[0].text).toContain(trip.booking!.reference);
+    expect(documents(9901)).toHaveLength(1);
+    expect(pdfRequests).toContain("bill:ta");
+    // A second tap changes nothing.
+    await tap(AGENT, `AP:${tripId}`);
+    expect(last().text).toContain("already approved");
+  });
+
+  it("on rejection tells the traveller why (in their language) and lets them ask again", async () => {
+    await reviewInTamil(9902);
+    await tap(9902, "Q");
+    const tripId = tripOf(9902)!;
+    await tap(AGENT, `AR:${tripId}`);
+    expect(last().method).toBe("editMessageReplyMarkup");
+    await tap(AGENT, `RJ:${tripId}:0`);
+    expect(trips.getTrip(tripId)).toMatchObject({ status: "review", booking: null });
+    const told = sent.filter(message => message.chatId === "9902").at(-1)!;
+    expect(told.buttons.map(button => button.data)).toEqual([`Q:${tripId}`, `BK:${tripId}`]);
+    await tap(9902, `Q:${tripId}`);
+    expect(trips.getTrip(tripId)).toMatchObject({ status: "awaiting_approval", approval: { attempt: 2 } });
   });
 });

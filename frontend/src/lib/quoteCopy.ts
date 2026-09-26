@@ -6,11 +6,13 @@ import type { Lang } from "@/i18n";
 
 export const QUOTE_EN: Record<string, string> = {
   LETTER_TRIP: "Thank you for planning with PackagePro. Here is your {city} holiday, customised by you and priced live, with every guide date checked.",
+  LETTER_BILL: "Your {city} holiday is confirmed by our travel desk. This is your booking confirmation and bill — please keep it for your trip.",
   LETTER_EST: "Here is our first estimate for {city}, built from live fares, the real package catalogue and what past travellers chose. Pick an option and we will customise it with you.",
 };
 
 export const QUOTE_COPY: Partial<Record<Lang, Record<string, string>>> = {
   hi: {
+    LETTER_BILL: "आपकी {city} छुट्टी हमारे ट्रैवल डेस्क ने पक्की कर दी है। यह आपकी बुकिंग पुष्टि और बिल है — कृपया इसे यात्रा के लिए संभाल कर रखें।", "Booking confirmation": "बुकिंग पुष्टि", "Awaiting approval": "स्वीकृति की प्रतीक्षा", "Amount payable": "देय राशि",
     "Package base": "पैकेज बेस", "per person": "प्रति व्यक्ति", "day-by-day plan": "दिन-वार योजना", "Check-out and departure": "चेक-आउट और वापसी",
     "Reference": "संदर्भ", "Booking": "बुकिंग",
     LETTER_TRIP: "PackagePro के साथ योजना बनाने के लिए धन्यवाद। यह रही आपकी {city} छुट्टी — आपकी पसंद से तैयार, लाइव कीमतों के साथ, और हर गाइड तारीख की जाँच के साथ।",
@@ -46,6 +48,7 @@ export const QUOTE_COPY: Partial<Record<Lang, Record<string, string>>> = {
     "Cancellation: free within 24 hours of booking; after that, supplier charges apply.": "रद्दीकरण: बुकिंग के 24 घंटे के भीतर मुफ़्त; उसके बाद सप्लायर शुल्क लागू होंगे।",
   },
   ta: {
+    LETTER_BILL: "உங்கள் {city} விடுமுறை எங்கள் பயண மேசையால் உறுதிசெய்யப்பட்டது. இது உங்கள் முன்பதிவு உறுதிப்படுத்தல் மற்றும் பில் — பயணத்திற்கு வைத்துக்கொள்ளுங்கள்.", "Booking confirmation": "முன்பதிவு உறுதிப்படுத்தல்", "Awaiting approval": "ஒப்புதலுக்காகக் காத்திருக்கிறது", "Amount payable": "செலுத்த வேண்டிய தொகை",
     "Package base": "தொகுப்பு அடிப்படை", "per person": "ஒருவருக்கு", "day-by-day plan": "நாள்வாரித் திட்டம்", "Check-out and departure": "செக்-அவுட் மற்றும் திரும்புதல்",
     "Reference": "குறிப்பு எண்", "Booking": "முன்பதிவு",
     LETTER_TRIP: "PackagePro உடன் திட்டமிட்டதற்கு நன்றி. இதோ உங்கள் {city} விடுமுறை — நீங்களே தனிப்பயனாக்கியது, நேரடி விலைகளுடன், ஒவ்வொரு வழிகாட்டி தேதியும் சரிபார்க்கப்பட்டது.",
@@ -81,6 +84,7 @@ export const QUOTE_COPY: Partial<Record<Lang, Record<string, string>>> = {
     "Cancellation: free within 24 hours of booking; after that, supplier charges apply.": "ரத்து: முன்பதிவு செய்த 24 மணி நேரத்திற்குள் இலவசம்; அதன் பிறகு சப்ளையர் கட்டணங்கள் பொருந்தும்.",
   },
   te: {
+    LETTER_BILL: "మీ {city} సెలవును మా ట్రావెల్ డెస్క్ నిర్ధారించింది. ఇది మీ బుకింగ్ నిర్ధారణ మరియు బిల్లు — ప్రయాణం కోసం దీన్ని ఉంచుకోండి.", "Booking confirmation": "బుకింగ్ నిర్ధారణ", "Awaiting approval": "ఆమోదం కోసం వేచి ఉంది", "Amount payable": "చెల్లించవలసిన మొత్తం",
     "Package base": "ప్యాకేజీ బేస్", "per person": "ఒక్కరికి", "day-by-day plan": "రోజువారీ ప్లాన్", "Check-out and departure": "చెక్-అవుట్ మరియు తిరుగు ప్రయాణం",
     "Reference": "రిఫరెన్స్", "Booking": "బుకింగ్",
     LETTER_TRIP: "PackagePro తో ప్లాన్ చేసినందుకు ధన్యవాదాలు. ఇదిగో మీ {city} సెలవు ప్రయాణం — మీరే తీర్చిదిద్దినది, లైవ్ ధరలతో, ప్రతి గైడ్ తేదీ తనిఖీ చేయబడింది.",

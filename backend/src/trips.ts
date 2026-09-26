@@ -2,12 +2,12 @@ import { nanoid } from "nanoid";
 import { fromPaise, toPaise } from "./catalogue";
 import { CITIES, GUIDES, LANGUAGE_TAGS, PACKAGES, TRANSPORTS, datesBetween, getAlternatives, guideCheck, guideCost, isGuideFree, liveAvailability, packageForCity, realityCheck, withLiveAvailability, type FlightRecord, type GuideRecord, type PackageComponent, type PackageRecord, type TransportRecord } from "./packagepro";
 import { DESTINATIONS, ORIGINS, searchFlightsLive, sendConfirmation } from "./integrations";
-import { GuideSlotTakenError, loadTrip, recordBooking, saveTrip, type CanonicalItem, type CanonicalTrip } from "./appStore";
+import { GuideSlotTakenError, loadTrip, recordBooking, saveTrip, settleBooking, type CanonicalItem, type CanonicalTrip } from "./appStore";
 import { DEFAULT_TRAVELLER_ID, getTraveller } from "./travellers";
 
 // Flow: select_flight → select_package (customise: itinerary, swaps, add-ons, guide, duration) → review → confirmed.
 // The total is never accumulated: it is recomputed from the current selection after every change.
-export type TripStatus = "select_flight" | "select_package" | "negotiate" | "review" | "confirmed";
+export type TripStatus = "select_flight" | "select_package" | "negotiate" | "review" | "awaiting_approval" | "confirmed";
 
 /** A line of the customised package: the component currently filling a slot, plus the default it replaced. */
 export type TripComponent = PackageComponent & { included: boolean; defaultId: string; defaultPrice: number };
@@ -67,7 +67,9 @@ export type Trip = {
   flightInsights?: { lowestPrice?: number; typicalRange?: [number, number]; priceLevel?: string };
   negotiationOptions: { choice: string; amount?: number; item_label: string; label: string }[];
   pending: { amount: number; label: string; retryStatus: TripStatus; advanceStatus: TripStatus; patch: Partial<Trip>; total?: number; overage?: number; fixes?: BudgetFix[]; applied?: FixStep[]; lowestTotal?: number } | null;
-  booking?: { bookingId: string; reference: string; itineraryId?: string } | null;
+  booking?: { bookingId: string; reference: string; itineraryId?: string; status?: "pending" | "confirmed" } | null;
+  /** A booking request waiting for (or decided by) a travel agent: who asked, from which chat, and the outcome. */
+  approval?: { requestedAt: string; chatId?: string; attempt: number; decidedBy?: string; decision?: "approved" | "rejected"; reason?: string } | null;
   /** users.user_id of the traveller (canonical trips.owner_user_id / bookings.user_id). */
   userId: string;
   /** Canonical bookings.channel: web app, or mobile_app for the Telegram bot. */
@@ -820,6 +822,7 @@ export async function negotiate(tripId: string, choice: string, newCap?: number,
 export function goBack(tripId: string) {
   const trip = need(tripId);
   if (trip.status === "confirmed") throw new Error("A confirmed trip cannot go back");
+  if (trip.status === "awaiting_approval") throw new Error("This booking is waiting for the travel agent's approval");
   if (trip.status === "negotiate") {
     trip.status = trip.pending?.retryStatus ?? "select_flight";
     trip.pending = null;
@@ -865,6 +868,7 @@ export async function confirmTrip(tripId: string, contact?: { email?: string; ph
   const trip = need(tripId);
   // Idempotent: confirming an already-booked trip again returns the same booking instead of an error or a duplicate.
   if (trip.status === "confirmed" && trip.booking) return snapshot(trip);
+  if (trip.status === "awaiting_approval") throw new Error("This booking is waiting for the travel agent's approval");
   if (trip.status !== "review" && trip.status !== "select_package") throw new Error(trip.status === "negotiate" ? "Resolve the pending budget negotiation first" : `Can't confirm from '${trip.status}'`);
   // Re-check the guide at the moment of booking: another traveller may have taken the last slot since it was selected.
   const onPlan = allGuides(trip).map(item => ({ held: item, record: GUIDES.find(guide => guide.id === item.id)! })).filter(item => item.record);
@@ -896,12 +900,76 @@ export async function confirmTrip(tripId: string, contact?: { email?: string; ph
 }
 
 // ---------------------------------------------------------------------------
+// Booking with a travel agent's approval (Telegram): request → pending (guide dates held) → approved | rejected
+// ---------------------------------------------------------------------------
+
+/**
+ * Ask for a booking instead of booking outright: the canonical rows are written with booking_status 'pending' and the
+ * guide's dates are held (so no one else can take them) until a travel agent approves or rejects. Same guide re-check and
+ * slot guard as confirmTrip. A repeated request while one is pending returns it unchanged.
+ */
+export async function requestBooking(tripId: string, options: { chatId?: string; email?: string; phone?: string } = {}) {
+  const trip = need(tripId);
+  if (trip.status === "awaiting_approval" || trip.status === "confirmed") return snapshot(trip);
+  if (trip.status !== "review" && trip.status !== "select_package") throw new Error(trip.status === "negotiate" ? "Resolve the pending budget negotiation first" : `Can't request a booking from '${trip.status}'`);
+  const onPlan = allGuides(trip).map(item => ({ held: item, record: GUIDES.find(guide => guide.id === item.id)! })).filter(item => item.record);
+  const lost = onPlan.find(item => item.held.bookedDates.some(date => !isGuideFree(item.record, date)));
+  if (lost) return guideTakenMeanwhile(trip, lost.record);
+  const attempt = (trip.approval?.attempt ?? 0) + 1;
+  const items = canonicalItems(trip);
+  try {
+    const booking = recordBooking({
+      tripId: trip.tripId, userId: trip.userId ?? DEFAULT_TRAVELLER_ID, total: trip.runningTotal, channel: trip.channel ?? "mobile_app",
+      // Each request is its own booking row: a rejected request stays on record and a new one gets a new key.
+      idempotencyKey: `idem_${trip.tripId}_r${attempt}`, email: options.email, phone: options.phone, pending: true,
+      guides: onPlan.map(item => ({ guideId: item.record.id, dates: item.held.bookedDates, capacity: item.record.slots })),
+      itinerary: { name: `${trip.package?.name ?? trip.destination} — ${trip.departDate}`, totalDurationMinutes: items.reduce((sum, item) => sum + item.duration_minutes, 0), items },
+    });
+    trip.booking = { bookingId: booking.bookingId, reference: booking.reference, itineraryId: booking.itineraryId, status: "pending" };
+  } catch (error) {
+    if (error instanceof GuideSlotTakenError) {
+      const taken = GUIDES.find(item => item.id === error.guideId);
+      if (taken) return guideTakenMeanwhile(trip, taken);
+    }
+    throw error;
+  }
+  trip.approval = { requestedAt: new Date().toISOString(), chatId: options.chatId, attempt };
+  trip.status = "awaiting_approval";
+  log(trip, "decision", `Booking ${trip.booking.reference} requested — waiting for a travel agent's approval (guide dates held)`);
+  return snapshot(trip);
+}
+
+/** The travel agent approves: the pending booking and its held guide dates become confirmed. A second tap changes nothing. */
+export function approveBooking(tripId: string, decidedBy = "travel agent") {
+  const trip = need(tripId);
+  if (trip.status !== "awaiting_approval" || !trip.booking) return snapshot(trip);
+  settleBooking(trip.booking.bookingId, "approve");
+  trip.status = "confirmed";
+  trip.booking = { ...trip.booking, status: "confirmed" };
+  trip.approval = { ...(trip.approval ?? { requestedAt: new Date().toISOString(), attempt: 1 }), decidedBy, decision: "approved" };
+  log(trip, "decision", `Booking ${trip.booking.reference} approved by ${decidedBy} — final total ${inr(trip.runningTotal)}`);
+  return snapshot(trip);
+}
+
+/** The travel agent rejects: the booking is cancelled (kept on record), held guide dates are released, the trip returns to review. */
+export function rejectBooking(tripId: string, reason: string, decidedBy = "travel agent") {
+  const trip = need(tripId);
+  if (trip.status !== "awaiting_approval" || !trip.booking) return snapshot(trip);
+  settleBooking(trip.booking.bookingId, "reject", reason);
+  log(trip, "decision", `Booking ${trip.booking.reference} not approved by ${decidedBy}: ${reason}`);
+  trip.booking = null;
+  trip.status = "review";
+  trip.approval = { ...(trip.approval ?? { requestedAt: new Date().toISOString(), attempt: 1 }), decidedBy, decision: "rejected", reason };
+  return snapshot(trip);
+}
+
+// ---------------------------------------------------------------------------
 // Canonical rows (shared data model): trips, itinerary_items
 // ---------------------------------------------------------------------------
 
 const CITY_ID_BY_NAME = new Map(CITIES.map(city => [city.name.toLowerCase(), city.city_id]));
 const ORIGIN_CITY_BY_CODE = new Map(ORIGINS.map(origin => [origin.code, origin.city]));
-const TRIP_STATUS: Record<TripStatus, CanonicalTrip["status"]> = { select_flight: "draft", select_package: "planning", negotiate: "planning", review: "planning", confirmed: "confirmed" };
+const TRIP_STATUS: Record<TripStatus, CanonicalTrip["status"]> = { select_flight: "draft", select_package: "planning", negotiate: "planning", review: "planning", awaiting_approval: "planning", confirmed: "confirmed" };
 
 /** The canonical trips row: owner, cities as city_id, party, trip_type (traveller_type enum) and trip_status. */
 function canonicalTrip(trip: Trip): CanonicalTrip {

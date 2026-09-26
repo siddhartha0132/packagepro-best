@@ -6,6 +6,7 @@ import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { CANONICAL_TABLES, clearGuideBookingsForTests, exportCanonicalRows, listBookings } from "../backend/src/appStore";
 import { appRouter } from "../backend/src/routers";
+import * as trips from "../backend/src/trips";
 
 // Data-model conformance: everything PackagePro writes into the shared model (trips, itineraries, itinerary_items,
 // bookings) must pass the organisers' tools/validate_conformance.py when merged with the PS-04 dataset — prefixed IDs (R2),
@@ -53,6 +54,16 @@ describe("data-model conformance", () => {
 
   it.skipIf(!hasPython)("passes the organisers' validate_conformance.py when merged with the PS-04 dataset", async () => {
     await bookThanjavur(false);
+    // Agent-approval bookings too: one pending, one approved, one rejected (booking_status pending / confirmed / cancelled).
+    for (const decision of ["pending", "approve", "reject"] as const) {
+      const created = await trips.createTrip({ origin: "DEL", destination: "Thanjavur", departDate: "2026-10-05", returnDate: "2026-10-08", travelers: 4, budgetCap: 900000, language: "ta", channel: "mobile_app" });
+      await trips.selectFlight(created.tripId, created.flightOptions[0].id);
+      trips.continueFromPackage(created.tripId);
+      await trips.requestBooking(created.tripId);
+      if (decision === "approve") trips.approveBooking(created.tripId);
+      if (decision === "reject") trips.rejectBooking(created.tripId, "Not available");
+    }
+    expect(new Set(exportCanonicalRows().bookings.map(row => row.status))).toEqual(new Set(["confirmed", "pending", "cancelled"]));
     const merged = path.join(mkdtempSync(path.join(tmpdir(), "packagepro-conformance-")), "merged.db");
     copyFileSync("data-model/seed/PS-04.db", merged);
     const db = new DatabaseSync(merged);

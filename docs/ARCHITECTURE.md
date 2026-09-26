@@ -184,6 +184,36 @@ to the traveller), `saaras:v2.5` gives the English meaning and the language. The
 as typed text, the reply comes in the detected language, and the first reply is read back with `bulbul:v3`. Notes over 30 s
 are refused; without a key the traveller is asked to type. Measured by `pnpm voice:eval` → [VOICE_EVAL.md](VOICE_EVAL.md).
 
+**Telegram booking with a travel agent** (`backend/src/telegramBot.ts`, `trips.requestBooking/approveBooking/rejectBooking`,
+`backend/src/pdf.ts`): after the flight the bot walks the traveller step by step — stay → extras → guide → review — and sends
+the quotation as a PDF in their language. With `AGENT_TELEGRAM_CHAT_ID` set, "Request booking" writes a `pending` booking
+(guide dates held) and posts it to the agent's chat with Approve / Reject buttons; only that chat can decide.
+
+```mermaid
+sequenceDiagram
+  participant T as Traveller (Telegram)
+  participant B as Bot + trip engine
+  participant A as Travel agent chat
+  T->>B: flight → stay → extras → guide → review
+  B-->>T: review + quotation PDF (traveller's language)
+  T->>B: Request booking
+  B->>B: booking 'pending', guide dates held
+  B-->>A: request + quotation PDF · Approve / Reject
+  alt approved
+    A->>B: Approve
+    B->>B: booking 'confirmed', dates confirmed, trip confirmed
+    B-->>T: PNR + bill PDF + signed link
+  else rejected (reason)
+    A->>B: Reject · reason
+    B->>B: booking 'cancelled' (kept), dates released, trip back to review
+    B-->>T: reason + Request again
+  end
+```
+
+PDFs are printed by headless Chrome from the web app's `/print` page (same template as the browser's "Save as PDF"), cached
+per trip state, and linked with HMAC-signed URLs. Without an agent chat the bot books straight away; without Chrome it sends
+the link instead of the file.
+
 **Cost guard** (`backend/src/rateLimit.ts`): speech, spoken replies, translation and AI answers are rate limited per client (IP
 on the web, chat on Telegram) in a 10-minute window and by a daily total across everyone, so a public URL can't drain the
 AI credit.
@@ -254,6 +284,7 @@ flowchart LR
 ```
 
 Build: `vite build` (frontend → `dist/public`) + `esbuild` (backend → `dist/index.js`). Health check `/`; restart on failure.
+`railpack.json` adds Chromium and Noto fonts (Devanagari, Tamil, Telugu) to the image for the PDF files.
 Secrets only in Railway Variables. One instance (the trip engine caches active trips in memory in front of SQLite, and only
 one process may poll a Telegram token).
 

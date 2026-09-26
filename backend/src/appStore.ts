@@ -136,7 +136,7 @@ let guideLoad: Map<string, number> | null = null;
 export function guideBookedCount(guideId: string, date: string) {
   if (!guideLoad) {
     guideLoad = new Map();
-    const rows = store().prepare("SELECT guide_id, for_date, COUNT(*) AS n FROM app_guide_bookings WHERE status = 'confirmed' GROUP BY guide_id, for_date").all() as { guide_id: string; for_date: string; n: number }[];
+    const rows = store().prepare("SELECT guide_id, for_date, COUNT(*) AS n FROM app_guide_bookings WHERE status IN ('active', 'confirmed') GROUP BY guide_id, for_date").all() as { guide_id: string; for_date: string; n: number }[];
     for (const row of rows) guideLoad.set(`${row.guide_id}|${row.for_date}`, row.n);
   }
   return guideLoad.get(`${guideId}|${date}`) ?? 0;
@@ -166,6 +166,11 @@ export type BookingInput = {
   /** Every guide on the plan with the dates it holds (day-by-day plans can have several). */
   guides?: { guideId: string; dates: string[]; capacity: Record<string, number> }[];
   itinerary: { name: string; totalDurationMinutes: number; items: CanonicalItem[] };
+  /**
+   * A request waiting for a travel agent's approval: booking_status 'pending', items 'proposed', and the guide's dates
+   * held (hold_status 'active') so nobody else can take them meanwhile. settleBooking() confirms or releases it.
+   */
+  pending?: boolean;
 };
 
 /**
@@ -183,7 +188,7 @@ export function recordBooking(input: BookingInput) {
       database.exec("COMMIT");
       return { bookingId: existing.booking_id, reference: existing.booking_reference, itineraryId: existing.itinerary_id, replayed: true };
     }
-    const count = database.prepare("SELECT COUNT(*) AS n FROM app_guide_bookings WHERE guide_id = ? AND for_date = ? AND status = 'confirmed'");
+    const count = database.prepare("SELECT COUNT(*) AS n FROM app_guide_bookings WHERE guide_id = ? AND for_date = ? AND status IN ('active', 'confirmed')");
     for (const guide of input.guides ?? []) {
       const full = guide.dates.filter(date => (count.get(guide.guideId, date) as { n: number }).n >= (guide.capacity[date] ?? 0));
       if (full.length) throw new GuideSlotTakenError(guide.guideId, full);
@@ -197,18 +202,54 @@ export function recordBooking(input: BookingInput) {
     `).run(itineraryId, input.tripId, input.itinerary.name, money(input.total), input.itinerary.totalDurationMinutes, now, now);
     const insertItem = database.prepare(`
       INSERT INTO itinerary_items (item_id, itinerary_id, day_index, sort_order, starts_at, ends_at, item_type, entity_type, entity_id, title, cost, currency, carbon_kg, duration_minutes, source, explanation, locked, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 'INR', 0, ?, 'user', ?, 0, 'confirmed', ?, ?)
+      VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 'INR', 0, ?, 'user', ?, 0, ?, ?, ?)
     `);
-    input.itinerary.items.forEach((item, index) => insertItem.run(newId("itm", 10), itineraryId, item.day_index, index + 1, item.item_type, item.entity_type, item.entity_id, item.title, money(item.cost), item.duration_minutes, item.explanation, now, now));
+    const itemStatus = input.pending ? "proposed" : "confirmed";
+    input.itinerary.items.forEach((item, index) => insertItem.run(newId("itm", 10), itineraryId, item.day_index, index + 1, item.item_type, item.entity_type, item.entity_id, item.title, money(item.cost), item.duration_minutes, item.explanation, itemStatus, now, now));
     database.prepare(`
       INSERT INTO bookings (booking_id, user_id, trip_id, itinerary_id, booking_reference, channel, total_amount, currency, tax_amount, idempotency_key, status, confirmed_at, cancelled_at, cancellation_reason, created_at, updated_at, contact_email, contact_phone, guide_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', '0.00', ?, 'confirmed', ?, NULL, NULL, ?, ?, ?, ?, ?)
-    `).run(bookingId, input.userId, input.tripId, itineraryId, reference, input.channel, money(input.total), input.idempotencyKey, now, now, now, input.email ?? null, input.phone ?? null, input.guides?.[0]?.guideId ?? null);
-    const insertGuide = database.prepare("INSERT INTO app_guide_bookings (guide_booking_id, booking_id, trip_id, guide_id, for_date, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?)");
-    for (const guide of input.guides ?? []) for (const date of guide.dates) insertGuide.run(newId("gbk", 10), bookingId, input.tripId, guide.guideId, date, now, now);
-    database.prepare("UPDATE trips SET status = 'confirmed', updated_at = ? WHERE trip_id = ?").run(now, input.tripId);
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', '0.00', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)
+    `).run(bookingId, input.userId, input.tripId, itineraryId, reference, input.channel, money(input.total), input.idempotencyKey, input.pending ? "pending" : "confirmed", input.pending ? null : now, now, now, input.email ?? null, input.phone ?? null, input.guides?.[0]?.guideId ?? null);
+    const insertGuide = database.prepare("INSERT INTO app_guide_bookings (guide_booking_id, booking_id, trip_id, guide_id, for_date, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const guide of input.guides ?? []) for (const date of guide.dates) insertGuide.run(newId("gbk", 10), bookingId, input.tripId, guide.guideId, date, input.pending ? "active" : "confirmed", now, now);
+    if (!input.pending) database.prepare("UPDATE trips SET status = 'confirmed', updated_at = ? WHERE trip_id = ?").run(now, input.tripId);
     database.exec("COMMIT");
     return { bookingId, reference, itineraryId, replayed: false };
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  } finally {
+    guideLoad = null;
+  }
+}
+
+/**
+ * A travel agent's decision on a pending booking, in one transaction.
+ *  - approve: booking 'confirmed' (confirmed_at set), items 'confirmed', guide holds 'confirmed', trip 'confirmed'.
+ *  - reject: booking 'cancelled' (cancelled_at + reason), items 'removed', itinerary inactive, guide holds 'released' so the
+ *    dates are free again. Nothing is deleted (rule R8).
+ * Returns false when the booking is no longer pending (already decided), so a double tap changes nothing.
+ */
+export function settleBooking(bookingId: string, decision: "approve" | "reject", reason?: string) {
+  const database = store();
+  const now = nowIst();
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const booking = database.prepare("SELECT trip_id, itinerary_id, status FROM bookings WHERE booking_id = ?").get(bookingId) as { trip_id: string; itinerary_id: string; status: string } | undefined;
+    if (!booking || booking.status !== "pending") { database.exec("COMMIT"); return false; }
+    if (decision === "approve") {
+      database.prepare("UPDATE bookings SET status = 'confirmed', confirmed_at = ?, updated_at = ? WHERE booking_id = ?").run(now, now, bookingId);
+      database.prepare("UPDATE itinerary_items SET status = 'confirmed', updated_at = ? WHERE itinerary_id = ?").run(now, booking.itinerary_id);
+      database.prepare("UPDATE app_guide_bookings SET status = 'confirmed', updated_at = ? WHERE booking_id = ? AND status = 'active'").run(now, bookingId);
+      database.prepare("UPDATE trips SET status = 'confirmed', updated_at = ? WHERE trip_id = ?").run(now, booking.trip_id);
+    } else {
+      database.prepare("UPDATE bookings SET status = 'cancelled', cancelled_at = ?, cancellation_reason = ?, updated_at = ? WHERE booking_id = ?").run(now, (reason ?? "Not approved by the travel agent").slice(0, 300), now, bookingId);
+      database.prepare("UPDATE itinerary_items SET status = 'removed', updated_at = ? WHERE itinerary_id = ?").run(now, booking.itinerary_id);
+      database.prepare("UPDATE itineraries SET is_active = 0, updated_at = ? WHERE itinerary_id = ?").run(now, booking.itinerary_id);
+      database.prepare("UPDATE app_guide_bookings SET status = 'released', updated_at = ? WHERE booking_id = ? AND status = 'active'").run(now, bookingId);
+    }
+    database.exec("COMMIT");
+    return true;
   } catch (error) {
     database.exec("ROLLBACK");
     throw error;
