@@ -1,5 +1,7 @@
 # PackagePro — Dynamic Tour Packages
 
+[![verify](https://github.com/siddhartha0132/packagepro-best/actions/workflows/verify.yml/badge.svg)](https://github.com/siddhartha0132/packagepro-best/actions/workflows/verify.yml)
+
 Start from a curated package, reshape it piece by piece, and watch it reprice live. Add a local guide by language and specialisation; every guide is checked day by day against real availability, and a clash is refused with the date named, a compliant substitute and the new total. On the web and in Telegram, in four languages.
 
 **Live app:** **[https://packagepro-best-production.up.railway.app/](https://packagepro-best-production.up.railway.app/)** · guided tour for judges: **[/how-it-works](https://packagepro-best-production.up.railway.app/how-it-works)** · one-tap demo: **[/?demo=1](https://packagepro-best-production.up.railway.app/?demo=1)** · Telegram: **[@wayypoint_Bot](https://t.me/wayypoint_Bot)**
@@ -10,7 +12,7 @@ Start from a curated package, reshape it piece by piece, and watch it reprice li
 |---|---|
 | Mandatory guide availability check | Enforced in the backend, proven by [`tests/hardProof.guideAvailability.test.ts`](tests/hardProof.guideAvailability.test.ts) |
 | Shared data model | Canonical tables read and written; organisers' validator **PASS** (`pnpm conformance`) |
-| Tests | 70 offline tests (`pnpm verify`) + 4 live-key checks — `npx vitest run` → 74 passed · voice: 20/20 (`pnpm voice:eval`) |
+| Tests | 70 offline tests (`pnpm verify`, run by GitHub Actions on every push) + 4 live-key checks — `npx vitest run` → 74 passed · voice: 20/20 (`pnpm voice:eval`) |
 | Guided tour for judges | `/how-it-works`: every PS-04 requirement, where it is in the code, and a live demo |
 | Brief | [HACKATHON.md](HACKATHON.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](data-model/DATA_MODEL.md) · [AI](ai/README.md) · [API](docs/API.md) · [Demo script](docs/DEMO_SCRIPT.md) |
 
